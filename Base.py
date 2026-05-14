@@ -11,7 +11,7 @@ class Grid:
         self.dx = (parameters.xMax - parameters.xMin) / parameters.nBins
         self.spaceGrid = np.linspace(parameters.xMin, parameters.xMax, parameters.nBins + 1)  # cell edges
         self.spaceMid = 0.5 * (self.spaceGrid[:-1] + self.spaceGrid[1:])  # cell centers
-        self.freqGrid = np.append(np.logspace(-12, np.log10(25), parameters.freqNum - 2), parameters.maxFreq)  # logarithmic spacing
+        self.freqGrid = np.append(np.logspace(-12, np.log10(25), parameters.freqNum - 1), parameters.maxFreq)  # logarithmic spacing
         self.freqGroups = 0.5 * (self.freqGrid[:-1] + self.freqGrid[1:])
         self.fullTensor = np.zeros((parameters.freqNum, parameters.sn, parameters.nBins))  # (nfreq, nMu, nBins)
         self.muSet, self.w = np.polynomial.legendre.leggauss(parameters.sn)  # Gauss-Legendre quadrature points and weights for angular discretization
@@ -37,12 +37,19 @@ class Base:
         self.constants = constants
         self.params = params
     
-    def converge(self, grid, problem):
+    def converge(self):
         self.fullTensOld = self.grid.fullTensor.copy()
-        rhsfull = problem.material.source(self.fullTensOld)  
+        rhsfull = self.problem.material.source(self.fullTensOld)  
         for it in range(self.params.maxIters):
-            self.grid, newFull, T_next = problem.equations.radiationSweep()  # Perform the radiation sweep to get the new solution
+            self.grid, newFull, T_next = self.problem.equations.radiationSweep()  # Perform the radiation sweep to get the new solution
             err = np.max(np.abs((newFull - self.fullTensOld)))    # directly compare the full values for convergence
+            if np.isnan(err).any() or np.isinf(err).any():
+                name = "Convergence Check"
+                print("\n⚠️ INVALID RESULT DETECTED")
+                print("Operation:", name)
+                print("a =",newFull)
+                print("b =", self.fullTensOld)
+                print("result =", err)
             if err < self.params.tol:
                 print(f"Converged in {it} iterations")
                 break
@@ -70,7 +77,8 @@ class Base:
             if index % 200 == 0:  
                 print(f"Completed time step {time:.2e}")
         print("Solve completed.")
-        return self.grid.fullTensorTime  # Return the full time-dependent solution tensor
+        
+        return self.grid.fullTensorTime, self.grid  # Return the full time-dependent solution tensor
     
 
 

@@ -1,8 +1,9 @@
 import numpy as np
 import numpy.polynomial.legendre as leggauss
+import warnings
 
 class Parameters:
-    def __init__(self, maxIters=100, tol=1e-10, nSteps=1000):
+    def __init__(self, maxIters=100, tol=1e-10, nSteps=100):
         self.maxIters = maxIters
         self.tol = tol
         self.nSteps = nSteps
@@ -10,7 +11,7 @@ class Parameters:
         self.xMin = -8
         self.xMax = 8
         self.sn = 8
-        self.freqNum = 2
+        self.freqNum = 1
         self.timeMax = 20
         self.maxFreq = 150
         self.initialTemperature = 0.0

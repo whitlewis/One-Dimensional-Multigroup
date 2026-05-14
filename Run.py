@@ -23,9 +23,11 @@ def mainReeds():
     grid = Base.Grid(params, constants)
     ReedsProb = ReedsProblem(grid, constants)
     BaseSolver = Base.Base(grid, ReedsProb, params, constants)
-    sol = BaseSolver.solve()
-    solPlot = np.squeeze(sol)
-    Vis.plotSpaceTime(solPlot[:,0,0,:], params, grid.dt)
-    Vis.animate_solution(solPlot[:,0,0,:], params, grid)
+    fullTensor, grid = BaseSolver.solve()
+    solPlot = fullTensor.copy()
+    fullTensorPhi = grid.fullTensorPhiTime.copy()
+    # Vis.plotSnapshot(solPlot[-2,0,0,:], params, grid.dt)
+    # Vis.animate_solution(solPlot[:,0,0,:], params, grid)
+    return solPlot, grid
 
-mainReeds()
+solPlot, grid = mainReeds()
