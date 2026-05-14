@@ -1,1 +1,0 @@
-# One-Dimensional-Multigroup
