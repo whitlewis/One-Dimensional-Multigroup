@@ -26,8 +26,8 @@ def mainReeds():
     fullTensor, grid = BaseSolver.solve()
     solPlot = fullTensor.copy()
     fullTensorPhi = grid.fullTensorPhiTime.copy()
-    # Vis.plotSnapshot(solPlot[-2,0,0,:], params, grid.dt)
-    # Vis.animate_solution(solPlot[:,0,0,:], params, grid)
+    Vis.plotSnapshot(solPlot[-2,0,0,:], params, grid.dt)
+    Vis.animate_solution(solPlot[:,0,0,:], params, grid)
     return solPlot, grid
 
 solPlot, grid = mainReeds()

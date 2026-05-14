@@ -88,7 +88,7 @@ class Equations:
         sig_tSet = self.material.sig_tAngle
         sig_aSet = self.material.sig_aAngle
         sig_sSet = self.material.sig_sAngle
-        rhsfull = self.material.source(self.fullTens)  # shape (freq, sn, nBins)
+        rhsfull = self.grid.rhsfull  # shape (freq, sn, nBins)
         phibl = np.zeros(self.params.sn)  # Boundary condition: zero incoming flux
         phibr = np.zeros(self.params.sn)  # Boundary condition: zero incoming flux
         newFull = np.zeros_like(self.fullTens)
