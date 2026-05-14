@@ -23,7 +23,7 @@ class Grid:
         self.fullTensorTime = np.zeros((parameters.nSteps+1,) + self.fullTensor.shape)  # shape: (nSteps+1, freqNum, nMu, nBins)
         self.fullTensorPhi = np.zeros((parameters.freqNum, parameters.nBins))  # shape: (freqNum, nMu, nBins)
         self.fullTensorPhiTime = np.zeros((parameters.nSteps+1,) + self.fullTensorPhi.shape)  # shape: (nSteps+1, freqNum, nBins)
-        
+        self.rhsfull = np.zeros((parameters.freqNum, parameters.nBins))  # shape: (freqNum, sn, nBins)
     
     def updateFullTensor(self, newFull):
         self.fullTensor = newFull.copy()
@@ -39,7 +39,7 @@ class Base:
     
     def converge(self):
         self.fullTensOld = self.grid.fullTensor.copy()
-        rhsfull = self.problem.material.source(self.fullTensOld)  
+        self.grid.rhsfull = self.problem.material.source(self.fullTensOld)  
         for it in range(self.params.maxIters):
             self.grid, newFull, T_next = self.problem.equations.radiationSweep()  # Perform the radiation sweep to get the new solution
             err = np.max(np.abs((newFull - self.fullTensOld)))    # directly compare the full values for convergence
@@ -47,9 +47,11 @@ class Base:
                 name = "Convergence Check"
                 print("\n⚠️ INVALID RESULT DETECTED")
                 print("Operation:", name)
+                print()
                 print("a =",newFull)
                 print("b =", self.fullTensOld)
                 print("result =", err)
+                assert 0
             if err < self.params.tol:
                 print(f"Converged in {it} iterations")
                 break
@@ -69,7 +71,7 @@ class Base:
         for index, time in enumerate(self.grid.timeSet[:-1]):
             self.fullTensOld = self.grid.fullTensor.copy()  # Update old solution for time-stepping
             # T, rhsfull = self.problem.equations.materialEquation(self.fullTensOld)  # Compute the right-hand side for the current time step
-            self.grid, newFull, T_next = self.converge(self.grid, self.problem)  # Perform the radiation sweep to get the new solution
+            self.grid, newFull, T_next = self.converge()  # Perform the radiation sweep to get the new solution
             self.grid.fullTensorTime[index] = newFull.copy()  # Store the solution for this time step
             self.fullTensorPhi = self.getPhi(newFull)  # Compute scalar flux for this time step
             self.grid.fullTensorPhiTime[self.grid.timeStep] = self.fullTensorPhi.copy()  # Store scalar flux for this time step

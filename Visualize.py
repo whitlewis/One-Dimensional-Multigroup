@@ -126,3 +126,4 @@ def animate_solution(sol, params, grid, interval=50):
         frames=sol_half.shape[0],
         interval=interval
     )
+    plt.show()
