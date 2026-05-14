@@ -11,7 +11,10 @@ class Grid:
         self.dx = (parameters.xMax - parameters.xMin) / parameters.nBins
         self.spaceGrid = np.linspace(parameters.xMin, parameters.xMax, parameters.nBins + 1)  # cell edges
         self.spaceMid = 0.5 * (self.spaceGrid[:-1] + self.spaceGrid[1:])  # cell centers
-        self.freqGrid = np.append(np.logspace(-12, np.log10(25), parameters.freqNum - 1), parameters.maxFreq)  # logarithmic spacing
+        if parameters.freqNum > 1:
+            self.freqGrid = np.append(np.logspace(-12, np.log10(25), parameters.freqNum - 1), parameters.maxFreq)  # logarithmic spacing
+        else: 
+            self.freqGrid = np.array([parameters.maxFreq])  # single frequency case
         self.freqGroups = 0.5 * (self.freqGrid[:-1] + self.freqGrid[1:])
         self.fullTensor = np.zeros((parameters.freqNum, parameters.sn, parameters.nBins))  # (nfreq, nMu, nBins)
         self.muSet, self.w = np.polynomial.legendre.leggauss(parameters.sn)  # Gauss-Legendre quadrature points and weights for angular discretization
