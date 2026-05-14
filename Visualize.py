@@ -31,7 +31,7 @@ def PlotTemperature(grid):
 def plotTemperatureTime(grid):
     t = grid.timeSet
     x = grid.spaceMid # cell centers
-    
+
 
 
 def plotOutScalar(phil, grid, constants, label="Scalar Flux φ"):
@@ -75,6 +75,22 @@ def plotSpaceTime(sol, params, dt):
     plt.xlabel('x')
     plt.ylabel('Time')
     plt.title('Spacetime Plot')
+    plt.show()
+
+def plotSnapshot(sol, title=None, xlabel="Bin x", ylabel="Flux"):
+    sol = np.asarray(sol)
+
+    # Safety check
+    if sol.ndim != 1:
+        raise ValueError(f"plotSnapshot expects a 1D array, got shape {sol.shape}")
+
+    plt.figure()
+    plt.plot(sol)
+
+    plt.xlabel(xlabel)
+    plt.ylabel(ylabel)
+
+    plt.grid(True)
     plt.show()
 
 def animate_solution(sol, params, grid, interval=50):
