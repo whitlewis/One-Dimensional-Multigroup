@@ -77,18 +77,18 @@ def plotSpaceTime(sol, params, dt):
     plt.title('Spacetime Plot')
     plt.show()
 
-def plotSnapshot(sol, title=None, xlabel="Bin x", ylabel="Flux"):
+def plotSnapshot(sol, grid, title=None, label="Flux"):
     sol = np.asarray(sol)
 
-    # Safety check
-    if sol.ndim != 1:
-        raise ValueError(f"plotSnapshot expects a 1D array, got shape {sol.shape}")
-
+    x = grid.spaceMid
     plt.figure()
-    plt.plot(sol)
+    plt.plot(x, sol)
 
-    plt.xlabel(xlabel)
-    plt.ylabel(ylabel)
+    plt.xlabel("Position x")
+    plt.ylabel(label)
+
+    if title:
+        plt.title(title)
 
     plt.grid(True)
     plt.show()

@@ -3,7 +3,7 @@ import numpy.polynomial.legendre as leggauss
 import warnings
 
 class Parameters:
-    def __init__(self, maxIters=100, tol=1e-10, nSteps=100):
+    def __init__(self, maxIters=500, tol=1e-10, nSteps=100):
         self.maxIters = maxIters
         self.tol = tol
         self.nSteps = nSteps
@@ -84,9 +84,10 @@ class Equations:
 
 
     def radiationSweep(self):
+        timeTerm = 1.0 / self.const.c / self.grid.dt[self.grid.timeStep]  # Time derivative term
         mu = self.grid.muSet
-        sig_tSet = self.material.sig_tAngle
-        sig_aSet = self.material.sig_aAngle
+        sig_tSet = self.material.sig_tAngle + timeTerm
+        sig_aSet = self.material.sig_aAngle + timeTerm
         sig_sSet = self.material.sig_sAngle
         rhsfull = self.grid.rhsfull  # shape (freq, sn, nBins)
         phibl = np.zeros(self.params.sn)  # Boundary condition: zero incoming flux
@@ -95,8 +96,6 @@ class Equations:
 
         for f in range(self.freq):
             rhs = rhsfull[f]
-            # print(f"Rhs = {np.max(rhs)}")  # Debug print for RHS  # correctly prints max of 50
-            # assert 0
             phi = self.fullTens[f]
             new_phi = self.fullTens[f]
             sig_a = sig_aSet[f]
@@ -106,18 +105,18 @@ class Equations:
             for m in range(self.sn):
                 if mu[m] > 0:
                     # Forward sweep
-                    new_phi[m, 0] = (rhs[m, 0] + (mu[m] / self.dx) * phibl[m]) / (mu[m] / self.dx + sig_a[0])
+                    new_phi[m, 0] = (rhs[m, 0] + (mu[m] / self.grid.dx) * phibl[m]) / (mu[m] / self.grid.dx + sig_a[0])
                     for i in range(self.params.nBins-1):
                         new_phi[m, i + 1] = (
-                            rhs[m, i+1] + (mu[m] / self.dx) * phi[m, i]
-                        ) / (mu[m] / self.dx + sig_t[i+1])
+                            rhs[m, i+1] + (mu[m] / self.grid.dx) * phi[m, i]
+                        ) / (mu[m] / self.grid.dx + sig_t[i+1])
                 else:
                     # Backward sweep
-                    new_phi[m, -1] = (rhs[m, -1] + (abs(mu[m]) / self.dx) * phibr[m]) / (abs(mu[m]) / self.dx + sig_a[-1])
+                    new_phi[m, -1] = (rhs[m, -1] + (abs(mu[m]) / self.grid.dx) * phibr[m]) / (abs(mu[m]) / self.grid.dx + sig_a[-1])
                     for i in range(self.params.nBins - 1, 0, -1):
                         new_phi[m, i-1] = (
-                            rhs[m, i-1] + (abs(mu[m]) / self.dx) * phi[m, i]
-                        ) / (abs(mu[m]) / self.dx + sig_t[i-1])
+                            rhs[m, i-1] + (abs(mu[m]) / self.grid.dx) * phi[m, i]
+                        ) / (abs(mu[m]) / self.grid.dx + sig_t[i-1])
             newFull[f] = new_phi
         self.grid.fullTensor = newFull.copy()
         return self.grid, newFull, 0  # Placeholder for T_next, (not needed for this problem)
