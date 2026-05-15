@@ -3,19 +3,21 @@ import numpy.polynomial.legendre as leggauss
 import warnings
 
 class Parameters:
-    def __init__(self, maxIters=500, tol=1e-10, nSteps=100):
+    def __init__(self, maxIters=100, tol=1e-10, nSteps=1000, Transient=True):
         self.maxIters = maxIters
         self.tol = tol
         self.nSteps = nSteps
+        self.transient = Transient
         self.nBins = 120
         self.xMin = -8
         self.xMax = 8
         self.sn = 8
         self.freqNum = 1
-        self.timeMax = 20
+        self.timeMax = 20.0
         self.maxFreq = 150
         self.initialTemperature = 0.0
         self.sourceTemp = 1.0
+        self.timeScale = "linear"  # "log" or "linear"
 
 
 class Material:
@@ -28,7 +30,7 @@ class Material:
         self.sig_a = np.zeros(n)
         self.sig_s = np.zeros(n)
         self.sig_t = np.zeros(n)
-        self.Q = np.zeros(n)
+        self.Q = np.zeros((params.freqNum, n))
         self.Cv = np.ones(n)*.1
         self.freq = params.freqNum
         
@@ -47,8 +49,8 @@ class Material:
         self.sig_a[vac] = 0.0
 
         # Constant source
-        self.Q[mat1] = 50.0
-        self.Q[mat3] = 1.0
+        self.Q[:, mat1] = 50.0  # Q can be change per Group (thanks Johannes)
+        self.Q[:, mat3] = 1.0
 
         # Scattering
         self.sig_s[mat3] = 0.9
@@ -62,12 +64,9 @@ class Material:
         self.QAngle = np.tile(self.Q, (params.freqNum, 1))
 
     def source(self, fullTensor):
-        interactionMatrix = np.diag(np.ones(self.params.freqNum))
         phig = np.sum(fullTensor * self.Grid.w[None, :, None], axis=1) / np.sum(self.Grid.w)  # (nfreq, nBins)
-        scattered = interactionMatrix @ phig  # (nfreq, nBins)
-        scattered = scattered[:, None, :] * self.sig_sAngle[:, :, None]  # (nfreq, sn, nBins)
-        rhs = scattered + self.QAngle[:, None, :]  # (nfreq, sn, nBins)
-        return rhs
+        rhs = self.sig_sAngle * phig + self.Q  # (nfreq, nBins)        
+        return np.broadcast_to(rhs[:, None, :], fullTensor.shape).copy()
 
 
 class Equations:
@@ -81,15 +80,41 @@ class Equations:
         self.freq = params.freqNum
         self.sn = params.sn
         self.dx = grid.dx
+        self.time_step = None
 
+    def initialCondition(self):
+        return np.zeros_like(self.grid.fullTensor)
+
+    def applyInitialConditions(self):
+        self.grid.fullTensor = self.initialCondition()
+        self.fullTens = self.grid.fullTensor.copy()
+        self.psi_old = self.grid.fullTensor.copy()
+
+    def boundaryCondition(self, side, time):
+        return np.zeros((self.freq, self.sn))
+
+    def timeAbsorption(self):
+        if not self.params.transient:
+            return 0.0
+        return 1.0 / (self.const.c * self.grid.dt[self.grid.timeStep])
+
+    def startTimeStep(self):
+        if self.time_step == self.grid.timeStep:
+            return
+
+        self.time_step = self.grid.timeStep
+        self.psi_old = self.grid.fullTensor.copy()
+        self.fullTens = self.grid.fullTensor.copy()
 
     def radiationSweep(self):
-        timeTerm = 1.0 / self.const.c / self.grid.dt[self.grid.timeStep]  # Time derivative term
+        self.startTimeStep()
+
+        timeTerm = self.timeAbsorption()  # Time derivative term
         mu = self.grid.muSet
         sig_tSet = self.material.sig_tAngle + timeTerm
         sig_aSet = self.material.sig_aAngle + timeTerm
         sig_sSet = self.material.sig_sAngle
-        rhsfull = self.grid.rhsfull  # shape (freq, sn, nBins)
+        rhsfull = self.material.source(self.fullTens) + timeTerm * self.fullTens # shape (freq, sn, nBins)
         phibl = np.zeros(self.params.sn)  # Boundary condition: zero incoming flux
         phibr = np.zeros(self.params.sn)  # Boundary condition: zero incoming flux
         newFull = np.zeros_like(self.fullTens)
@@ -119,12 +144,16 @@ class Equations:
                         ) / (abs(mu[m]) / self.grid.dx + sig_t[i-1])
             newFull[f] = new_phi
         self.grid.fullTensor = newFull.copy()
-        return self.grid, newFull, 0  # Placeholder for T_next, (not needed for this problem)
+
 
 class Reeds:
     def __init__(self, grid, constants):
         self.parameters = Parameters()
         self.material = Material(self.parameters, grid)
         self.equations = Equations(self.parameters, grid, self.material, constants)
+        self.applyInitialConditions(grid)
+
+    def applyInitialConditions(self, grid):
+        self.equations.applyInitialConditions()        
 
         

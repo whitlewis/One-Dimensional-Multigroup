@@ -19,15 +19,22 @@ class Grid:
         self.fullTensor = np.zeros((parameters.freqNum, parameters.sn, parameters.nBins))  # (nfreq, nMu, nBins)
         self.muSet, self.w = np.polynomial.legendre.leggauss(parameters.sn)  # Gauss-Legendre quadrature points and weights for angular discretization
         self.w /= 2.0  # Normalize weights to sum to 1
-        self.timeSet = np.logspace(-12, np.log10(parameters.timeMax), parameters.nSteps+1)  # logarithmic time steps (could be linear)
+
+        if parameters.timeScale == "log":
+            self.timeSet = np.logspace(-12, np.log10(parameters.timeMax), parameters.nSteps+1)  # logarithmic time steps (could be linear)
+        
+        if parameters.timeScale == 'linear':
+            self.timeSet = np.linspace(0, parameters.timeMax, parameters.nSteps+1)  # linear time steps
         self.dt = np.diff(self.timeSet)  # time step sizes
+
         self.timeStep = 0
         self.temperatureSet = np.ones((parameters.nBins, parameters.nSteps+1))*parameters.initialTemperature  # Initialize temperature set for all time steps
         self.fullTensorTime = np.zeros((parameters.nSteps+1,) + self.fullTensor.shape)  # shape: (nSteps+1, freqNum, nMu, nBins)
         self.fullTensorPhi = np.zeros((parameters.freqNum, parameters.nBins))  # shape: (freqNum, nMu, nBins)
         self.fullTensorPhiTime = np.zeros((parameters.nSteps+1,) + self.fullTensorPhi.shape)  # shape: (nSteps+1, freqNum, nBins)
         self.rhsfull = np.zeros((parameters.freqNum, parameters.nBins))  # shape: (freqNum, sn, nBins)
-    
+        self.psiOld = np.zeros((parameters.freqNum, parameters.sn, parameters.nBins))  # shape: (freqNum, sn, nBins)
+
     def updateFullTensor(self, newFull):
         self.fullTensor = newFull.copy()
 
@@ -40,45 +47,47 @@ class Base:
         self.constants = constants
         self.params = params
     
+
+
     def converge(self):
-        self.fullTensOld = self.grid.fullTensor.copy()
-        self.grid.rhsfull = self.problem.material.source(self.fullTensOld)  
         for it in range(self.params.maxIters):
-            self.grid, newFull, T_next = self.problem.equations.radiationSweep()  # Perform the radiation sweep to get the new solution
-            err = np.max(np.abs((newFull - self.fullTensOld)))    # directly compare the full values for convergence
+            self.problem.equations.radiationSweep()  # Perform the radiation sweep to get the new solution
+            err = np.max(np.abs((self.grid.fullTensor - self.fullTensOld)))    # directly compare the full values for convergence
             if np.isnan(err).any() or np.isinf(err).any():
                 name = "Convergence Check"
                 print("\n⚠️ INVALID RESULT DETECTED")
                 print("Operation:", name)
                 print()
-                print("a =",newFull)
+                print("a =",self.grid.fullTensor)
                 print("b =", self.fullTensOld)
                 print("result =", err)
                 assert 0
             if err < self.params.tol:
-                print(f"Converged in {it} iterations")
+                if it > 10: print(f"Converged in {it} iterations")
                 break
-            self.fullTensOld = newFull.copy()
-
-        self.grid.fullTensor = newFull.copy()        
-        return self.grid, newFull, T_next
+            self.fullTensOld = self.grid.fullTensor.copy()
 
     def getPhi(self, fullTensor):
         # Integrate over angles to get scalar flux
         fullTensorPhi = np.sum(self.grid.w[:, None] * fullTensor, axis=1)  # shape: (freqNum, nBins)
         return fullTensorPhi
-
+    
+    def updateAll(self, index):
+        self.grid.fullTensOld = self.grid.fullTensor.copy()  # Update old solution for time-stepping
+        self.grid.fullTensorTime[index] = self.grid.fullTensor.copy()  # Store the solution for this time step
+        self.grid.fullTensorPhiTime[index] = self.getPhi(self.grid.fullTensor).copy()  # Store scalar flux for this time step
+        self.grid.timeStep += 1  # Increment time step counter
     
     def solve(self):
-        print("Starting Solve...")
+        self.grid.fullTensorTime[0] = self.grid.fullTensor.copy()    # Initialize 0'th step (Thanks to Johannes for this fix)
+        self.grid.fullTensorPhiTime[0] = self.getPhi(self.grid.fullTensor)
+        self.grid.fullTensOld = self.grid.fullTensor.copy()  # Initialize old solution for time-stepping
+        
+        print("Starting Solve...") 
         for index, time in enumerate(self.grid.timeSet[:-1]):
             self.fullTensOld = self.grid.fullTensor.copy()  # Update old solution for time-stepping
-            # T, rhsfull = self.problem.equations.materialEquation(self.fullTensOld)  # Compute the right-hand side for the current time step
-            self.grid, newFull, T_next = self.converge()  # Perform the radiation sweep to get the new solution
-            self.grid.fullTensorTime[index] = newFull.copy()  # Store the solution for this time step
-            self.fullTensorPhi = self.getPhi(newFull)  # Compute scalar flux for this time step
-            self.grid.fullTensorPhiTime[self.grid.timeStep] = self.fullTensorPhi.copy()  # Store scalar flux for this time step
-            self.grid.timeStep += 1  # Increment time step counter
+            self.converge()  # Perform the radiation sweep to get the new solution
+            self.updateAll(index)  # Store the solution and increment time step counter
             if index % 200 == 0:  
                 print(f"Completed time step {time:.2e}")
         print("Solve completed.")

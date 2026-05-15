@@ -32,6 +32,22 @@ def plotTemperatureTime(grid):
     t = grid.timeSet
     x = grid.spaceMid # cell centers
 
+def plotFinalFlux(grid, label="Final Scalar Flux"):
+    x = grid.spaceMid
+    phi_by_group = grid.fullTensorPhiTime[-2]  # shape: (nFreq, nBins)
+
+    plt.figure()
+    for group, phi in enumerate(phi_by_group):
+        plt.plot(x, phi, label=f"Group {group + 1}")
+
+    # if phi_by_group.shape[0] > 1:
+    #     plt.plot(x, np.sum(phi_by_group, axis=0), "k--", label="Total")
+
+    plt.xlabel("Position x")
+    plt.ylabel("Scalar Flux")
+    plt.title(label)
+    plt.legend()
+    plt.show()
 
 
 def plotOutScalar(phil, grid, constants, label="Scalar Flux φ"):
@@ -93,8 +109,8 @@ def plotSnapshot(sol, grid, title=None, label="Flux"):
     plt.grid(True)
     plt.show()
 
-def animate_solution(sol, params, grid, interval=50):
-    sol = np.array(sol)   # shape: (Nt, Nx)
+def animate_solution(fullPhi, params, grid, interval=50):
+    sol = np.array(fullPhi)   # shape: (Nt, Nx)
     x_full = np.linspace(params.xMin, params.xMax, sol.shape[1])
 
     # 1. Find the index where x >= 0
@@ -117,7 +133,7 @@ def animate_solution(sol, params, grid, interval=50):
     def update(frame):
         line.set_ydata(sol_half[frame])
         # Using frame * dt if grid.timeSet isn't exactly matched to Nt
-        ax.set_title(f'Time: {frame * grid.dt:.2f}')
+        ax.set_title(f'Time: {frame * grid.dt[frame]:.2f}')
         return line,
 
     anim = FuncAnimation(
