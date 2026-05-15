@@ -24,13 +24,9 @@ def mainReeds():
     ReedsProb = ReedsProblem(grid, constants)
     BaseSolver = Base.Base(grid, ReedsProb, params, constants)
     fullTensor, grid = BaseSolver.solve()
-    solPlot = fullTensor.copy()
-    fullTensorPhi = grid.fullTensorPhiTime.copy()
-    Vis.plotSnapshot(solPlot[-2,0,0,:], grid)
-    phiPlot = np.squeeze(BaseSolver.getPhi(fullTensor[-2]))
-    Vis.plotSnapshot(phiPlot, grid)
+    fullPhi = np.squeeze(grid.fullTensorPhiTime)  # shape: (nSteps+1, nBins)
+    Vis.plotFinalFlux(grid)
+    Vis.animate_solution(fullPhi, params, grid)
+    return grid
 
-    # Vis.animate_solution(solPlot[:,0,0,:], params, grid)
-    return solPlot, grid
-
-solPlot, grid = mainReeds()
+grid = mainReeds()
