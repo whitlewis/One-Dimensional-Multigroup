@@ -22,17 +22,23 @@ class Material:
     def __init__(self, params, grid):
         self.params = params
         self.grid = grid
-    
-    def sigma_a(self, freq, T): # Placeholder constant opacity
-        return 100
-    
+
+    def sigma_a(self, freq, T):
+        freq = np.asarray(freq)
+        T = np.asarray(T)
+        if freq.ndim == 1:
+            freq = freq[:, None]
+        if T.ndim == 1:
+            T = T[None, :]
+        return 100.0 * np.ones_like(freq * T)
+
     def C_v(self, T):  # Placeholder constant heat capacity
-        return 1.0
-    
+        T = np.asarray(T)
+        return np.ones_like(T)
+
     def addSource(self):
-        # add a source somewhere in the domain
         source = np.zeros((self.grid.freqNum, self.grid.sn))
-        source[:, :] = self.params.sourceTemp  # Set the source temperature for all frequencies and angles
+        source[:, :] = self.params.sourceTemp
         return source
 
 
@@ -60,12 +66,18 @@ class Equations:
         return f * nu**3 / denom
 
     def groupPlanck(self, T):
-        # Integrate the Planck function over each frequency group to get group-averaged source
-        lo = self.grid.freqGrid[:-1, None]
-        hi = self.grid.freqGrid[1:, None]
-        integrand = lambda nu: self.planck(nu, T)
-        bbar = self.simpson(integrand, lo, hi)
-        return bbar
+        freq = np.asarray(self.grid.freqGrid)
+        if freq.ndim == 1 and freq.shape[0] == self.params.freqNum + 1:
+            lo = freq[:-1, None]
+            hi = freq[1:, None]
+            return self.simpson(lambda nu: self.planck(nu, T), lo, hi)
+
+        if freq.ndim == 1:
+            freq = freq[:, None]
+        T = np.asarray(T)
+        if T.ndim == 1:
+            T = T[None, :]
+        return self.planck(freq, T)
 
     def initSpectra(self):
         T0 = self.params.initialTemperature
@@ -90,69 +102,59 @@ class Equations:
         return 1.0 / (self.const.c * self.grid.dt[self.grid.timeStep])
 
     def startTimeStep(self):
-        if self.time_step == self.grid.timeStep:
-            return
-
         self.time_step = self.grid.timeStep
         self.psi_old = self.grid.fullTensor.copy()
         self.fullTens = self.grid.fullTensor.copy()
 
     def materialEquation(self, fullTensor):
         self.startTimeStep()
-
         dt = self.grid.dt[self.grid.timeStep]
-        f = dt / self.material.C_v(self.grid.temperatureSet[:, self.grid.timeStep]) 
-        T = self.grid.temperatureSet[:, self.grid.timeStep]  # Current temperature in all x cells (120,1)
-        phi = np.sum(self.grid.w[:, None] * fullTensor, axis=0)  # Compute scalar flux by integrating over angles
-        bbar = self.groupPlanck(T)  # Get the group-averaged Planck source
-
-        T_next = T + f * np.sum((self.material.sigma_a(self.grid.freqGrid, T) * phi - self.material.sigma_a(self.grid.freqGrid, T) * bbar), axis=0)  # Update temperature using the material energy equation)
-        self.grid.temperatureSet[:, self.grid.timeStep] = T_next  # Update the temperature set for the current time step
-        rhs = self.material.sigma_a(self.grid.freqGroups, T_next) * bbar - self.material.sigma_a(self.grid.freqGroups, T_next) * phi  # Right-hand side of the transport equation
+        f = dt / self.material.C_v(self.grid.temperatureSet[:, self.grid.timeStep])
+        T = self.grid.temperatureSet[:, self.grid.timeStep]
+        phi = np.sum(self.grid.w[None, :, None] * fullTensor, axis=1)
+        bbar = self.groupPlanck(T)
+        sigma = self.material.sigma_a(self.grid.freqGrid, T)
+        T_next = T + f * np.sum(sigma * (phi - bbar), axis=0)
+        self.grid.temperatureSet[:, self.grid.timeStep] = T_next
+        rhs = sigma * bbar
         return T_next, rhs
 
     def sigmaStar(self, T):
-        return self.material.sigma_a(self.grid.freqGrid, T) + 1/self.const.c*1/self.grid.dt[self.grid.timeStep]  # modified opacity
+        return self.material.sigma_a(self.grid.freqGrid, T) + self.timeAbsorption()
 
 
     def radiationSweep(self):
+        self.startTimeStep()
+        timeTerm = self.timeAbsorption()
+        T_next, emission = self.materialEquation(self.grid.fullTensor)
+        rhs = emission + timeTerm * self.psi_old
         mu = self.grid.muSet
         dx = self.grid.dx
         newfull = np.zeros_like(self.grid.fullTensor)
+        phibl = self.boundaryCondition("left", self.grid.timeSet[self.grid.timeStep])
+        phibr = self.boundaryCondition("right", self.grid.timeSet[self.grid.timeStep])
+        sigStar = self.sigmaStar(T_next)
 
-        # Compute RHS once per sweep (crucial for performance)
-        T_next, rhs = self.materialEquation(self.grid.fullTensor)
-        # print("RHS shape:", rhs.shape)  # Debug shape of RHS
-        # print("T_next shape:", T_next.shape)  # Debug shape of T_next
-        # These are now (nFreq, nMu)
-        phiBl = self.groupPlanck(self.params.sourceTemp) # Placeholder for boundary layer contribution
-        phiBr = np.zeros(self.grid.fullTensor[:,:,0].shape)  # Placeholder for boundary reflection contribution
-        # print(phiBl.shape, phiBr.shape, rhs.shape)  # Debug shapes
-
-        # We only loop over angles (m). Frequency (f) is handled by the ":"
         for m, mu_val in enumerate(mu):
             if mu_val > 0:
-                # --- Forward sweep ---
-                # Boundary cell i=0 (Vectorized over all f)
-                newfull[:, m, 0] = (rhs[m, 0] + (mu_val / dx) * phiBl[:, m]) / \
-                                (mu_val / dx + self.sigmaStar(T_next[0]))
-                
+                newfull[:, m, 0] = (rhs[:, 0] + (mu_val / dx) * phibl[:, m]) / (
+                    mu_val / dx + sigStar[:, 0]
+                )
                 for i in range(self.params.nBins - 1):
-                    # Interior cells (Vectorized over all f)
-                    newfull[:, m, i + 1] = (rhs[m, i + 1] + (mu_val / dx) * self.grid.fullTensor[:, m, i]) / \
-                                        (mu_val / dx + self.sigmaStar(T_next[i + 1]))
+                    newfull[:, m, i + 1] = (
+                        rhs[:, i + 1] + (mu_val / dx) * self.grid.fullTensor[:, m, i]
+                    ) / (mu_val / dx + sigStar[:, i + 1])
             else:
-                # --- Backward sweep ---
-                # Boundary cell i=-1
-                # Use mu[m] (a single number) instead of mu (the whole array)
-                newfull[:, m, -1] = (rhs[m, -1] + (abs(mu_val) / self.grid.dx) * phiBr[:, m]) / \
-                                    (abs(mu_val) / self.grid.dx + self.sigmaStar(T_next[-1]))
-                
+                newfull[:, m, -1] = (rhs[:, -1] + (abs(mu_val) / dx) * phibr[:, m]) / (
+                    abs(mu_val) / dx + sigStar[:, -1]
+                )
                 for i in range(self.params.nBins - 1, 0, -1):
-                    newfull[:, m, i - 1] = (rhs[m, i - 1] + (mu_val / dx) * self.grid.fullTensor[:, m, i]) / \
-                                        (mu_val / dx + self.sigmaStar(T_next[i - 1]))
+                    newfull[:, m, i - 1] = (
+                        rhs[:, i - 1] + (abs(mu_val) / dx) * self.grid.fullTensor[:, m, i]
+                    ) / (abs(mu_val) / dx + sigStar[:, i - 1])
+
         self.grid.fullTensor = newfull.copy()
-        self.grid.temperatureSet[:, self.grid.timeStep] = T_next  # Update the temperature set for the current time step
+        self.grid.temperatureSet[:, self.grid.timeStep] = T_next
 
 
 
@@ -161,5 +163,8 @@ class Marshak:
         self.parameters = Parameters()
         self.material = Material(self.parameters, grid)
         self.equations = Equations(self.parameters, grid, self.material, constants)
+        self.applyInitialConditions(grid)
 
+    def applyInitialConditions(self, grid):
+        self.equations.applyInitialConditions()
         

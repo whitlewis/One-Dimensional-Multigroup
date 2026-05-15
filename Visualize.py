@@ -134,7 +134,7 @@ def animate_solution(fullPhi, params, grid, interval=15):
     def update(frame):
         line.set_ydata(sol_half[frame])
         # Using frame * dt if grid.timeSet isn't exactly matched to Nt
-        ax.set_title(f'Time: {frame * grid.dt[frame]:.2f}')
+        ax.set_title(f'Time: {frame * grid.dt[frame-1]:.2f}')
         return line,
 
     anim = FuncAnimation(
