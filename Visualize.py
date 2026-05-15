@@ -77,20 +77,21 @@ def plotOutScalar(phil, grid, constants, label="Scalar Flux φ"):
     plt.legend()
     plt.show()
 
-def plotSpaceTime(sol, params, dt):
-    sol = np.array(sol)
-    Nt = sol.shape[0]
+def plotSpaceTime(phi, params, dt):
+    plt.figure(figsize=(8, 5))
 
     plt.imshow(
-        sol,
+        phi,
         aspect='auto',
         origin='lower',
-        extent=[params.xMin, params.xMax, 0, Nt*dt]
+        extent=[params.xMin, params.xMax, 0, params.timeMax]
     )
+
     plt.colorbar(label='Scalar Flux')
-    plt.xlabel('x')
+    plt.xlabel('Position x')
     plt.ylabel('Time')
-    plt.title('Spacetime Plot')
+    plt.title('Space-Time Scalar Flux')
+
     plt.show()
 
 def plotSnapshot(sol, grid, title=None, label="Flux"):
@@ -109,7 +110,7 @@ def plotSnapshot(sol, grid, title=None, label="Flux"):
     plt.grid(True)
     plt.show()
 
-def animate_solution(fullPhi, params, grid, interval=50):
+def animate_solution(fullPhi, params, grid, interval=15):
     sol = np.array(fullPhi)   # shape: (Nt, Nx)
     x_full = np.linspace(params.xMin, params.xMax, sol.shape[1])
 

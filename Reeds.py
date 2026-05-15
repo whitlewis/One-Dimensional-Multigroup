@@ -112,32 +112,30 @@ class Equations:
         timeTerm = self.timeAbsorption()  # Time derivative term
         mu = self.grid.muSet
         sig_tSet = self.material.sig_tAngle + timeTerm
-        sig_aSet = self.material.sig_aAngle + timeTerm
-        sig_sSet = self.material.sig_sAngle
-        rhsfull = self.material.source(self.fullTens) + timeTerm * self.fullTens # shape (freq, sn, nBins)
-        phibl = np.zeros(self.params.sn)  # Boundary condition: zero incoming flux
-        phibr = np.zeros(self.params.sn)  # Boundary condition: zero incoming flux
+        rhsfull = self.material.source(self.fullTens) + timeTerm * self.psi_old # shape (freq, sn, nBins)
+        time = self.grid.timeSet[self.grid.timeStep]
+        phibl = self.boundaryCondition("left", time)
+        phibr = self.boundaryCondition("right", time)
         newFull = np.zeros_like(self.fullTens)
 
         for f in range(self.freq):
             rhs = rhsfull[f]
             phi = self.fullTens[f]
             new_phi = self.fullTens[f]
-            sig_a = sig_aSet[f]
             sig_t = sig_tSet[f]
-            sig_s = sig_sSet[f]
+
 
             for m in range(self.sn):
                 if mu[m] > 0:
                     # Forward sweep
-                    new_phi[m, 0] = (rhs[m, 0] + (mu[m] / self.grid.dx) * phibl[m]) / (mu[m] / self.grid.dx + sig_a[0])
+                    new_phi[m, 0] = (rhs[m, 0] + (mu[m] / self.grid.dx) * phibl[f, m]) / (mu[m] / self.grid.dx + sig_t[0])
                     for i in range(self.params.nBins-1):
                         new_phi[m, i + 1] = (
                             rhs[m, i+1] + (mu[m] / self.grid.dx) * phi[m, i]
                         ) / (mu[m] / self.grid.dx + sig_t[i+1])
                 else:
                     # Backward sweep
-                    new_phi[m, -1] = (rhs[m, -1] + (abs(mu[m]) / self.grid.dx) * phibr[m]) / (abs(mu[m]) / self.grid.dx + sig_a[-1])
+                    new_phi[m, -1] = (rhs[m, -1] + (abs(mu[m]) / self.grid.dx) * phibr[f, m]) / (abs(mu[m]) / self.grid.dx + sig_t[-1])
                     for i in range(self.params.nBins - 1, 0, -1):
                         new_phi[m, i-1] = (
                             rhs[m, i-1] + (abs(mu[m]) / self.grid.dx) * phi[m, i]
