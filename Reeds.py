@@ -18,6 +18,8 @@ class Parameters:
         self.initialTemperature = 0.0
         self.sourceTemp = 1.0
         self.timeScale = "linear"  # "log" or "linear"
+        self.materialCoupled = False
+        self.movingCoordinates = False
 
 
 class Material:
@@ -81,6 +83,8 @@ class Equations:
         self.sn = params.sn
         self.dx = grid.dx
         self.time_step = None
+
+
 
     def initialCondition(self):
         return np.zeros_like(self.grid.fullTensor)
