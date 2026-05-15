@@ -4,20 +4,33 @@ import warnings
 
 class Parameters:
     def __init__(self, maxIters=100, tol=1e-10, nSteps=1000, Transient=True):
+        # Tolerance and iteration parameters
         self.maxIters = maxIters
         self.tol = tol
-        self.nSteps = nSteps
-        self.transient = Transient
-        self.nBins = 120
-        self.xMin = -8
-        self.xMax = 8
+
+        # Angular discretization parameters
         self.sn = 8
-        self.freqNum = 1
-        self.timeMax = 20.0
-        self.maxFreq = 150
+
+        # Initial and source temperature parameters (not used in this example, but can be extended for thermal problems)
         self.initialTemperature = 0.0
         self.sourceTemp = 1.0
+
+        # Spatial grid parameters
+        self.xMin = -8
+        self.xMax = 8
+        self.nBins = 120
+
+        # Group parameters
+        self.freqNum = 1
+        self.maxFreq = 150
+
+        # Time stepping parameters
+        self.nSteps = nSteps
+        self.timeMax = 20.0
         self.timeScale = "linear"  # "log" or "linear"
+
+        # Choices of type of problem
+        self.transient = Transient
         self.materialCoupled = False
         self.movingCoordinates = False
 
