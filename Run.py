@@ -25,6 +25,7 @@ def mainReeds():
     BaseSolver = Base.Base(grid, ReedsProb, params, constants)
     fullTensor, grid = BaseSolver.solve()
     fullPhi = np.squeeze(grid.fullTensorPhiTime)  # shape: (nSteps+1, nBins)
+    Vis.plotSpaceTime(fullPhi, params, grid.timeSet)
     Vis.plotFinalFlux(grid)
     Vis.animate_solution(fullPhi, params, grid)
     return grid

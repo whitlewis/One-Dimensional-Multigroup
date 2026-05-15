@@ -2,19 +2,21 @@ import numpy as np
 import numpy.polynomial.legendre as leggauss
 
 class Parameters:
-    def __init__(self, maxIters=1000, tol=1e-10, nSteps=1000):
+    def __init__(self, maxIters=100, tol=1e-10, nSteps=1000, Transient=True):
         self.maxIters = maxIters
         self.tol = tol
         self.nSteps = nSteps
-        self.nBins = 1
-        self.xMin = 0
-        self.xMax = 1
-        self.sn = 2
+        self.transient = Transient
+        self.nBins = 120
+        self.xMin = -8
+        self.xMax = 8
+        self.sn = 8
         self.freqNum = 10
-        self.timeMax = 20
+        self.timeMax = 20.0
         self.maxFreq = 150
         self.initialTemperature = 0.0
         self.sourceTemp = 1.0
+        self.timeScale = "linear"  # "log" or "linear"
 
 class Material:
     def __init__(self, params, grid):
@@ -28,7 +30,7 @@ class Material:
         return 1.0
     
     def addSource(self):
-        # Add a source term at the left boundary (x=0) for all frequencies and angles
+        # add a source somewhere in the domain
         source = np.zeros((self.grid.freqNum, self.grid.sn))
         source[:, :] = self.params.sourceTemp  # Set the source temperature for all frequencies and angles
         return source
@@ -41,6 +43,11 @@ class Equations:
         self.grid = grid
         self.material = material
         self.const = constants
+        self.fullTens = grid.fullTensor.copy()  # shape: (freqNum, sn, nBins)
+        self.freq = params.freqNum
+        self.sn = params.sn
+        self.dx = grid.dx
+        self.time_step = None
 
     def simpson(self, integrand, lo, hi):
         h = (hi - lo) / 3
@@ -66,8 +73,33 @@ class Equations:
         self.grid.fullTensor[:] = planck[:, None, None]
         self.grid.updateFullTensor(self.grid.fullTensor)
 
+    def initialCondition(self):
+        return np.zeros_like(self.grid.fullTensor)
+
+    def applyInitialConditions(self):
+        self.grid.fullTensor = self.initialCondition()
+        self.fullTens = self.grid.fullTensor.copy()
+        self.psi_old = self.grid.fullTensor.copy()
+
+    def boundaryCondition(self, side, time):
+        return np.zeros((self.freq, self.sn))
+
+    def timeAbsorption(self):
+        if not self.params.transient:
+            return 0.0
+        return 1.0 / (self.const.c * self.grid.dt[self.grid.timeStep])
+
+    def startTimeStep(self):
+        if self.time_step == self.grid.timeStep:
+            return
+
+        self.time_step = self.grid.timeStep
+        self.psi_old = self.grid.fullTensor.copy()
+        self.fullTens = self.grid.fullTensor.copy()
 
     def materialEquation(self, fullTensor):
+        self.startTimeStep()
+
         dt = self.grid.dt[self.grid.timeStep]
         f = dt / self.material.C_v(self.grid.temperatureSet[:, self.grid.timeStep]) 
         T = self.grid.temperatureSet[:, self.grid.timeStep]  # Current temperature in all x cells (120,1)
@@ -121,7 +153,7 @@ class Equations:
                                         (mu_val / dx + self.sigmaStar(T_next[i - 1]))
         self.grid.fullTensor = newfull.copy()
         self.grid.temperatureSet[:, self.grid.timeStep] = T_next  # Update the temperature set for the current time step
-        return self.grid, newfull, T_next
+
 
 
 class Marshak:
