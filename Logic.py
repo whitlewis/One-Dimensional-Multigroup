@@ -89,6 +89,9 @@ class CoupledEquations:
         self.sn = params.sn
         self.dx = grid.dx
         self.time_step = None
+        self.timeTerm = 0.0
+        self.sigma_a = 
+
 
     def simpson(self, integrand, lo, hi):
         h = (hi - lo) / 3
@@ -133,7 +136,7 @@ class CoupledEquations:
     def startTimeStep(self):
         if self.time_step == self.grid.timeStep:
             return
-
+        self.timeTerm = self.timeAbsorption()
         self.time_step = self.grid.timeStep
         self.psi_old = self.grid.fullTensor.copy()
         self.fullTens = self.grid.fullTensor.copy()
@@ -157,8 +160,8 @@ class CoupledEquations:
 
 
     def radiationSweep(self):
+        self.timeTerm = self.timeAbsorption
         self.startTimeStep()
-        timeTerm = self.timeAbsorption
         mu = self.grid.muSet
         dx = self.grid.dx
         newfull = np.zeros_like(self.grid.fullTensor)
