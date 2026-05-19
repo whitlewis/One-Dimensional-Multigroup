@@ -1,23 +1,39 @@
 import numpy as np
 import numpy.polynomial.legendre as leggauss
+import Logic as Log
 import warnings
 
 class Parameters:
     def __init__(self, maxIters=100, tol=1e-10, nSteps=1000, Transient=True):
+        # Tolerance and iteration parameters
         self.maxIters = maxIters
         self.tol = tol
-        self.nSteps = nSteps
-        self.transient = Transient
-        self.nBins = 120
-        self.xMin = -8
-        self.xMax = 8
+
+        # Angular discretization parameters
         self.sn = 8
-        self.freqNum = 1
-        self.timeMax = 20.0
-        self.maxFreq = 150
+
+        # Initial and source temperature parameters (not used in this example, but can be extended for thermal problems)
         self.initialTemperature = 0.0
         self.sourceTemp = 1.0
+
+        # Spatial grid parameters
+        self.xMin = -8
+        self.xMax = 8
+        self.nBins = 120
+
+        # Group parameters
+        self.freqNum = 1
+        self.maxFreq = 150
+
+        # Time stepping parameters
+        self.nSteps = nSteps
+        self.timeMax = 20.0
         self.timeScale = "linear"  # "log" or "linear"
+
+        # Choices of type of problem
+        self.transient = Transient
+        self.materialCoupled = False
+        self.movingCoordinates = False
 
 
 class Material:
@@ -69,87 +85,12 @@ class Material:
         return np.broadcast_to(rhs[:, None, :], fullTensor.shape).copy()
 
 
-class Equations:
-
-    def __init__(self, params, grid, material, constants):
-        self.params = params
-        self.grid = grid
-        self.material = material
-        self.const = constants
-        self.fullTens = grid.fullTensor.copy()  # shape: (freqNum, sn, nBins)
-        self.freq = params.freqNum
-        self.sn = params.sn
-        self.dx = grid.dx
-        self.time_step = None
-
-    def initialCondition(self):
-        return np.zeros_like(self.grid.fullTensor)
-
-    def applyInitialConditions(self):
-        self.grid.fullTensor = self.initialCondition()
-        self.fullTens = self.grid.fullTensor.copy()
-        self.psi_old = self.grid.fullTensor.copy()
-
-    def boundaryCondition(self, side, time):
-        return np.zeros((self.freq, self.sn))
-
-    def timeAbsorption(self):
-        if not self.params.transient:
-            return 0.0
-        return 1.0 / (self.const.c * self.grid.dt[self.grid.timeStep])
-
-    def startTimeStep(self):
-        if self.time_step == self.grid.timeStep:
-            return
-
-        self.time_step = self.grid.timeStep
-        self.psi_old = self.grid.fullTensor.copy()
-        self.fullTens = self.grid.fullTensor.copy()
-
-    def radiationSweep(self):
-        self.startTimeStep()
-
-        timeTerm = self.timeAbsorption()  # Time derivative term
-        mu = self.grid.muSet
-        sig_tSet = self.material.sig_tAngle + timeTerm
-        rhsfull = self.material.source(self.fullTens) + timeTerm * self.psi_old # shape (freq, sn, nBins)
-        time = self.grid.timeSet[self.grid.timeStep]
-        phibl = self.boundaryCondition("left", time)
-        phibr = self.boundaryCondition("right", time)
-        newFull = np.zeros_like(self.fullTens)
-
-        for f in range(self.freq):
-            rhs = rhsfull[f]
-            phi = self.fullTens[f]
-            new_phi = self.fullTens[f]
-            sig_t = sig_tSet[f]
-
-
-            for m in range(self.sn):
-                if mu[m] > 0:
-                    # Forward sweep
-                    new_phi[m, 0] = (rhs[m, 0] + (mu[m] / self.grid.dx) * phibl[f, m]) / (mu[m] / self.grid.dx + sig_t[0])
-                    for i in range(self.params.nBins-1):
-                        new_phi[m, i + 1] = (
-                            rhs[m, i+1] + (mu[m] / self.grid.dx) * phi[m, i]
-                        ) / (mu[m] / self.grid.dx + sig_t[i+1])
-                else:
-                    # Backward sweep
-                    new_phi[m, -1] = (rhs[m, -1] + (abs(mu[m]) / self.grid.dx) * phibr[f, m]) / (abs(mu[m]) / self.grid.dx + sig_t[-1])
-                    for i in range(self.params.nBins - 1, 0, -1):
-                        new_phi[m, i-1] = (
-                            rhs[m, i-1] + (abs(mu[m]) / self.grid.dx) * phi[m, i]
-                        ) / (abs(mu[m]) / self.grid.dx + sig_t[i-1])
-            newFull[f] = new_phi
-        self.grid.fullTensor = newFull.copy()
-
-
 class Reeds:
     def __init__(self, grid, constants):
         self.parameters = Parameters()
         self.material = Material(self.parameters, grid)
-        self.equations = Equations(self.parameters, grid, self.material, constants)
-        self.applyInitialConditions(grid)
+        self.equations = Log.Logic(self.parameters, grid, self.material, constants)
+        self.equations.applyInitialConditions()
 
     def applyInitialConditions(self, grid):
         self.equations.applyInitialConditions()        
