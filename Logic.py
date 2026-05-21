@@ -14,25 +14,31 @@ class Equations:
         self.sn = params.sn
         self.dx = grid.dx
         self.time_step = None
+        self.timeAbsorption = 0.0
+        self.mu = self.grid.muSet
 
 
-
+    # Define initial conditions here
     def initialCondition(self):
         return np.zeros_like(self.grid.fullTensor)
-
+    
+    # Helper function to define initial conditions
     def applyInitialConditions(self):
         self.grid.fullTensor = self.initialCondition()
         self.fullTens = self.grid.fullTensor.copy()
         self.psi_old = self.grid.fullTensor.copy()
 
+    # Possible time varying Boundary condition
     def boundaryCondition(self, side, time):
         return np.zeros((self.freq, self.sn))
 
+    # Time term from discretization
     def timeAbsorption(self):
         if not self.params.transient:
             return 0.0
         return 1.0 / (self.const.c * self.grid.dt[self.grid.timeStep])
 
+    # Start the step
     def startTimeStep(self):
         if self.time_step == self.grid.timeStep:
             return
@@ -40,42 +46,53 @@ class Equations:
         self.time_step = self.grid.timeStep
         self.psi_old = self.grid.fullTensor.copy()
         self.fullTens = self.grid.fullTensor.copy()
+        self.timeTerm = self.timeAbsorption()
 
     def radiationSweep(self):
+        # Initialize time set assets
         self.startTimeStep()
 
-        timeTerm = self.timeAbsorption()  # Time derivative term
-        mu = self.grid.muSet
-        sig_tSet = self.material.sig_tAngle + timeTerm
-        rhsfull = self.material.source(self.fullTens) + timeTerm * self.psi_old # shape (freq, sn, nBins)
+        # Add time term to sigma* and Q*
+        sig_tSet = self.material.sig_tAngle + self.timeTerm
+        rhsfull = self.material.source(self.fullTens) + self.timeTerm * self.psi_old # shape (freq, sn, nBins)
+
+        # Set up Boundary conditions at the time step (allows for variable boundary conditions)
         time = self.grid.timeSet[self.grid.timeStep]
         phibl = self.boundaryCondition("left", time)
         phibr = self.boundaryCondition("right", time)
+
+        # Initialize the next tensor
         newFull = np.zeros_like(self.fullTens)
 
+        # Loop through frequency
         for f in range(self.freq):
             rhs = rhsfull[f]
             phi = self.fullTens[f]
             new_phi = self.fullTens[f]
             sig_t = sig_tSet[f]
 
-
+            # Loop through Angles
             for m in range(self.sn):
-                if mu[m] > 0:
+                # Upwind 
+                if self.mu[m] > 0:
                     # Forward sweep
-                    new_phi[m, 0] = (rhs[m, 0] + (mu[m] / self.grid.dx) * phibl[f, m]) / (mu[m] / self.grid.dx + sig_t[0])
+                    new_phi[m, 0] = (rhs[m, 0] + (self.mu[m] / self.grid.dx) * phibl[f, m]) / (self.mu[m] / self.grid.dx + sig_t[0])
                     for i in range(self.params.nBins-1):
                         new_phi[m, i + 1] = (
-                            rhs[m, i+1] + (mu[m] / self.grid.dx) * phi[m, i]
-                        ) / (mu[m] / self.grid.dx + sig_t[i+1])
+                            rhs[m, i+1] + (self.mu[m] / self.grid.dx) * phi[m, i]
+                        ) / (self.mu[m] / self.grid.dx + sig_t[i+1])
+
                 else:
                     # Backward sweep
-                    new_phi[m, -1] = (rhs[m, -1] + (abs(mu[m]) / self.grid.dx) * phibr[f, m]) / (abs(mu[m]) / self.grid.dx + sig_t[-1])
+                    new_phi[m, -1] = (rhs[m, -1] + (abs(self.mu[m]) / self.grid.dx) * phibr[f, m]) / (abs(self.mu[m]) / self.grid.dx + sig_t[-1])
                     for i in range(self.params.nBins - 1, 0, -1):
                         new_phi[m, i-1] = (
-                            rhs[m, i-1] + (abs(mu[m]) / self.grid.dx) * phi[m, i]
-                        ) / (abs(mu[m]) / self.grid.dx + sig_t[i-1])
+                            rhs[m, i-1] + (abs(self.mu[m]) / self.grid.dx) * phi[m, i]
+                        ) / (abs(self.mu[m]) / self.grid.dx + sig_t[i-1])
+            # for each group update the tensor
             newFull[f] = new_phi
+
+        # Set fullTensor to the updated Tensor
         self.grid.fullTensor = newFull.copy()
 
 class CoupledEquations:
@@ -90,19 +107,21 @@ class CoupledEquations:
         self.dx = grid.dx
         self.time_step = None
         self.timeTerm = 0.0
-        self.sigma_a = 
+        self.sigma_a = self.material.sigma_a()
 
-
+    # Simpson for Plack integration over group
     def simpson(self, integrand, lo, hi):
         h = (hi - lo) / 3
         out = 3/8 *h* (integrand(lo) + 3*integrand(lo + h) + 3*integrand(lo +2*h) +integrand(hi))
         return out
 
+    # Base Planck definiton
     def planck(self, nu, T):  # Planck function (not group integrated or weighted)
         denom = np.expm1(nu/T)  # exp(x)-1 safely
         f = (15.0 * self.const.a * self.const.c) / (4.0 * np.pi**5)
         return f * nu**3 / denom
 
+    # Group integrated Planck
     def groupPlanck(self, T):
         # Integrate the Planck function over each frequency group to get group-averaged source
         lo = self.grid.freqGrid[:-1, None]
@@ -111,38 +130,45 @@ class CoupledEquations:
         bbar = self.simpson(integrand, lo, hi)
         return bbar
 
+    # Function for initial Condition as Planckian (helper for initialCondition)  
     def initSpectra(self):
         T0 = self.params.initialTemperature
         planck = self.groupPlanck(T0) 
         self.grid.fullTensor[:] = planck[:, None, None]
         self.grid.updateFullTensor(self.grid.fullTensor)
 
+     # Define initial conditions here
     def initialCondition(self):
         return np.zeros_like(self.grid.fullTensor)
-
+    
+    # Helper function to define initial conditions
     def applyInitialConditions(self):
         self.grid.fullTensor = self.initialCondition()
         self.fullTens = self.grid.fullTensor.copy()
         self.psi_old = self.grid.fullTensor.copy()
 
+    # Possible time varying Boundary condition
     def boundaryCondition(self, side, time):
         return np.zeros((self.freq, self.sn))
 
+    # Time term from discretization
     def timeAbsorption(self):
         if not self.params.transient:
             return 0.0
         return 1.0 / (self.const.c * self.grid.dt[self.grid.timeStep])
 
+    # Start the step
     def startTimeStep(self):
         if self.time_step == self.grid.timeStep:
             return
-        self.timeTerm = self.timeAbsorption()
+
         self.time_step = self.grid.timeStep
         self.psi_old = self.grid.fullTensor.copy()
         self.fullTens = self.grid.fullTensor.copy()
+        self.timeTerm = self.timeAbsorption()
 
+    # Definition of the coupled material equation
     def materialEquation(self):
-        self.startTimeStep()
 
         dt = self.grid.dt[self.grid.timeStep]
         f = dt / self.material.C_v(self.grid.temperatureSet[:, self.grid.timeStep]) 
@@ -154,21 +180,23 @@ class CoupledEquations:
         self.grid.temperatureSet[:, self.grid.timeStep] = T_next  # Update the temperature set for the current time step
         rhs = self.material.sigma_a(self.grid.freqGroups, T_next) * bbar - self.material.sigma_a(self.grid.freqGroups, T_next) * phi  # Right-hand side of the transport equation
         return T_next, rhs
-
+    
+    # Define modified opacity
     def sigmaStar(self, T):
         return self.material.sigma_a(self.grid.freqGrid, T) + 1/self.const.c*1/self.grid.dt[self.grid.timeStep]  # modified opacity
 
-
     def radiationSweep(self):
-        self.timeTerm = self.timeAbsorption
+        # Initialize time set assets
         self.startTimeStep()
+
+
         mu = self.grid.muSet
         dx = self.grid.dx
         newfull = np.zeros_like(self.grid.fullTensor)
 
         # Compute RHS once per sweep
         T_next, rhs = self.materialEquation(self.grid.fullTensor)
-        rhs += timeTerm * self.psi_old
+        rhs += self.timeTerm * self.psi_old
         # print("RHS shape:", rhs.shape)  # Debug shape of RHS
         # print("T_next shape:", T_next.shape)  # Debug shape of T_next
         # These are now (nFreq, nMu)
