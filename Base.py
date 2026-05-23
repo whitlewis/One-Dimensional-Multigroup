@@ -67,9 +67,9 @@ class Base:
                 break
             self.fullTensOld = self.grid.fullTensor.copy()
 
-    def getPhi(self, fullTensor):
+    def getPhi(self):
         # Integrate over angles to get scalar flux
-        fullTensorPhi = np.sum(self.grid.w[:, None] * fullTensor, axis=1)  # shape: (freqNum, nBins)
+        fullTensorPhi = np.sum(self.grid.w[:, None] * self.grid.fullTensor, axis=1)  # shape: (freqNum, nBins)
         return fullTensorPhi
     
     def updateAll(self, index):

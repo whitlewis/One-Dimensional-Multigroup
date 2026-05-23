@@ -167,16 +167,21 @@ class CoupledEquations:
         self.fullTens = self.grid.fullTensor.copy()
         self.timeTerm = self.timeAbsorption()
 
+    def sigmaGroup(self):
+        return
+    
+    def phiGroup(self):
+        return
+
     # Definition of the coupled material equation
     def materialEquation(self):
 
         dt = self.grid.dt[self.grid.timeStep]
         f = dt / self.material.C_v(self.grid.temperatureSet[:, self.grid.timeStep]) 
         T = self.grid.temperatureSet[:, self.grid.timeStep]  # Current temperature in all x cells (120,1)
-        phi = np.sum(self.grid.w[:, None] * self.grid.fullTensor, axis=0)  # Compute scalar flux by integrating over angles
+        phi = self.Base.getPhi()  # Compute scalar flux by integrating over angles
         bbar = self.groupPlanck(T)  # Get the group-averaged Planck source
-
-        T_next = T + f * np.sum((self.material.sigma_a(self.grid.freqGrid, T) * phi - self.material.sigma_a(self.grid.freqGrid, T) * bbar), axis=0)  # Update temperature using the material energy equation)
+        T_next = T + f * np.sum((self.material.sigma_a(self.grid.freqGrid, T) * phi - 4*np.pi*self.material.sigma_a(self.grid.freqGrid, T) * bbar), axis=0)  # Update temperature using the material energy equation)
         self.grid.temperatureSet[:, self.grid.timeStep] = T_next  # Update the temperature set for the current time step
         rhs = self.material.sigma_a(self.grid.freqGroups, T_next) * bbar - self.material.sigma_a(self.grid.freqGroups, T_next) * phi  # Right-hand side of the transport equation
         return T_next, rhs
