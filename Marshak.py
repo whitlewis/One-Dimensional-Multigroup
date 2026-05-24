@@ -1,22 +1,38 @@
 import numpy as np
 import numpy.polynomial.legendre as leggauss
+import Logic as Log
 
 class Parameters:
     def __init__(self, maxIters=100, tol=1e-10, nSteps=1000, Transient=True):
+        # Tolerance and iteration parameters
         self.maxIters = maxIters
         self.tol = tol
-        self.nSteps = nSteps
-        self.transient = Transient
-        self.nBins = 120
-        self.xMin = -8
-        self.xMax = 8
+
+        # Angular discretization parameters
         self.sn = 8
-        self.freqNum = 10
-        self.timeMax = 20.0
-        self.maxFreq = 150
+
+        # Initial and source temperature parameters (not used in this example, but can be extended for thermal problems)
         self.initialTemperature = 0.0
         self.sourceTemp = 1.0
+
+        # Spatial grid parameters
+        self.xMin = -8
+        self.xMax = 8
+        self.nBins = 120
+
+        # Group parameters
+        self.freqNum = 1
+        self.maxFreq = 150
+
+        # Time stepping parameters
+        self.nSteps = nSteps
+        self.timeMax = 20.0
         self.timeScale = "linear"  # "log" or "linear"
+
+        # Choices of type of problem
+        self.transient = Transient
+        self.materialCoupled = True
+        self.movingCoordinates = False
 
 class Material:
     def __init__(self, params, grid):
@@ -36,130 +52,14 @@ class Material:
         return source
 
 
-class Equations:
-
-    def __init__(self, params, grid, material, constants):
-        self.params = params
-        self.grid = grid
-        self.material = material
-        self.const = constants
-        self.fullTens = grid.fullTensor.copy()  # shape: (freqNum, sn, nBins)
-        self.freq = params.freqNum
-        self.sn = params.sn
-        self.dx = grid.dx
-        self.time_step = None
-
-    def simpson(self, integrand, lo, hi):
-        h = (hi - lo) / 3
-        out = 3/8 *h* (integrand(lo) + 3*integrand(lo + h) + 3*integrand(lo +2*h) +integrand(hi))
-        return out
-
-    def planck(self, nu, T):  # Planck function (not group integrated or weighted)
-        denom = np.expm1(nu/T)  # exp(x)-1 safely
-        f = (15.0 * self.const.a * self.const.c) / (4.0 * np.pi**5)
-        return f * nu**3 / denom
-
-    def groupPlanck(self, T):
-        # Integrate the Planck function over each frequency group to get group-averaged source
-        lo = self.grid.freqGrid[:-1, None]
-        hi = self.grid.freqGrid[1:, None]
-        integrand = lambda nu: self.planck(nu, T)
-        bbar = self.simpson(integrand, lo, hi)
-        return bbar
-
-    def initSpectra(self):
-        T0 = self.params.initialTemperature
-        planck = self.groupPlanck(T0) 
-        self.grid.fullTensor[:] = planck[:, None, None]
-        self.grid.updateFullTensor(self.grid.fullTensor)
-
-    def initialCondition(self):
-        return np.zeros_like(self.grid.fullTensor)
-
-    def applyInitialConditions(self):
-        self.grid.fullTensor = self.initialCondition()
-        self.fullTens = self.grid.fullTensor.copy()
-        self.psi_old = self.grid.fullTensor.copy()
-
-    def boundaryCondition(self, side, time):
-        return np.zeros((self.freq, self.sn))
-
-    def timeAbsorption(self):
-        if not self.params.transient:
-            return 0.0
-        return 1.0 / (self.const.c * self.grid.dt[self.grid.timeStep])
-
-    def startTimeStep(self):
-        if self.time_step == self.grid.timeStep:
-            return
-
-        self.time_step = self.grid.timeStep
-        self.psi_old = self.grid.fullTensor.copy()
-        self.fullTens = self.grid.fullTensor.copy()
-
-    def materialEquation(self, fullTensor):
-        self.startTimeStep()
-
-        dt = self.grid.dt[self.grid.timeStep]
-        f = dt / self.material.C_v(self.grid.temperatureSet[:, self.grid.timeStep]) 
-        T = self.grid.temperatureSet[:, self.grid.timeStep]  # Current temperature in all x cells (120,1)
-        phi = np.sum(self.grid.w[:, None] * fullTensor, axis=0)  # Compute scalar flux by integrating over angles
-        bbar = self.groupPlanck(T)  # Get the group-averaged Planck source
-
-        T_next = T + f * np.sum((self.material.sigma_a(self.grid.freqGrid, T) * phi - self.material.sigma_a(self.grid.freqGrid, T) * bbar), axis=0)  # Update temperature using the material energy equation)
-        self.grid.temperatureSet[:, self.grid.timeStep] = T_next  # Update the temperature set for the current time step
-        rhs = self.material.sigma_a(self.grid.freqGroups, T_next) * bbar - self.material.sigma_a(self.grid.freqGroups, T_next) * phi  # Right-hand side of the transport equation
-        return T_next, rhs
-
-    def sigmaStar(self, T):
-        return self.material.sigma_a(self.grid.freqGrid, T) + 1/self.const.c*1/self.grid.dt[self.grid.timeStep]  # modified opacity
-
-
-    def radiationSweep(self):
-        mu = self.grid.muSet
-        dx = self.grid.dx
-        newfull = np.zeros_like(self.grid.fullTensor)
-
-        # Compute RHS once per sweep (crucial for performance)
-        T_next, rhs = self.materialEquation(self.grid.fullTensor)
-        # print("RHS shape:", rhs.shape)  # Debug shape of RHS
-        # print("T_next shape:", T_next.shape)  # Debug shape of T_next
-        # These are now (nFreq, nMu)
-        phiBl = self.groupPlanck(self.params.sourceTemp) # Placeholder for boundary layer contribution
-        phiBr = np.zeros(self.grid.fullTensor[:,:,0].shape)  # Placeholder for boundary reflection contribution
-        # print(phiBl.shape, phiBr.shape, rhs.shape)  # Debug shapes
-
-        # We only loop over angles (m). Frequency (f) is handled by the ":"
-        for m, mu_val in enumerate(mu):
-            if mu_val > 0:
-                # --- Forward sweep ---
-                # Boundary cell i=0 (Vectorized over all f)
-                newfull[:, m, 0] = (rhs[m, 0] + (mu_val / dx) * phiBl[:, m]) / \
-                                (mu_val / dx + self.sigmaStar(T_next[0]))
-                
-                for i in range(self.params.nBins - 1):
-                    # Interior cells (Vectorized over all f)
-                    newfull[:, m, i + 1] = (rhs[m, i + 1] + (mu_val / dx) * self.grid.fullTensor[:, m, i]) / \
-                                        (mu_val / dx + self.sigmaStar(T_next[i + 1]))
-            else:
-                # --- Backward sweep ---
-                # Boundary cell i=-1
-                # Use mu[m] (a single number) instead of mu (the whole array)
-                newfull[:, m, -1] = (rhs[m, -1] + (abs(mu_val) / self.grid.dx) * phiBr[:, m]) / \
-                                    (abs(mu_val) / self.grid.dx + self.sigmaStar(T_next[-1]))
-                
-                for i in range(self.params.nBins - 1, 0, -1):
-                    newfull[:, m, i - 1] = (rhs[m, i - 1] + (mu_val / dx) * self.grid.fullTensor[:, m, i]) / \
-                                        (mu_val / dx + self.sigmaStar(T_next[i - 1]))
-        self.grid.fullTensor = newfull.copy()
-        self.grid.temperatureSet[:, self.grid.timeStep] = T_next  # Update the temperature set for the current time step
-
-
 
 class Marshak:
     def __init__(self, grid, constants):
         self.parameters = Parameters()
         self.material = Material(self.parameters, grid)
-        self.equations = Equations(self.parameters, grid, self.material, constants)
+        self.equations = Log.Logic(self.parameters, grid, self.material, constants)
+        self.equations.applyInitialConditions()
 
+    def applyInitialConditions(self, grid):
+        self.equations.applyInitialConditions()
         

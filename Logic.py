@@ -5,17 +5,22 @@ import numpy as np
 class Equations:
 
     def __init__(self, params, grid, material, constants):
+        # Add passed classes
         self.params = params
         self.grid = grid
         self.material = material
         self.const = constants
+
+        # Init tensor for calculation
         self.fullTens = grid.fullTensor.copy()  # shape: (freqNum, sn, nBins)
+        self.mu = self.grid.muSet
+
+        # Init parameters
         self.freq = params.freqNum
         self.sn = params.sn
         self.dx = grid.dx
         self.time_step = None
-        self.timeAbsorption = 0.0
-        self.mu = self.grid.muSet
+        self.timeTerm = 0.0
 
 
     # Define initial conditions here
@@ -97,19 +102,31 @@ class Equations:
 
 class CoupledEquations:
     def __init__(self, params, grid, material, constants):
+        # Init classes
         self.params = params
         self.grid = grid
         self.material = material
         self.const = constants
-        self.fullTens = grid.fullTensor.copy()  # shape: (freqNum, sn, nBins)
+
+        # Init calculation helper parameters
         self.freq = params.freqNum
         self.sn = params.sn
         self.dx = grid.dx
         self.time_step = None
         self.timeTerm = 0.0
-        self.sigma_a = self.material.sigma_a()
 
-    # Simpson for Plack integration over group
+        # Init tensors for calculations
+        self.fullTens = grid.fullTensor.copy()  # shape: (freqNum, sn, nBins)
+        self.mu = self.grid.muSet
+        self.rhs = np.zeros((self.freq, self.params.nBins))
+        self.T_next = np.zeros(self.params.nBins)
+    
+    def getPhi(self):
+        # Integrate over angles to get scalar flux
+        fullTensorPhi = np.sum(self.grid.w[:, None] * self.grid.fullTensor, axis=1)  # shape: (freqNum, nBins)
+        return fullTensorPhi
+
+    # Simpson for integration over group
     def simpson(self, integrand, lo, hi):
         h = (hi - lo) / 3
         out = 3/8 *h* (integrand(lo) + 3*integrand(lo + h) + 3*integrand(lo +2*h) +integrand(hi))
@@ -138,6 +155,8 @@ class CoupledEquations:
         self.grid.updateFullTensor(self.grid.fullTensor)
 
      # Define initial conditions here
+    
+    # Set initial Conditions here
     def initialCondition(self):
         return np.zeros_like(self.grid.fullTensor)
     
@@ -149,7 +168,10 @@ class CoupledEquations:
 
     # Possible time varying Boundary condition
     def boundaryCondition(self, side, time):
-        return np.zeros((self.freq, self.sn))
+        if side == "left":
+            return np.ones((self.freq, self.sn))
+        elif side == "right":
+            return np.ones((self.freq, self.sn))*.5
 
     # Time term from discretization
     def timeAbsorption(self):
@@ -175,16 +197,25 @@ class CoupledEquations:
 
     # Definition of the coupled material equation
     def materialEquation(self):
-
+        # Outer constant calc
         dt = self.grid.dt[self.grid.timeStep]
         f = dt / self.material.C_v(self.grid.temperatureSet[:, self.grid.timeStep]) 
+        
+        # Lagged temperature and phi
         T = self.grid.temperatureSet[:, self.grid.timeStep]  # Current temperature in all x cells (120,1)
-        phi = self.Base.getPhi()  # Compute scalar flux by integrating over angles
-        bbar = self.groupPlanck(T)  # Get the group-averaged Planck source
+        phi = self.getPhi()  # Compute scalar flux by integrating over angles
+        bbar = self.groupPlanck(T)  # Get the group-averaged Planckian for the material 
+
+        # Calculation of next temperature
         T_next = T + f * np.sum((self.material.sigma_a(self.grid.freqGrid, T) * phi - 4*np.pi*self.material.sigma_a(self.grid.freqGrid, T) * bbar), axis=0)  # Update temperature using the material energy equation)
-        self.grid.temperatureSet[:, self.grid.timeStep] = T_next  # Update the temperature set for the current time step
-        rhs = self.material.sigma_a(self.grid.freqGroups, T_next) * bbar - self.material.sigma_a(self.grid.freqGroups, T_next) * phi  # Right-hand side of the transport equation
-        return T_next, rhs
+        
+        # Calculation of the rhs of eq (Q*)
+        rhs = self.material.sigma_a(self.grid.freqGroups, T_next) * bbar - self.material.sigma_a(self.grid.freqGroups, T_next) * phi # Right-hand side of the transport equation
+
+        # Update grid object
+        self.grid.temperatureSet[:, self.grid.timeStep] = T_next
+        self.grid.rhs = rhs
+        self.grid.T_next = T_next
     
     # Define modified opacity
     def sigmaStar(self, T):
@@ -193,46 +224,41 @@ class CoupledEquations:
     def radiationSweep(self):
         # Initialize time set assets
         self.startTimeStep()
-
-
-        mu = self.grid.muSet
-        dx = self.grid.dx
         newfull = np.zeros_like(self.grid.fullTensor)
 
-        # Compute RHS once per sweep
-        T_next, rhs = self.materialEquation(self.grid.fullTensor)
-        rhs += self.timeTerm * self.psi_old
-        # print("RHS shape:", rhs.shape)  # Debug shape of RHS
-        # print("T_next shape:", T_next.shape)  # Debug shape of T_next
-        # These are now (nFreq, nMu)
-        phiBl = self.groupPlanck(self.params.sourceTemp) # Placeholder for boundary layer contribution
-        phiBr = np.zeros(self.grid.fullTensor[:,:,0].shape)  # Placeholder for boundary reflection contribution
-        # print(phiBl.shape, phiBr.shape, rhs.shape)  # Debug shapes
+        # Compute RHS once per sweep updating temperature
+        self.materialEquation()
 
-        # We only loop over angles (m). Frequency (f) is handled by the ":"
-        for m, mu_val in enumerate(mu):
+        # Set up Boundary conditions at the time step (allows for variable boundary conditions)
+        time = self.grid.timeSet[self.grid.timeStep]
+        phiBl = self.boundaryCondition("left", time)
+        phiBr = self.boundaryCondition("right", time)
+
+
+        # We only loop over angles (m). Frequency (f) is handled by the array
+        for m, mu_val in enumerate(self.mu):
             if mu_val > 0:
                 # --- Forward sweep ---
                 # Boundary cell i=0 (Vectorized over all f)
-                newfull[:, m, 0] = (rhs[m, 0] + (mu_val / dx) * phiBl[:, m]) / \
-                                (mu_val / dx + self.sigmaStar(T_next[0]))
+                newfull[:, m, 0] = (self.rhs[:, 0] + (mu_val / self.dx) * phiBl[:, m]) / \
+                                (mu_val / self.dx + self.sigmaStar(self.T_next[0]))
                 
                 for i in range(self.params.nBins - 1):
                     # Interior cells (Vectorized over all f)
-                    newfull[:, m, i + 1] = (rhs[m, i + 1] + (mu_val / dx) * self.grid.fullTensor[:, m, i]) / \
-                                        (mu_val / dx + self.sigmaStar(T_next[i + 1]))
+                    newfull[:, m, i + 1] = (self.rhs[:, i + 1] + (mu_val / self.dx) * self.grid.fullTensor[:, m, i]) / \
+                                        (mu_val / self.dx + self.sigmaStar(self.T_next[i + 1]))
             else:
                 # --- Backward sweep ---
                 # Boundary cell i=-1
                 # Use mu[m] (a single number) instead of mu (the whole array)
-                newfull[:, m, -1] = (rhs[m, -1] + (abs(mu_val) / self.grid.dx) * phiBr[:, m]) / \
-                                    (abs(mu_val) / self.grid.dx + self.sigmaStar(T_next[-1]))
+                newfull[:, m, -1] = (self.rhs[:, -1] + (abs(mu_val) / self.dx) * phiBr[:, m]) / \
+                                    (abs(mu_val) / self.dx + self.sigmaStar(self.T_next[-1]))
                 
                 for i in range(self.params.nBins - 1, 0, -1):
-                    newfull[:, m, i - 1] = (rhs[m, i - 1] + (mu_val / dx) * self.grid.fullTensor[:, m, i]) / \
-                                        (mu_val / dx + self.sigmaStar(T_next[i - 1]))
+                    newfull[:, m, i - 1] = (self.rhs[:, i - 1] + (mu_val / self.dx) * self.grid.fullTensor[:, m, i]) / \
+                                        (mu_val / self.dx + self.sigmaStar(self.T_next[i - 1]))
         self.grid.fullTensor = newfull.copy()
-        self.grid.temperatureSet[:, self.grid.timeStep] = T_next  # Update the temperature set for the current time step
+        self.grid.temperatureSet[:, self.grid.timeStep] = self.T_next  # Update the temperature set for the current time step
 
 
 class MovingMeshEquations:

@@ -11,10 +11,13 @@ def main():
     params = Marshak.Parameters()
     grid = Base.Grid(params, constants)
     MarshakProblem = MarProblem(grid, constants)
-    MarshakProblem.equations.initSpectra()
     BaseSolver = Base.Base(grid, MarshakProblem, params,  constants)
-    sol = BaseSolver.solve()
-    Vis.PlotTemperature(grid)
+    fullTensor, grid = BaseSolver.solve()
+    fullPhi = np.squeeze(grid.fullTensorPhiTime)  # shape: (nSteps+1, nBins)
+    Vis.plotSpaceTime(fullPhi, params, grid.timeSet)
+    Vis.plotFinalFlux(grid)
+    Vis.animate_solution(fullPhi, params, grid)
+    return grid
 
 
 def mainReeds():
@@ -30,4 +33,4 @@ def mainReeds():
     Vis.animate_solution(fullPhi, params, grid)
     return grid
 
-grid = mainReeds()
+grid = main()

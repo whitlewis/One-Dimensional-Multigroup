@@ -75,12 +75,12 @@ class Base:
     def updateAll(self, index):
         self.grid.fullTensOld = self.grid.fullTensor.copy()  # Update old solution for time-stepping
         self.grid.fullTensorTime[index] = self.grid.fullTensor.copy()  # Store the solution for this time step
-        self.grid.fullTensorPhiTime[index] = self.getPhi(self.grid.fullTensor).copy()  # Store scalar flux for this time step
+        self.grid.fullTensorPhiTime[index] = self.getPhi().copy()  # Store scalar flux for this time step
         self.grid.timeStep += 1  # Increment time step counter
     
     def solve(self):
         self.grid.fullTensorTime[0] = self.grid.fullTensor.copy()    # Initialize 0'th step (Thanks to Johannes for this fix)
-        self.grid.fullTensorPhiTime[0] = self.getPhi(self.grid.fullTensor)
+        self.grid.fullTensorPhiTime[0] = self.getPhi()
         self.grid.fullTensOld = self.grid.fullTensor.copy()  # Initialize old solution for time-stepping
         
         print("Starting Solve...") 
