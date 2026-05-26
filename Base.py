@@ -14,7 +14,7 @@ class Grid:
         if parameters.freqNum > 1:
             self.freqGrid = np.append(np.logspace(-12, np.log10(25), parameters.freqNum - 1), parameters.maxFreq)  # logarithmic spacing
         else: 
-            self.freqGrid = np.array([parameters.maxFreq])  # single frequency case
+            self.freqGrid = np.array([1e-3, parameters.maxFreq])  # single frequency case
         self.freqGroups = 0.5 * (self.freqGrid[:-1] + self.freqGrid[1:])
         self.fullTensor = np.zeros((parameters.freqNum, parameters.sn, parameters.nBins))  # (nfreq, nMu, nBins)
         self.muSet, self.w = np.polynomial.legendre.leggauss(parameters.sn)  # Gauss-Legendre quadrature points and weights for angular discretization

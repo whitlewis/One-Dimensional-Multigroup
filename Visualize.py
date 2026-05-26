@@ -29,8 +29,23 @@ def PlotTemperature(grid):
     plt.show()
 
 def plotTemperatureTime(grid):
-    t = grid.timeSet
     x = grid.spaceMid # cell centers
+    T_time = grid.temperatureSet  # shape: (nBins, nSteps+1)
+
+    plt.figure(figsize=(8, 5))
+    plt.imshow(
+        T_time.T,  # Transpose to have time on the vertical axis
+        aspect='auto',
+        origin='lower',
+        extent=[grid.params.xMin, grid.params.xMax, 0, grid.params.timeMax]
+    )
+
+    plt.colorbar(label='Temperature T')
+    plt.xlabel('Position x')
+    plt.ylabel('Time')
+    plt.title('Space-Time Temperature Distribution')
+
+    plt.show()
 
 def plotFinalFlux(grid, label="Final Scalar Flux"):
     x = grid.spaceMid

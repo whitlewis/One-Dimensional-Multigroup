@@ -119,7 +119,7 @@ class CoupledEquations:
         self.fullTensor = grid.fullTensor.copy()  # shape: (freqNum, sn, nBins)
         self.mu = self.grid.muSet
         self.rhs = np.zeros((self.freq, self.params.nBins))
-        self.T_next = np.zeros(self.params.nBins)
+        self.T_next = np.ones(self.params.nBins)*self.params.initialTemperature
     
     def getPhi(self):
         # Integrate over angles to get scalar flux
@@ -153,12 +153,13 @@ class CoupledEquations:
         planck = self.groupPlanck(T0) 
         self.grid.fullTensor[:] = planck[:, None, None]
         self.grid.updateFullTensor(self.grid.fullTensor)
+        return self.grid.fullTensor.copy()
 
      # Define initial conditions here
     
     # Set initial Conditions here
     def initialCondition(self):
-        return np.zeros_like(self.grid.fullTensor)
+        return self.initSpectra()
     
     # Helper function to define initial conditions
     def applyInitialConditions(self):
@@ -169,9 +170,9 @@ class CoupledEquations:
     # Possible time varying Boundary condition
     def boundaryCondition(self, side, time):
         if side == "left":
-            return np.ones((self.freq, self.sn))
+            return np.ones((self.freq, self.sn))*self.params.boundaryLeft
         elif side == "right":
-            return np.ones((self.freq, self.sn))*.5
+            return np.ones((self.freq, self.sn))*self.params.boundaryRight
 
     # Time term from discretization
     def timeAbsorption(self):
@@ -188,6 +189,7 @@ class CoupledEquations:
         self.psi_old = self.grid.fullTensor.copy()
         self.fullTens = self.grid.fullTensor.copy()
         self.timeTerm = self.timeAbsorption()
+        self.sigmaStarVar = self.sigmaStar(self.grid.temperatureSet[:, self.grid.timeStep])  # Update sigma* for the time step
 
     def sigmaGroup(self):
         return
@@ -208,10 +210,10 @@ class CoupledEquations:
 
         # Calculation of next temperature
         T_next = T + f * np.sum((self.material.sigma_a(self.grid.freqGrid, T) * phi - 4*np.pi*self.material.sigma_a(self.grid.freqGrid, T) * bbar), axis=0)  # Update temperature using the material energy equation)
-        
+
         # Calculation of the rhs of eq (Q*)
-        rhsCalc = 4 * np.pi * self.material.sigma_a(self.grid.freqGroups, T_next) * bbar + self.timeTerm * self.psi_old # Right-hand side of the transport equation
-        rhs = np.broadcast_to(rhsCalc[:, None, :], self.fullTensor.shape).copy()
+        rhs = 4 * np.pi * self.material.sigma_a(self.grid.freqGroups, T_next) * bbar + self.timeTerm * self.psi_old  + self.material.Q# Right-hand side of the transport equation
+
         # Update grid object
         self.grid.temperatureSet[:, self.grid.timeStep] = T_next
         self.grid.rhs = rhs
@@ -238,10 +240,10 @@ class CoupledEquations:
 
         # Loop through frequency
         for f in range(self.freq):
-            rhs = self.rhs[f]
+            rhs = self.grid.rhs[f]
             phi = self.fullTens[f]
             new_phi = self.fullTens[f]
-            sig_t = sig_tSet[f]
+            sig_t = self.sigmaStarVar[f]
 
             # Loop through Angles
             for m in range(self.sn):

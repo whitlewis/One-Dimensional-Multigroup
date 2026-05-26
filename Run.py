@@ -31,6 +31,7 @@ def mainReeds():
     Vis.plotSpaceTime(fullPhi, params, grid.timeSet)
     Vis.plotFinalFlux(grid)
     Vis.animate_solution(fullPhi, params, grid)
+    Vis.plotTemperatureTime(grid)
     return grid
 
 grid = main()

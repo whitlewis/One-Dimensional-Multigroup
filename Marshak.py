@@ -11,14 +11,18 @@ class Parameters:
         # Angular discretization parameters
         self.sn = 8
 
-        # Initial and source temperature parameters (not used in this example, but can be extended for thermal problems)
-        self.initialTemperature = 0.0
-        self.sourceTemp = 1.0
+        # Initial and source temperature parameters
+        self.initialTemperature = 0.5
+        self.sourceTemp = 0.5
 
         # Spatial grid parameters
         self.xMin = -8
         self.xMax = 8
         self.nBins = 120
+
+        # Boundary conditions (currently for all frequencies and angles, but could be replaced with planckian of temperature)
+        self.boundaryLeft = 0.0
+        self.boundaryRight = 0.0
 
         # Group parameters
         self.freqNum = 1
@@ -40,7 +44,8 @@ class Material:
         self.grid = grid
     
     def sigma_a(self, freq, T): # Placeholder constant opacity
-        return 100
+        return np.ones((self.params.freqNum, self.params.nBins))*100
+
     
     def C_v(self, T):  # Placeholder constant heat capacity
         return 1.0
