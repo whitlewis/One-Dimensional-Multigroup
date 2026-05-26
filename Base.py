@@ -12,8 +12,8 @@ class Grid:
         self.spaceGrid = np.linspace(parameters.xMin, parameters.xMax, parameters.nBins + 1)  # cell edges
         self.spaceMid = 0.5 * (self.spaceGrid[:-1] + self.spaceGrid[1:])  # cell centers
         if parameters.freqNum > 1:
-            self.freqGrid = np.append(np.logspace(-12, np.log10(25), parameters.freqNum - 1), parameters.maxFreq)  # logarithmic spacing
-        else: 
+            self.freqGrid = np.logspace(-12, np.log10(parameters.maxFreq), parameters.freqNum + 1)  # logarithmic spacing over group boundaries
+        else:
             self.freqGrid = np.array([1e-3, parameters.maxFreq])  # single frequency case
         self.freqGroups = 0.5 * (self.freqGrid[:-1] + self.freqGrid[1:])
         self.fullTensor = np.zeros((parameters.freqNum, parameters.sn, parameters.nBins))  # (nfreq, nMu, nBins)

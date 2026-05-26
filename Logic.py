@@ -151,7 +151,8 @@ class CoupledEquations:
     def initSpectra(self):
         T0 = self.params.initialTemperature
         planck = self.groupPlanck(T0) 
-        self.grid.fullTensor[:] = planck[:, None, None]
+        print(f' initial shape check: {planck.shape}')  # Check the shape of the planck function
+        self.grid.fullTensor[:] = planck[:, None]
         self.grid.updateFullTensor(self.grid.fullTensor)
         return self.grid.fullTensor.copy()
 
@@ -167,12 +168,22 @@ class CoupledEquations:
         self.fullTens = self.grid.fullTensor.copy()
         self.psi_old = self.grid.fullTensor.copy()
 
+
+    # Helper for boundary
+    def boundaryPlanck(self):
+        T0 = self.params.boundaryLeft
+        T1 = self.params.boundaryRight
+        planckLeft = np.broadcast_to(self.groupPlanck(T0), (self.params.freqNum, self.sn))  # shape: (freqNum, sn)
+        planckRight = np.broadcast_to(self.groupPlanck(T1), (self.params.freqNum, self.sn))  # shape: (freqNum, sn)
+        return planckLeft, planckRight
+
     # Possible time varying Boundary condition
     def boundaryCondition(self, side, time):
+        left, right = self.boundaryPlanck()
         if side == "left":
-            return np.ones((self.freq, self.sn))*self.params.boundaryLeft
+            return left
         elif side == "right":
-            return np.ones((self.freq, self.sn))*self.params.boundaryRight
+            return right
 
     # Time term from discretization
     def timeAbsorption(self):
@@ -212,7 +223,7 @@ class CoupledEquations:
         T_next = T + f * np.sum((self.material.sigma_a(self.grid.freqGrid, T) * phi - 4*np.pi*self.material.sigma_a(self.grid.freqGrid, T) * bbar), axis=0)  # Update temperature using the material energy equation)
 
         # Calculation of the rhs of eq (Q*)
-        rhs = 4 * np.pi * self.material.sigma_a(self.grid.freqGroups, T_next) * bbar + self.timeTerm * self.psi_old  + self.material.Q# Right-hand side of the transport equation
+        rhs = 4 * np.pi * self.material.sigma_a(self.grid.freqGroups, T_next) * bbar + self.timeTerm * self.psi_old # Right-hand side of the transport equation
 
         # Update grid object
         self.grid.temperatureSet[:, self.grid.timeStep] = T_next

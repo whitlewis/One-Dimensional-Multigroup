@@ -16,11 +16,11 @@ class Parameters:
         self.sourceTemp = 0.5
 
         # Spatial grid parameters
-        self.xMin = -8
-        self.xMax = 8
+        self.xMin = -30
+        self.xMax = 30
         self.nBins = 120
 
-        # Boundary conditions (currently for all frequencies and angles, but could be replaced with planckian of temperature)
+        # Boundary conditions (currently for all frequencies and angles, planckian of temperature)
         self.boundaryLeft = 0.5
         self.boundaryRight = 0.5
 
@@ -58,7 +58,7 @@ class Material:
 
 
 
-class Marshak:
+class InfiniteMedium:
     def __init__(self, grid, constants):
         self.parameters = Parameters()
         self.material = Material(self.parameters, grid)

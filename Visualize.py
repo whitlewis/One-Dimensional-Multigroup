@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.ticker import ScalarFormatter
 from datetime import datetime
 from matplotlib.animation import FuncAnimation
 
@@ -29,22 +30,30 @@ def PlotTemperature(grid):
     plt.show()
 
 def plotTemperatureTime(grid):
-    x = grid.spaceMid # cell centers
+    x = grid.spaceMid  # cell centers
+    time = grid.timeSet
     T_time = grid.temperatureSet  # shape: (nBins, nSteps+1)
 
-    plt.figure(figsize=(8, 5))
-    plt.imshow(
-        T_time.T,  # Transpose to have time on the vertical axis
-        aspect='auto',
-        origin='lower',
-        extent=[grid.params.xMin, grid.params.xMax, 0, grid.params.timeMax]
+    fig, ax = plt.subplots(figsize=(8, 5))
+    pcm = ax.pcolormesh(
+        x,
+        time,
+        T_time.T,
+        shading='auto',
+        cmap='viridis'
     )
 
-    plt.colorbar(label='Temperature T')
-    plt.xlabel('Position x')
-    plt.ylabel('Time')
-    plt.title('Space-Time Temperature Distribution')
+    fig.colorbar(pcm, label='Temperature T', ax=ax)
+    ax.set_xlabel('Position x')
+    ax.set_ylabel('Time')
+    ax.set_title('Space-Time Temperature Distribution')
+    ax.xaxis.set_major_formatter(ScalarFormatter(useOffset=False, useMathText=False))
+    ax.yaxis.set_major_formatter(ScalarFormatter(useOffset=False, useMathText=False))
+    ax.ticklabel_format(style='plain', axis='both', useOffset=False)
+    ax.xaxis.get_offset_text().set_visible(False)
+    ax.yaxis.get_offset_text().set_visible(False)
 
+    plt.tight_layout()
     plt.show()
 
 def plotFinalFlux(grid, label="Final Scalar Flux"):

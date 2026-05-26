@@ -1,5 +1,6 @@
 import Marshak
 from Marshak import Marshak as MarProblem
+from InfiniteMedium import InfiniteMedium
 import Reeds
 from Reeds import Reeds as ReedsProblem
 import Base as Base
@@ -12,6 +13,23 @@ def main():
     grid = Base.Grid(params, constants)
     MarshakProblem = MarProblem(grid, constants)
     BaseSolver = Base.Base(grid, MarshakProblem, params,  constants)
+    print(np.shape(grid.fullTensor))
+    print(f'Initial condition check: {grid.fullTensor[:, :, 0]}')  # Print the initial condition for the first spatial bin
+
+    fullTensor, grid = BaseSolver.solve()
+    fullPhi = np.squeeze(grid.fullTensorPhiTime)  # shape: (nSteps+1, nBins)
+    Vis.plotSpaceTime(fullPhi, params, grid.timeSet)
+    Vis.plotFinalFlux(grid)
+    # Vis.animate_solution(fullPhi, params, grid)
+    Vis.plotTemperatureTime(grid)
+    return grid
+
+def mainInfinite():
+    constants = Base.Constants()
+    params = InfiniteMedium.Parameters()
+    grid = Base.Grid(params, constants)
+    InfiniteMediumProblem = InfiniteMedium.InfiniteMedium(grid, constants)
+    BaseSolver = Base.Base(grid, InfiniteMediumProblem, params,  constants)
     fullTensor, grid = BaseSolver.solve()
     fullPhi = np.squeeze(grid.fullTensorPhiTime)  # shape: (nSteps+1, nBins)
     Vis.plotSpaceTime(fullPhi, params, grid.timeSet)
@@ -31,7 +49,6 @@ def mainReeds():
     Vis.plotSpaceTime(fullPhi, params, grid.timeSet)
     Vis.plotFinalFlux(grid)
     Vis.animate_solution(fullPhi, params, grid)
-    Vis.plotTemperatureTime(grid)
     return grid
 
 grid = main()
