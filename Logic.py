@@ -116,7 +116,7 @@ class CoupledEquations:
         self.timeTerm = 0.0
 
         # Init tensors for calculations
-        self.fullTens = grid.fullTensor.copy()  # shape: (freqNum, sn, nBins)
+        self.fullTensor = grid.fullTensor.copy()  # shape: (freqNum, sn, nBins)
         self.mu = self.grid.muSet
         self.rhs = np.zeros((self.freq, self.params.nBins))
         self.T_next = np.zeros(self.params.nBins)
@@ -210,8 +210,8 @@ class CoupledEquations:
         T_next = T + f * np.sum((self.material.sigma_a(self.grid.freqGrid, T) * phi - 4*np.pi*self.material.sigma_a(self.grid.freqGrid, T) * bbar), axis=0)  # Update temperature using the material energy equation)
         
         # Calculation of the rhs of eq (Q*)
-        rhs = self.material.sigma_a(self.grid.freqGroups, T_next) * bbar - self.material.sigma_a(self.grid.freqGroups, T_next) * phi # Right-hand side of the transport equation
-
+        rhsCalc = 4 * np.pi * self.material.sigma_a(self.grid.freqGroups, T_next) * bbar + self.timeTerm * self.psi_old # Right-hand side of the transport equation
+        rhs = np.broadcast_to(rhsCalc[:, None, :], self.fullTensor.shape).copy()
         # Update grid object
         self.grid.temperatureSet[:, self.grid.timeStep] = T_next
         self.grid.rhs = rhs
@@ -224,41 +224,48 @@ class CoupledEquations:
     def radiationSweep(self):
         # Initialize time set assets
         self.startTimeStep()
-        newfull = np.zeros_like(self.grid.fullTensor)
 
-        # Compute RHS once per sweep updating temperature
+        # update Temperature and get Q*
         self.materialEquation()
 
         # Set up Boundary conditions at the time step (allows for variable boundary conditions)
         time = self.grid.timeSet[self.grid.timeStep]
-        phiBl = self.boundaryCondition("left", time)
-        phiBr = self.boundaryCondition("right", time)
+        phibl = self.boundaryCondition("left", time)
+        phibr = self.boundaryCondition("right", time)
 
+        # Initialize the next tensor
+        newFull = np.zeros_like(self.fullTens)
 
-        # We only loop over angles (m). Frequency (f) is handled by the array
-        for m, mu_val in enumerate(self.mu):
-            if mu_val > 0:
-                # --- Forward sweep ---
-                # Boundary cell i=0 (Vectorized over all f)
-                newfull[:, m, 0] = (self.rhs[:, 0] + (mu_val / self.dx) * phiBl[:, m]) / \
-                                (mu_val / self.dx + self.sigmaStar(self.T_next[0]))
-                
-                for i in range(self.params.nBins - 1):
-                    # Interior cells (Vectorized over all f)
-                    newfull[:, m, i + 1] = (self.rhs[:, i + 1] + (mu_val / self.dx) * self.grid.fullTensor[:, m, i]) / \
-                                        (mu_val / self.dx + self.sigmaStar(self.T_next[i + 1]))
-            else:
-                # --- Backward sweep ---
-                # Boundary cell i=-1
-                # Use mu[m] (a single number) instead of mu (the whole array)
-                newfull[:, m, -1] = (self.rhs[:, -1] + (abs(mu_val) / self.dx) * phiBr[:, m]) / \
-                                    (abs(mu_val) / self.dx + self.sigmaStar(self.T_next[-1]))
-                
-                for i in range(self.params.nBins - 1, 0, -1):
-                    newfull[:, m, i - 1] = (self.rhs[:, i - 1] + (mu_val / self.dx) * self.grid.fullTensor[:, m, i]) / \
-                                        (mu_val / self.dx + self.sigmaStar(self.T_next[i - 1]))
-        self.grid.fullTensor = newfull.copy()
-        self.grid.temperatureSet[:, self.grid.timeStep] = self.T_next  # Update the temperature set for the current time step
+        # Loop through frequency
+        for f in range(self.freq):
+            rhs = self.rhs[f]
+            phi = self.fullTens[f]
+            new_phi = self.fullTens[f]
+            sig_t = sig_tSet[f]
+
+            # Loop through Angles
+            for m in range(self.sn):
+                # Upwind 
+                if self.mu[m] > 0:
+                    # Forward sweep
+                    new_phi[m, 0] = (rhs[m, 0] + (self.mu[m] / self.grid.dx) * phibl[f, m]) / (self.mu[m] / self.grid.dx + sig_t[0])
+                    for i in range(self.params.nBins-1):
+                        new_phi[m, i + 1] = (
+                            rhs[m, i+1] + (self.mu[m] / self.grid.dx) * phi[m, i]
+                        ) / (self.mu[m] / self.grid.dx + sig_t[i+1])
+
+                else:
+                    # Backward sweep
+                    new_phi[m, -1] = (rhs[m, -1] + (abs(self.mu[m]) / self.grid.dx) * phibr[f, m]) / (abs(self.mu[m]) / self.grid.dx + sig_t[-1])
+                    for i in range(self.params.nBins - 1, 0, -1):
+                        new_phi[m, i-1] = (
+                            rhs[m, i-1] + (abs(self.mu[m]) / self.grid.dx) * phi[m, i]
+                        ) / (abs(self.mu[m]) / self.grid.dx + sig_t[i-1])
+            # for each group update the tensor
+            newFull[f] = new_phi
+
+        # Set fullTensor to the updated Tensor
+        self.grid.fullTensor = newFull.copy()
 
 
 class MovingMeshEquations:
