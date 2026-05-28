@@ -12,7 +12,8 @@ class Parameters:
         self.sn = 8
 
         # Initial and source temperature parameters
-        self.initialTemperature = 0.5
+        self.initialTemperature = 0.5       # material temperature
+        self.radiationTemperature = 0.8     # Radiation temperature
         self.sourceTemp = 0.5
 
         # Spatial grid parameters
@@ -25,8 +26,10 @@ class Parameters:
         self.boundaryRight = 0.5
 
         # Group parameters
-        self.freqNum = 1
-        self.maxFreq = 150
+        self.freqNum = 100
+        self.minFreq = 1e-3
+        self.maxFreq = 30
+        self.infFreq = 150
 
         # Time stepping parameters
         self.nSteps = nSteps
@@ -50,11 +53,6 @@ class Material:
     def C_v(self, T):  # Placeholder constant heat capacity
         return 1.0
     
-    def addSource(self):
-        # add a source somewhere in the domain
-        source = np.zeros((self.grid.freqNum, self.grid.sn))
-        source[:, :] = self.params.sourceTemp  # Set the source temperature for all frequencies and angles
-        return source
 
 
 

@@ -25,8 +25,10 @@ class Parameters:
         self.boundaryRight = 0.5
 
         # Group parameters
-        self.freqNum = 1
-        self.maxFreq = 150
+        self.freqNum = 100
+        self.minFreq = 1e-3
+        self.maxFreq = 30
+        self.infFreq = 150
 
         # Time stepping parameters
         self.nSteps = nSteps

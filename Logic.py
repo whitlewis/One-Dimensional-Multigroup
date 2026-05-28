@@ -149,7 +149,7 @@ class CoupledEquations:
 
     # Function for initial Condition as Planckian (helper for initialCondition)  
     def initSpectra(self):
-        T0 = self.params.initialTemperature
+        T0 = self.params.radiationTemperature
         planck = self.groupPlanck(T0) 
         print(f' initial shape check: {planck.shape}')  # Check the shape of the planck function
         self.grid.fullTensor[:] = planck[:, None]
@@ -165,6 +165,7 @@ class CoupledEquations:
     # Helper function to define initial conditions
     def applyInitialConditions(self):
         self.grid.fullTensor = self.initialCondition()
+        self.grid.fullTensorPhi = self.getPhi()
         self.fullTens = self.grid.fullTensor.copy()
         self.psi_old = self.grid.fullTensor.copy()
 
@@ -208,7 +209,7 @@ class CoupledEquations:
     def phiGroup(self):
         return
 
-    # Definition of the coupled material equation
+    # Definition of the coupled material equation (Correct now)
     def materialEquation(self):
         # Outer constant calc
         dt = self.grid.dt[self.grid.timeStep]
@@ -226,7 +227,6 @@ class CoupledEquations:
         rhs = 4 * np.pi * self.material.sigma_a(self.grid.freqGroups, T_next) * bbar + self.timeTerm * self.psi_old # Right-hand side of the transport equation
 
         # Update grid object
-        self.grid.temperatureSet[:, self.grid.timeStep] = T_next
         self.grid.rhs = rhs
         self.grid.T_next = T_next
     

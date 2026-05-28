@@ -3,16 +3,49 @@ import matplotlib.pyplot as plt
 from matplotlib.ticker import ScalarFormatter
 from datetime import datetime
 from matplotlib.animation import FuncAnimation
+from Base import Constants as const
 
 
-def plotOut(phil, grid, angle=0, label=""):
+
+# Helpful equations for plot ref (from Logic.py)
+# Base Planck definiton
+def planck(nu, T):  # Planck function (not group integrated or weighted)
+    denom = np.expm1(nu/T)  # exp(x)-1 safely
+    f = (15.0 * const.a * const.c) / (4.0 * np.pi**5)
+    return f * nu**3 / denom
+
+# Simpson for integration over group
+def simpson(integrand, lo, hi):
+    h = (hi - lo) / 3
+    out = 3/8 *h* (integrand(lo) + 3*integrand(lo + h) + 3*integrand(lo +2*h) +integrand(hi))
+    return out
+
+# Group integrated Planck
+def groupPlanck(freqGrid, T):
+    # Integrate the Planck function over each frequency group to get group-averaged source
+    lo = freqGrid[:-1, None]
+    hi = freqGrid[1:, None]
+    integrand = lambda nu: planck(nu, T)
+    bbar = simpson(integrand, lo, hi)
+    return bbar
+
+
+# Plot the scalar flux for a time and space across all groups
+def plotPhiStepFreq(grid, step, label="Initial Scalar Flux  accross Frequencies φ"):
+    freqs = grid.freqGroups
+    phi = grid.fullTensorPhi[:, step]  # shape: (nBins,)
     
-    x = 0.5 * (grid.grid[:-1] + grid.grid[1:])  # cell centers
-
-    plt.plot(x, phil[angle], label=f"{label} μ={grid.muSet[angle]:.2f}")
-    plt.xlabel("Position x")
-    plt.ylabel("Angular Flux ψ")
+    print(f'initial temperature for step {step}: 0.8')  # Print the initial temperature for the specified time step
+    plt.semilogx(freqs, planck(freqs, 0.8), label="Planckian")  # Plot the Planck function for reference
+    plt.semilogx(freqs, groupPlanck(grid.freqGrid, 0.8), label="Group-Integrated Planck")  # Plot the group-integrated Planck function for reference
+    plt.semilogx(freqs, phi, label=label, linestyle = '--')
+    plt.xlabel("Frequency Groups")
+    plt.ylabel("Scalar Flux φ")
     plt.legend()
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"figures/{label}_{timestamp}.pdf"
+    # plt.savefig(filename)
     plt.show()
 
 

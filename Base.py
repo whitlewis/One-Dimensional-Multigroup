@@ -2,24 +2,35 @@ import numpy as np
 import numpy.polynomial.legendre as leggauss
 
 class Constants:
+    # all physical constants
     c = 1.0  
     a = 0.01374
     h = 1.0
 
 class Grid:
     def __init__(self, parameters, Constants=Constants()):
+        # Space grid
         self.dx = (parameters.xMax - parameters.xMin) / parameters.nBins
         self.spaceGrid = np.linspace(parameters.xMin, parameters.xMax, parameters.nBins + 1)  # cell edges
         self.spaceMid = 0.5 * (self.spaceGrid[:-1] + self.spaceGrid[1:])  # cell centers
-        if parameters.freqNum > 1:
-            self.freqGrid = np.logspace(-12, np.log10(parameters.maxFreq), parameters.freqNum + 1)  # logarithmic spacing over group boundaries
+
+        # Frequency grid
+        if parameters.freqNum > 2:
+            self.freqGrid = np.append(np.logspace(np.log10(parameters.minFreq), np.log10(parameters.maxFreq), parameters.freqNum), parameters.infFreq)  # logarithmic spacing over group boundaries
+        elif parameters.freqNum == 2:
+            self.freqGrid = np.array([1e-3, parameters.maxFreq, parameters.infFreq])  # two groups: one for low frequencies and one for high frequencies
         else:
             self.freqGrid = np.array([1e-3, parameters.maxFreq])  # single frequency case
+
+        # Gives midpoints of frequency groups no matter number
         self.freqGroups = 0.5 * (self.freqGrid[:-1] + self.freqGrid[1:])
-        self.fullTensor = np.zeros((parameters.freqNum, parameters.sn, parameters.nBins))  # (nfreq, nMu, nBins)
+
+
+        # Angular discretization
         self.muSet, self.w = np.polynomial.legendre.leggauss(parameters.sn)  # Gauss-Legendre quadrature points and weights for angular discretization
         self.w /= 2.0  # Normalize weights to sum to 1
 
+        # Time discretization (log or linear spaced)
         if parameters.timeScale == "log":
             self.timeSet = np.logspace(-12, np.log10(parameters.timeMax), parameters.nSteps+1)  # logarithmic time steps (could be linear)
         
@@ -27,11 +38,17 @@ class Grid:
             self.timeSet = np.linspace(0, parameters.timeMax, parameters.nSteps+1)  # linear time steps
         self.dt = np.diff(self.timeSet)  # time step sizes
 
-        self.timeStep = 0
+        # Individual time step frameworks
+        self.fullTensor = np.zeros((parameters.freqNum, parameters.sn, parameters.nBins))  # (nfreq, nMu, nBins)
         self.temperatureSet = np.ones((parameters.nBins, parameters.nSteps+1))*parameters.initialTemperature  # Initialize temperature set for all time steps
+
+        # Time-dependent tensors
         self.fullTensorTime = np.zeros((parameters.nSteps+1,) + self.fullTensor.shape)  # shape: (nSteps+1, freqNum, nMu, nBins)
         self.fullTensorPhi = np.zeros((parameters.freqNum, parameters.nBins))  # shape: (freqNum, nMu, nBins)
         self.fullTensorPhiTime = np.zeros((parameters.nSteps+1,) + self.fullTensorPhi.shape)  # shape: (nSteps+1, freqNum, nBins)
+
+        # Helper variables for calculations
+        self.timeStep = 0   # time step counter
         self.rhsfull = np.zeros((parameters.freqNum, parameters.nBins))  # shape: (freqNum, sn, nBins)
         self.psiOld = np.zeros((parameters.freqNum, parameters.sn, parameters.nBins))  # shape: (freqNum, sn, nBins)
 
@@ -47,12 +64,10 @@ class Base:
         self.constants = constants
         self.params = params
     
-
-
     def converge(self):
         for it in range(self.params.maxIters):
             self.problem.equations.radiationSweep()  # Perform the radiation sweep to get the new solution
-            err = np.max(np.abs((self.grid.fullTensor - self.fullTensOld)))    # directly compare the full values for convergence
+            err = np.max(np.abs((self.grid.fullTensor - self.fullTensOld)))    # directly compare the full values for convergence (Space, angle, and frequency group convergence)
             if np.isnan(err).any() or np.isinf(err).any():
                 name = "Convergence Check"
                 print("\n⚠️ INVALID RESULT DETECTED")
@@ -66,6 +81,7 @@ class Base:
                 if it > 10: print(f"Converged in {it} iterations")
                 break
             self.fullTensOld = self.grid.fullTensor.copy()
+            
 
     def getPhi(self):
         # Integrate over angles to get scalar flux
@@ -82,6 +98,8 @@ class Base:
         self.grid.fullTensorTime[0] = self.grid.fullTensor.copy()    # Initialize 0'th step (Thanks to Johannes for this fix)
         self.grid.fullTensorPhiTime[0] = self.getPhi()
         self.grid.fullTensOld = self.grid.fullTensor.copy()  # Initialize old solution for time-stepping
+        if self.params.materialCoupled:                      # update temperature for next step
+            self.grid.temperatureSet[:, self.grid.timeStep] = self.problem.equations.equations.T_next
         
         print("Starting Solve...") 
         for index, time in enumerate(self.grid.timeSet[:-1]):
