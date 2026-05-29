@@ -7,12 +7,14 @@ class Parameters:
         # Tolerance and iteration parameters
         self.maxIters = maxIters
         self.tol = tol
+        self.checkEnergy = False
 
         # Angular discretization parameters
         self.sn = 8
 
         # Initial and source temperature parameters
-        self.initialTemperature = 0.5
+        self.initialTemperature = 0.5       # material temperature
+        self.radiationTemperature = 0.8     # Radiation temperature
         self.sourceTemp = 0.5
 
         # Spatial grid parameters
@@ -25,7 +27,7 @@ class Parameters:
         self.boundaryRight = 0.5
 
         # Group parameters
-        self.freqNum = 100
+        self.freqNum = 20
         self.minFreq = 1e-3
         self.maxFreq = 30
         self.infFreq = 150

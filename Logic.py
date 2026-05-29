@@ -151,12 +151,9 @@ class CoupledEquations:
     def initSpectra(self):
         T0 = self.params.radiationTemperature
         planck = self.groupPlanck(T0) 
-        print(f' initial shape check: {planck.shape}')  # Check the shape of the planck function
         self.grid.fullTensor[:] = planck[:, None]
         self.grid.updateFullTensor(self.grid.fullTensor)
         return self.grid.fullTensor.copy()
-
-     # Define initial conditions here
     
     # Set initial Conditions here
     def initialCondition(self):
@@ -218,18 +215,23 @@ class CoupledEquations:
         # Lagged temperature and phi
         T = self.grid.temperatureSet[:, self.grid.timeStep]  # Current temperature in all x cells (120,1)
         phi = self.getPhi()  # Compute scalar flux by integrating over angles
-        bbar = self.groupPlanck(T)  # Get the group-averaged Planckian for the material 
-
-        # Calculation of next temperature
-        T_next = T + f * np.sum((self.material.sigma_a(self.grid.freqGrid, T) * phi - 4*np.pi*self.material.sigma_a(self.grid.freqGrid, T) * bbar), axis=0)  # Update temperature using the material energy equation)
-
+        bbar = self.groupPlanck(self.grid.T_next)  # Get the group-averaged Planckian for the material 
+        
+        # Calculation of next temperature\
+        T_offset = f * np.sum((self.material.sigma_a(self.grid.freqGrid, self.grid.T_next) * phi - 4*np.pi*self.material.sigma_a(self.grid.freqGrid, self.grid.T_next) * bbar), axis=0)
+        T_next = T + T_offset  # Update temperature using the material energy equation)
         # Calculation of the rhs of eq (Q*)
-        rhs = 4 * np.pi * self.material.sigma_a(self.grid.freqGroups, T_next) * bbar + self.timeTerm * self.psi_old # Right-hand side of the transport equation
+        bbarNext = self.groupPlanck(T_next)  # Get the group-averaged Planckian for the next temperature
+        bbarNext = np.broadcast_to(bbarNext[:, None,:], (self.params.freqNum, self.sn, self.params.nBins))  # shape: (freqNum, sn, nBins)
+        sa = np.broadcast_to(self.material.sigma_a(self.grid.freqGroups, T_next)[:,None,:], (self.params.freqNum, self.sn, self.params.nBins))  # shape: (freqNum, sn, nBins)
 
-        # Update grid object
-        self.grid.rhs = rhs
-        self.grid.T_next = T_next
-    
+        rhs = 4 * np.pi * sa * bbarNext + self.timeTerm * self.psi_old # Right-hand side of the transport equation
+        
+        # Update grid object and persist next temperature on the equations object
+        self.grid.rhs = rhs.copy()
+        self.T_next = T_next.copy()
+        self.grid.T_next = T_next.copy()
+
     # Define modified opacity
     def sigmaStar(self, T):
         return self.material.sigma_a(self.grid.freqGrid, T) + 1/self.const.c*1/self.grid.dt[self.grid.timeStep]  # modified opacity
@@ -237,9 +239,6 @@ class CoupledEquations:
     def radiationSweep(self):
         # Initialize time set assets
         self.startTimeStep()
-
-        # update Temperature and get Q*
-        self.materialEquation()
 
         # Set up Boundary conditions at the time step (allows for variable boundary conditions)
         time = self.grid.timeSet[self.grid.timeStep]
@@ -258,6 +257,7 @@ class CoupledEquations:
 
             # Loop through Angles
             for m in range(self.sn):
+
                 # Upwind 
                 if self.mu[m] > 0:
                     # Forward sweep
@@ -293,18 +293,22 @@ class MovingMeshEquations:
         self.dx = grid.dx
         self.time_step = None
 
+
+
 class Logic:
     def __init__(self, params, grid, material, constants):
         self.grid = grid
         self.constants = constants
         self.params = params
         self.material = material
+        
     
         if not self.params.materialCoupled:
             self.equations = Equations(params, grid, material, constants)
 
         else:
             self.equations = CoupledEquations(params, grid, material, constants)
+            self.materialEquation = self.equations.materialEquation  # Expose material equation for coupled problems
 
     def applyInitialConditions(self):
         self.equations.applyInitialConditions()

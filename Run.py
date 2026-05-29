@@ -1,6 +1,7 @@
 import Marshak
 from Marshak import Marshak as MarProblem
-from InfiniteMedium import InfiniteMedium
+import InfiniteMedium   
+from InfiniteMedium import InfiniteMedium as IM
 import Reeds
 from Reeds import Reeds as ReedsProblem
 import Base as Base
@@ -17,8 +18,8 @@ def main():
     print(f'Initial condition check: {grid.fullTensor[:, :, 0]}')  # Print the initial condition for the first spatial bin
 
     fullTensor, grid = BaseSolver.solve()
-    fullPhi = np.squeeze(grid.fullTensorPhiTime)  # shape: (nSteps+1, nBins)
-    Vis.plotSpaceTime(fullPhi, params, grid.timeSet)
+    fullPhi = np.squeeze(grid.fullTensorPhiTime)
+    Vis.plotSpaceTime(fullPhi[:,5,:], params, grid.timeSet)
     Vis.plotFinalFlux(grid)
     # Vis.animate_solution(fullPhi, params, grid)
     Vis.plotTemperatureTime(grid)
@@ -28,13 +29,17 @@ def mainInfinite():
     constants = Base.Constants()
     params = InfiniteMedium.Parameters()
     grid = Base.Grid(params, constants)
-    InfiniteMediumProblem = InfiniteMedium.InfiniteMedium(grid, constants)
+    InfiniteMediumProblem = IM(grid, constants)
     BaseSolver = Base.Base(grid, InfiniteMediumProblem, params,  constants)
     fullTensor, grid = BaseSolver.solve()
-    fullPhi = np.squeeze(grid.fullTensorPhiTime)  # shape: (nSteps+1, nBins)
-    Vis.plotSpaceTime(fullPhi, params, grid.timeSet)
+    fullPhi = np.squeeze(grid.fullTensorPhiTime)
+    Vis.plotSpaceTime(fullPhi[:,5,:], params, grid.timeSet)
     Vis.plotFinalFlux(grid)
-    Vis.animate_solution(fullPhi, params, grid)
+    # Vis.animate_solution(fullPhi, params, grid)
+    Vis.plotTemperatureTime(grid)
+    Vis.plotTemperature(grid)
+    Vis.plotPhiStepFreq(grid, params, step=20, label="Initial Scalar Flux φ")
+    Vis.plotPhiStepFreq(grid, params, step=-1, label="Final Scalar Flux φ")
     return grid
 
 
@@ -51,4 +56,4 @@ def mainReeds():
     Vis.animate_solution(fullPhi, params, grid)
     return grid
 
-grid = main()
+grid = mainInfinite()

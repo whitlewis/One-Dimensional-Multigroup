@@ -8,6 +8,7 @@ class Parameters:
         # Tolerance and iteration parameters
         self.maxIters = maxIters
         self.tol = tol
+        self.checkEnergy = False
 
         # Angular discretization parameters
         self.sn = 8

@@ -31,13 +31,13 @@ def groupPlanck(freqGrid, T):
 
 
 # Plot the scalar flux for a time and space across all groups
-def plotPhiStepFreq(grid, step, label="Initial Scalar Flux  accross Frequencies φ"):
+def plotPhiStepFreq(grid, params, step, label="Initial Scalar Flux  accross Frequencies φ"):
     freqs = grid.freqGroups
     phi = grid.fullTensorPhi[:, step]  # shape: (nBins,)
     
-    print(f'initial temperature for step {step}: 0.8')  # Print the initial temperature for the specified time step
-    plt.semilogx(freqs, planck(freqs, 0.8), label="Planckian")  # Plot the Planck function for reference
-    plt.semilogx(freqs, groupPlanck(grid.freqGrid, 0.8), label="Group-Integrated Planck")  # Plot the group-integrated Planck function for reference
+    print(f'initial temperature for step {step}: {params.radiationTemperature}')  # Print the initial temperature for the specified time step
+    plt.semilogx(freqs, planck(freqs, params.radiationTemperature), label="Planckian")  # Plot the Planck function for reference
+    plt.semilogx(freqs, groupPlanck(grid.freqGrid, params.radiationTemperature), label="Group-Integrated Planck")  # Plot the group-integrated Planck function for reference
     plt.semilogx(freqs, phi, label=label, linestyle = '--')
     plt.xlabel("Frequency Groups")
     plt.ylabel("Scalar Flux φ")
@@ -49,12 +49,14 @@ def plotPhiStepFreq(grid, step, label="Initial Scalar Flux  accross Frequencies 
     plt.show()
 
 
-def PlotTemperature(grid):
-    x = grid.spaceMid # cell centers
-    labelT = "Final Temperature T"
-    T = grid.temperatureSet[:, -1]  # Final temperature distribution at the last time step
-    plt.plot(x, T, label=labelT)
-    plt.xlabel("Position x")
+def plotTemperature(grid):
+    t = grid.timeSet # cell centers
+    labelT = "Temperature vs Time"
+    shape = grid.temperatureSet.shape
+    print(f'Temperature set shape: {shape}')  # Debugging print statement to check the shape of temperatureSet
+    T = grid.temperatureSet[20][:]  # Final temperature distribution at the last time step
+    plt.plot(t, T, label=labelT)
+    plt.xlabel("Time t")
     plt.ylabel("Temperature T")
     plt.legend()
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")

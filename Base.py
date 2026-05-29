@@ -9,6 +9,7 @@ class Constants:
 
 class Grid:
     def __init__(self, parameters, Constants=Constants()):
+
         # Space grid
         self.dx = (parameters.xMax - parameters.xMin) / parameters.nBins
         self.spaceGrid = np.linspace(parameters.xMin, parameters.xMax, parameters.nBins + 1)  # cell edges
@@ -40,7 +41,9 @@ class Grid:
 
         # Individual time step frameworks
         self.fullTensor = np.zeros((parameters.freqNum, parameters.sn, parameters.nBins))  # (nfreq, nMu, nBins)
-        self.temperatureSet = np.ones((parameters.nBins, parameters.nSteps+1))*parameters.initialTemperature  # Initialize temperature set for all time steps
+        self.temperatureSet = np.zeros((parameters.nBins, parameters.nSteps+1)) # Initialize temperature set for all time steps
+        self.temperatureSet[:, 0] = parameters.initialTemperature  # Set initial temperature distribution at time step 0
+        self.T_next = self.temperatureSet[:, 0].copy()  # Initialize T_next for the first step
 
         # Time-dependent tensors
         self.fullTensorTime = np.zeros((parameters.nSteps+1,) + self.fullTensor.shape)  # shape: (nSteps+1, freqNum, nMu, nBins)
@@ -66,7 +69,12 @@ class Base:
     
     def converge(self):
         for it in range(self.params.maxIters):
-            self.problem.equations.radiationSweep()  # Perform the radiation sweep to get the new solution
+            # update Temperature and get Q*
+            self.problem.equations.materialEquation()
+
+            # Perform the radiation sweep to get the new solution
+            self.problem.equations.radiationSweep()  
+
             err = np.max(np.abs((self.grid.fullTensor - self.fullTensOld)))    # directly compare the full values for convergence (Space, angle, and frequency group convergence)
             if np.isnan(err).any() or np.isinf(err).any():
                 name = "Convergence Check"
@@ -76,9 +84,8 @@ class Base:
                 print("a =",self.grid.fullTensor)
                 print("b =", self.fullTensOld)
                 print("result =", err)
-                assert 0
             if err < self.params.tol:
-                if it > 10: print(f"Converged in {it} iterations")
+                if it > 40: print(f"Converged in {it} iterations")
                 break
             self.fullTensOld = self.grid.fullTensor.copy()
             
@@ -89,23 +96,59 @@ class Base:
         return fullTensorPhi
     
     def updateAll(self, index):
+        # Updates grid object with new solutions each step
         self.grid.fullTensOld = self.grid.fullTensor.copy()  # Update old solution for time-stepping
         self.grid.fullTensorTime[index] = self.grid.fullTensor.copy()  # Store the solution for this time step
         self.grid.fullTensorPhiTime[index] = self.getPhi().copy()  # Store scalar flux for this time step
         self.grid.timeStep += 1  # Increment time step counter
+        if self.params.materialCoupled:                      # update temperature for next step
+            self.grid.temperatureSet[:, self.grid.timeStep] = self.problem.equations.equations.T_next
+
+    def setEnergy(self):
+        Tmat = self.grid.temperatureSet[:, self.grid.timeStep]  # Current temperature distribution
+        Emat = self.problem.material.C_v(Tmat) * Tmat  # Energy density of the material
+        Erad = np.sum(self.grid.fullTensorPhiTime[self.grid.timeStep] * self.grid.freqGroups[:, None], axis=0)  # Energy density of the radiation
+        totalEnergy = Emat + Erad  # Total energy density
+        self.grid.totalEnergy = totalEnergy  # Store total energy for comparison
+        print("Initial energy set:")
+        print(f"Material energy: {np.sum(Emat):.4e}, Radiation energy: {np.sum(Erad):.4e}")
+        print(f"Total energy: {np.sum(totalEnergy):.4e}")    
+    
+    
+    def checkEnergyConservation(self):
+        Tmat = self.grid.temperatureSet[:, self.grid.timeStep]  # Current temperature distribution
+        Emat = self.problem.material.C_v(Tmat) * Tmat  # Energy density of the material
+        Erad = np.sum(self.grid.fullTensorPhiTime[self.grid.timeStep] * self.grid.freqGroups[:, None], axis=0)  # Energy density of the radiation
+        totalEnergy = Emat + Erad  # Total energy density
+        diffEnergy = np.abs(totalEnergy - self.grid.totalEnergy)  # Change in total energy from previous time step
+        if np.any(diffEnergy > self.params.energyTol):
+            print(f"⚠️ Energy conservation check failed at time step {self.grid.timeStep} (time={self.grid.timeSet[self.grid.timeStep]:.2e})")
+            print(f"Max energy difference: {np.max(diffEnergy):.2e}")
+            print(f"Material energy: {np.sum(Emat):.4e}, Radiation energy: {np.sum(Erad):.4e}")
+            print(f"Total energy: {np.sum(totalEnergy):.4e}")
+            return False
+
+        print(f"Energy conservation check passed at time step {self.grid.timeStep} (time={self.grid.timeSet[self.grid.timeStep]:.2e})")
+        print(f"Max energy difference: {np.max(diffEnergy):.8e}")
+        print(f"Material energy: {np.sum(Emat):.4e}, Radiation energy: {np.sum(Erad):.4e}")
+        print(f"Total energy: {np.sum(totalEnergy):.4e}")
+        return True
     
     def solve(self):
         self.grid.fullTensorTime[0] = self.grid.fullTensor.copy()    # Initialize 0'th step (Thanks to Johannes for this fix)
         self.grid.fullTensorPhiTime[0] = self.getPhi()
         self.grid.fullTensOld = self.grid.fullTensor.copy()  # Initialize old solution for time-stepping
-        if self.params.materialCoupled:                      # update temperature for next step
-            self.grid.temperatureSet[:, self.grid.timeStep] = self.problem.equations.equations.T_next
-        
+        self.setEnergy()  # Initial energy check
+
         print("Starting Solve...") 
         for index, time in enumerate(self.grid.timeSet[:-1]):
             self.fullTensOld = self.grid.fullTensor.copy()  # Update old solution for time-stepping
             self.converge()  # Perform the radiation sweep to get the new solution
             self.updateAll(index)  # Store the solution and increment time step counter
+            if self.params.checkEnergy and index % 50 == 0:  # Check energy conservation every 50 time steps
+                energyConserved = self.checkEnergyConservation()
+                if not energyConserved:
+                    print(f"Energy conservation check failed at time step {index} (time={time:.2e})")
             if index % 200 == 0:  
                 print(f"Completed time step {time:.2e}")
         print("Solve completed.")

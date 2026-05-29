@@ -7,13 +7,16 @@ class Parameters:
         # Tolerance and iteration parameters
         self.maxIters = maxIters
         self.tol = tol
+        self.checkEnergy = True
+        self.energyTol = 1e-15
+        self.totalEnergy = 0.0
 
         # Angular discretization parameters
         self.sn = 8
 
         # Initial and source temperature parameters
         self.initialTemperature = 0.5       # material temperature
-        self.radiationTemperature = 0.8     # Radiation temperature
+        self.radiationTemperature = 2.0     # Radiation temperature
         self.sourceTemp = 0.5
 
         # Spatial grid parameters
@@ -26,14 +29,14 @@ class Parameters:
         self.boundaryRight = 0.5
 
         # Group parameters
-        self.freqNum = 100
+        self.freqNum = 45
         self.minFreq = 1e-3
         self.maxFreq = 30
         self.infFreq = 150
 
         # Time stepping parameters
         self.nSteps = nSteps
-        self.timeMax = 20.0
+        self.timeMax = 0.2
         self.timeScale = "linear"  # "log" or "linear"
 
         # Choices of type of problem
@@ -51,7 +54,7 @@ class Material:
 
     
     def C_v(self, T):  # Placeholder constant heat capacity
-        return 1.0
+        return .01
     
 
 
