@@ -3,7 +3,7 @@ import numpy.polynomial.legendre as leggauss
 import Logic as Log
 
 class Parameters:
-    def __init__(self, maxIters=100, tol=1e-10, nSteps=1000, Transient=True):
+    def __init__(self, maxIters=100, tol=1e-10, nSteps=400, Transient=True):
         # Tolerance and iteration parameters
         self.maxIters = maxIters
         self.tol = tol
@@ -12,24 +12,24 @@ class Parameters:
         self.totalEnergy = 0.0
 
         # Angular discretization parameters
-        self.sn = 8
+        self.sn = 4
 
         # Initial and source temperature parameters
         self.initialTemperature = 0.5       # material temperature
-        self.radiationTemperature = 2.0     # Radiation temperature
+        self.radiationTemperature = 1.0     # Radiation temperature
         self.sourceTemp = 0.5
 
         # Spatial grid parameters
-        self.xMin = -30
-        self.xMax = 30
-        self.nBins = 120
+        self.xMin = -10
+        self.xMax = 10
+        self.nBins = 100
 
         # Boundary conditions (currently for all frequencies and angles, planckian of temperature)
-        self.boundaryLeft = 0.5
-        self.boundaryRight = 0.5
+        self.boundaryLeft = "Infinite"
+        self.boundaryRight = "Infinite"
 
         # Group parameters
-        self.freqNum = 45
+        self.freqNum = 25
         self.minFreq = 1e-3
         self.maxFreq = 30
         self.infFreq = 150
@@ -43,6 +43,7 @@ class Parameters:
         self.transient = Transient
         self.materialCoupled = True
         self.movingCoordinates = False
+        self.energyCheckFreq = 200 # Check energy conservation every 200 time steps
 
 class Material:
     def __init__(self, params, grid):

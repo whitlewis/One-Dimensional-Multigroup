@@ -51,11 +51,17 @@ def plotPhiStepFreq(grid, params, step, label="Initial Scalar Flux  accross Freq
 
 def plotTemperature(grid):
     t = grid.timeSet # cell centers
+    EradSet = []
+    for i, timeStep in enumerate(grid.timeSet):
+        Erad = np.sum(grid.fullTensorPhiTime[i] * grid.freqGroups[:, None], axis=0)
+        EradSet.append(Erad[20])  # Store the radiation energy density at the middle spatial bin for each time step
+    Trad = (np.array(EradSet)/ const.a / const.c)**0.25
     labelT = "Temperature vs Time"
     shape = grid.temperatureSet.shape
     print(f'Temperature set shape: {shape}')  # Debugging print statement to check the shape of temperatureSet
     T = grid.temperatureSet[20][:]  # Final temperature distribution at the last time step
     plt.plot(t, T, label=labelT)
+    plt.plot(t, Trad, label=f"{labelT} from Radiation Energy Density", linestyle='--')
     plt.xlabel("Time t")
     plt.ylabel("Temperature T")
     plt.legend()

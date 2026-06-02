@@ -38,8 +38,6 @@ def mainInfinite():
     # Vis.animate_solution(fullPhi, params, grid)
     Vis.plotTemperatureTime(grid)
     Vis.plotTemperature(grid)
-    Vis.plotPhiStepFreq(grid, params, step=20, label="Initial Scalar Flux φ")
-    Vis.plotPhiStepFreq(grid, params, step=-1, label="Final Scalar Flux φ")
     return grid
 
 

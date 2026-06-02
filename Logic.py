@@ -138,21 +138,11 @@ class CoupledEquations:
         f = (15.0 * self.const.a * self.const.c) / (4.0 * np.pi**5)
         return f * nu**3 / denom
 
-    # Group integrated Planck
-    def groupPlanck(self, T):
-        # Integrate the Planck function over each frequency group to get group-averaged source
-        lo = self.grid.freqGrid[:-1, None]
-        hi = self.grid.freqGrid[1:, None]
-        integrand = lambda nu: self.planck(nu, T)
-        bbar = self.simpson(integrand, lo, hi)
-        return bbar
-
     # Function for initial Condition as Planckian (helper for initialCondition)  
     def initSpectra(self):
         T0 = self.params.radiationTemperature
-        planck = self.groupPlanck(T0) 
+        planck = self.planckBar(T0) 
         self.grid.fullTensor[:] = planck[:, None]
-        self.grid.updateFullTensor(self.grid.fullTensor)
         return self.grid.fullTensor.copy()
     
     # Set initial Conditions here
@@ -169,10 +159,14 @@ class CoupledEquations:
 
     # Helper for boundary
     def boundaryPlanck(self):
+        if self.params.boundaryLeft == "Infinite":
+            self.params.boundaryLeft = self.params.radiationTemperature
+        if self.params.boundaryRight == "Infinite":
+            self.params.boundaryRight = self.params.radiationTemperature
         T0 = self.params.boundaryLeft
         T1 = self.params.boundaryRight
-        planckLeft = np.broadcast_to(self.groupPlanck(T0), (self.params.freqNum, self.sn))  # shape: (freqNum, sn)
-        planckRight = np.broadcast_to(self.groupPlanck(T1), (self.params.freqNum, self.sn))  # shape: (freqNum, sn)
+        planckLeft = np.broadcast_to(self.planckBar(T0), (self.params.freqNum, self.sn))  # shape: (freqNum, sn)
+        planckRight = np.broadcast_to(self.planckBar(T1), (self.params.freqNum, self.sn))  # shape: (freqNum, sn)
         return planckLeft, planckRight
 
     # Possible time varying Boundary condition
@@ -200,10 +194,20 @@ class CoupledEquations:
         self.timeTerm = self.timeAbsorption()
         self.sigmaStarVar = self.sigmaStar(self.grid.temperatureSet[:, self.grid.timeStep])  # Update sigma* for the time step
 
-    def sigmaGroup(self):
+
+    # Group integrated Planck
+    def planckBar(self, T):
+        # Integrate the Planck function over each frequency group to get group-averaged source
+        lo = self.grid.freqGrid[:-1, None]
+        hi = self.grid.freqGrid[1:, None]
+        integrand = lambda nu: self.planck(nu, T)
+        bbar = self.simpson(integrand, lo, hi)
+        return bbar
+
+    def sigmaBar(self):     # Placeholder for group-averaged opacity, currently unnecessary since we are using a constant opacity
         return
     
-    def phiGroup(self):
+    def psiBar(self):       # placeholder, currently unnecessary due to init
         return
 
     # Definition of the coupled material equation (Correct now)
@@ -215,13 +219,13 @@ class CoupledEquations:
         # Lagged temperature and phi
         T = self.grid.temperatureSet[:, self.grid.timeStep]  # Current temperature in all x cells (120,1)
         phi = self.getPhi()  # Compute scalar flux by integrating over angles
-        bbar = self.groupPlanck(self.grid.T_next)  # Get the group-averaged Planckian for the material 
+        bbar = self.planckBar(T)  # Get the group-averaged Planckian for the material 
         
-        # Calculation of next temperature\
-        T_offset = f * np.sum((self.material.sigma_a(self.grid.freqGrid, self.grid.T_next) * phi - 4*np.pi*self.material.sigma_a(self.grid.freqGrid, self.grid.T_next) * bbar), axis=0)
+        # Calculation of next temperature
+        T_offset = f * np.sum((self.material.sigma_a(self.grid.freqGrid, T) * phi - 4*np.pi*self.material.sigma_a(self.grid.freqGrid, T) * bbar)* np.broadcast_to(self.grid.freqGroups[:,None], (self.params.freqNum, self.params.nBins)), axis=0)
         T_next = T + T_offset  # Update temperature using the material energy equation)
         # Calculation of the rhs of eq (Q*)
-        bbarNext = self.groupPlanck(T_next)  # Get the group-averaged Planckian for the next temperature
+        bbarNext = self.planckBar(T_next)  # Get the group-averaged Planckian for the next temperature
         bbarNext = np.broadcast_to(bbarNext[:, None,:], (self.params.freqNum, self.sn, self.params.nBins))  # shape: (freqNum, sn, nBins)
         sa = np.broadcast_to(self.material.sigma_a(self.grid.freqGroups, T_next)[:,None,:], (self.params.freqNum, self.sn, self.params.nBins))  # shape: (freqNum, sn, nBins)
 
@@ -231,6 +235,8 @@ class CoupledEquations:
         self.grid.rhs = rhs.copy()
         self.T_next = T_next.copy()
         self.grid.T_next = T_next.copy()
+
+
 
     # Define modified opacity
     def sigmaStar(self, T):

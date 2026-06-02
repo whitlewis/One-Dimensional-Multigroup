@@ -8,7 +8,9 @@ class Parameters:
         # Tolerance and iteration parameters
         self.maxIters = maxIters
         self.tol = tol
-        self.checkEnergy = False
+        self.checkEnergy = True
+        self.energyTol = 1e-15
+        self.totalEnergy = 0.0
 
         # Angular discretization parameters
         self.sn = 8
@@ -35,6 +37,7 @@ class Parameters:
         self.transient = Transient
         self.materialCoupled = False
         self.movingCoordinates = False
+        self.energyCheckFreq = 200 # Check energy conservation every 200 time steps
 
 
 class Material:
