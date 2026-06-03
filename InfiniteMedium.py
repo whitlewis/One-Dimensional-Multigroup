@@ -3,7 +3,7 @@ import numpy.polynomial.legendre as leggauss
 import Logic as Log
 
 class Parameters:
-    def __init__(self, maxIters=100, tol=1e-10, nSteps=400, Transient=True):
+    def __init__(self, maxIters=100, tol=1e-10, nSteps=1000, Transient=True):
         # Tolerance and iteration parameters
         self.maxIters = maxIters
         self.tol = tol
@@ -36,7 +36,7 @@ class Parameters:
 
         # Time stepping parameters
         self.nSteps = nSteps
-        self.timeMax = 0.2
+        self.timeMax = 0.01
         self.timeScale = "linear"  # "log" or "linear"
 
         # Choices of type of problem

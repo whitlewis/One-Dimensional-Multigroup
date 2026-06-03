@@ -8,7 +8,7 @@ class Parameters:
         # Tolerance and iteration parameters
         self.maxIters = maxIters
         self.tol = tol
-        self.checkEnergy = True
+        self.checkEnergy = False
         self.energyTol = 1e-15
         self.totalEnergy = 0.0
 

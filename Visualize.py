@@ -66,8 +66,8 @@ def plotTemperature(grid):
     plt.ylabel("Temperature T")
     plt.legend()
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    # filename = f"figures/{labelT}_{timestamp}.pdf"
-    # plt.savefig(filename)
+    filename = f"figures/{labelT}_{timestamp}.pdf"
+    plt.savefig(filename)
     plt.show()
 
 def plotTemperatureTime(grid):
