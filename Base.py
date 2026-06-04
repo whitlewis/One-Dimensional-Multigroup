@@ -1,5 +1,6 @@
 import numpy as np
 import numpy.polynomial.legendre as leggauss
+import time as machineTime
 
 class Constants:
     # all physical constants
@@ -161,6 +162,7 @@ class Base:
         return True
     
     def solve(self):
+        tick = machineTime.perf_counter()
         self.grid.fullTensorTime[0] = self.grid.fullTensor.copy()    # Initialize 0'th step (Thanks to Johannes for this fix)
         self.grid.fullTensorPhiTime[0] = self.getPhi()
         self.grid.fullTensOld = self.grid.fullTensor.copy()  # Initialize old solution for time-stepping
@@ -174,7 +176,8 @@ class Base:
             self.updateAll(index)  # Store the solution and increment time step counter
             if index % 200 == 0:  
                 print(f"Completed time step {time:.2e}")
-        print("Solve completed.")
+        tock = machineTime.perf_counter()
+        print(f"Solve completed in {tock - tick:.2f} seconds.")
         
         return self.grid.fullTensorTime, self.grid  # Return the full time-dependent solution tensor
     

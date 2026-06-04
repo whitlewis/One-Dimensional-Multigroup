@@ -84,7 +84,7 @@ class Equations:
                     new_phi[m, 0] = (rhs[m, 0] + (self.mu[m] / self.grid.dx) * phibl[f, m]) / (self.mu[m] / self.grid.dx + sig_t[0])
                     for i in range(self.params.nBins-1):
                         new_phi[m, i + 1] = (
-                            rhs[m, i+1] + (self.mu[m] / self.grid.dx) * phi[m, i]
+                            rhs[m, i+1] + (self.mu[m] / self.grid.dx) * new_phi[m, i]
                         ) / (self.mu[m] / self.grid.dx + sig_t[i+1])
 
                 else:
@@ -92,7 +92,7 @@ class Equations:
                     new_phi[m, -1] = (rhs[m, -1] + (abs(self.mu[m]) / self.grid.dx) * phibr[f, m]) / (abs(self.mu[m]) / self.grid.dx + sig_t[-1])
                     for i in range(self.params.nBins - 1, 0, -1):
                         new_phi[m, i-1] = (
-                            rhs[m, i-1] + (abs(self.mu[m]) / self.grid.dx) * phi[m, i]
+                            rhs[m, i-1] + (abs(self.mu[m]) / self.grid.dx) * new_phi[m, i]
                         ) / (abs(self.mu[m]) / self.grid.dx + sig_t[i-1])
             # for each group update the tensor
             newFull[f] = new_phi
@@ -123,7 +123,7 @@ class CoupledEquations:
     
     def getPhi(self):
         # Integrate over angles to get scalar flux
-        fullTensorPhi = 2*np.pi*np.sum(self.grid.w[:, None] * self.grid.fullTensor, axis=1)  # shape: (freqNum, nBins)
+        fullTensorPhi = .5*np.sum(self.grid.w[:, None] * self.grid.fullTensor, axis=1)  # shape: (freqNum, nBins)
         return fullTensorPhi
 
     # Simpson for integration over group
@@ -223,6 +223,11 @@ class CoupledEquations:
         return bbar
 
     def sigmaBar(self):     # Placeholder for group-averaged opacity, currently unnecessary since we are using a constant opacity
+        lo = self.grid.freqGrid[:-1, None]
+        hi = self.grid.freqGrid[1:, None]
+        integrand = lambda nu: self.planck(nu, T)
+        bbar = self.simpson(integrand, lo, hi)
+        return bbar
         return
     
     def psiBar(self):       # placeholder, currently unnecessary due to init
@@ -240,14 +245,14 @@ class CoupledEquations:
         bbar = self.planckBar(T)  # Get the group-averaged Planckian for the material 
         
         # Calculation of next temperature
-        T_offset = f * np.sum((self.material.sigma_a(self.grid.freqGrid, T) * phi - 4*np.pi*self.material.sigma_a(self.grid.freqGrid, T) * bbar)* np.broadcast_to(self.grid.freqGroups[:,None], (self.params.freqNum, self.params.nBins)), axis=0)
+        T_offset = f * np.sum((self.material.sigma_a(self.grid.freqGrid, T) * phi - 4*np.pi*self.material.sigma_a(self.grid.freqGrid, T) * bbar), axis=0)
         T_next = T + T_offset  # Update temperature using the material energy equation)
         # Calculation of the rhs of eq (Q*)
         bbarNext = self.planckBar(T)  # Get the group-averaged Planckian for the next temperature
         bbarNext = np.broadcast_to(bbarNext[:, None,:], (self.params.freqNum, self.sn, self.params.nBins))  # shape: (freqNum, sn, nBins)
         sa = np.broadcast_to(self.material.sigma_a(self.grid.freqGroups, T_next)[:,None,:], (self.params.freqNum, self.sn, self.params.nBins))  # shape: (freqNum, sn, nBins)
-        bbar
-        rhs = sa * bbarNext + self.timeTerm * self.psi_old # Right-hand side of the transport equation
+
+        rhs = 4*np.pi*sa * bbarNext + self.timeTerm * self.psi_old # Right-hand side of the transport equation
         
         # Update grid object and persist next temperature on the equations object
         self.grid.rhs = rhs.copy()

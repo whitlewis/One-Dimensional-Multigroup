@@ -8,6 +8,7 @@ import Base as Base
 import numpy as np
 import Visualize as Vis
 
+
 def main():
     constants = Base.Constants()
     params = Marshak.Parameters()
