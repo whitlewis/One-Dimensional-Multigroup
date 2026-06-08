@@ -73,11 +73,14 @@ class Base:
 
             # update Temperature and get Q* if material coupled
             if self.params.materialCoupled:
-                self.problem.equations.materialEquation()
+                # self.problem.equations.materialEquation() # update material temperature before radiation sweep
+                self.problem.equations.rhsUpdate()
             if self.params.checkEnergy and self.index % self.params.energyCheckFreq == 0 and it==0:  # Check energy conservation every 50 time steps
                 energyConserved = self.checkEnergyConservation()
             # Perform the radiation sweep to get the new solution
-            self.problem.equations.radiationSweep()  
+            self.problem.equations.radiationSweep()
+            if self.params.materialCoupled:
+                self.problem.equations.materialEquation() # update material temperature after radiation sweep
 
             err = np.max(np.abs((self.grid.fullTensor - self.fullTensOld)))    # directly compare the full values for convergence (Space, angle, and frequency group convergence)
             if np.isnan(err).any() or np.isinf(err).any():
@@ -102,63 +105,62 @@ class Base:
 
     def setEnergy(self):
         if self.params.materialCoupled:
-            Tmat = self.grid.temperatureSet[:, self.grid.timeStep]  # Current temperature distribution
-            Emat = self.problem.material.C_v(Tmat) * Tmat  # Energy density of the material
-            Erad = np.sum(self.grid.fullTensorPhiTime[self.grid.timeStep] * self.grid.freqGroups[:, None], axis=0)  # Energy density of the radiation
-            totalEnergy = np.sum(Emat + Erad) # Total energy density
-            self.params.totalEnergy = totalEnergy  # Store total energy for comparison
+            Tmat = self.grid.temperatureSet[:, self.grid.timeStep]  
+            Emat = self.problem.material.C_v(Tmat) * Tmat  
+            Erad = np.sum(self.grid.fullTensorPhiTime[self.grid.timeStep], axis=0) / self.constants.c  
+            totalEnergy = np.sum((Emat + Erad) * self.grid.dx) 
+            self.params.totalEnergy = totalEnergy  
             print("Initial energy set:")
-            print(f"Material energy: {np.sum(Emat):.4e}, Radiation energy: {np.sum(Erad):.4e}")
-            print(f"Total energy: {np.sum(totalEnergy):.4e}") 
+            print(f"Material energy: {np.sum(Emat * self.grid.dx):.4e}, Radiation energy: {np.sum(Erad * self.grid.dx):.4e}")
+            print(f"Total energy: {totalEnergy:.4e}") 
         else:
-            Erad = np.sum(self.grid.fullTensorPhiTime[self.grid.timeStep] * self.grid.freqGroups[:, None], axis=0)  # Energy density of the radiation
-            totalEnergy = Erad  # Total energy density
-            self.params.totalEnergy = totalEnergy  # Store total energy for comparison
+            Erad = np.sum(self.grid.fullTensorPhiTime[self.grid.timeStep], axis=0) / self.constants.c  
+            totalEnergy = np.sum(Erad * self.grid.dx)  
+            self.params.totalEnergy = totalEnergy  
             print("Initial energy set:")
-            print(f"Radiation energy: {np.sum(Erad):.4e}")
-            print(f"Total energy: {np.sum(totalEnergy):.4e}") 
-               
-    
-    
+            print(f"Radiation energy: {totalEnergy:.4e}")
+            print(f"Total energy: {totalEnergy:.4e}")
+        
+        
     def checkEnergyConservation(self):
         if not self.params.materialCoupled:
-            Erad = np.sum(self.grid.fullTensorPhiTime[self.grid.timeStep-1] * self.grid.freqGroups[:, None], axis=0)  # Energy density of the radiation
-            totalEnergy = np.sum(Erad)  # Total energy density
-            time = self.grid.timeSet[self.grid.timeStep-1]
-            dt = self.grid.dt[self.grid.timeStep-1]
-            sourceEnergy = np.sum(self.problem.material.source(self.grid.fullTensor)*self.grid.dx) * dt # Energy added by sources
+            Erad = np.sum(self.grid.fullTensorPhiTime[self.grid.timeStep], axis=0) / self.constants.c  
+            totalEnergy = np.sum(Erad * self.grid.dx)  
+            time = self.grid.timeSet[self.grid.timeStep]
+            dt = self.grid.dt[self.grid.timeStep]
+            sourceEnergy = np.sum(self.problem.material.source(self.grid.fullTensor) * self.grid.dx) * dt 
             print(f"Energy from sources at time {time:.2e}: {sourceEnergy:.4e}")
-            self.params.totalEnergy += sourceEnergy  # Update total energy with source contribution
-            print(f"Total energy after accounting for sources: {np.sum(self.params.totalEnergy):.4e}")
-            diffEnergy = np.abs(totalEnergy - self.params.totalEnergy)  # Recalculate energy difference after accounting for sources
-            if np.any(diffEnergy > self.params.energyTol):
+            self.params.totalEnergy += sourceEnergy  
+            print(f"Total energy after accounting for sources: {self.params.totalEnergy:.4e}")
+            diffEnergy = np.abs(totalEnergy - self.params.totalEnergy)  
+            if diffEnergy > self.params.energyTol:
                 print(f"⚠️ Energy conservation check failed at time step {self.grid.timeStep-1} (time={self.grid.timeSet[self.grid.timeStep-1]:.2e})")
-                print(f"Max energy difference: {np.max(diffEnergy):.2e}")
-                print(f"Radiation energy: {np.sum(Erad):.4e}")
-                print(f"Total energy: {np.sum(totalEnergy):.4e}")
+                print(f"Max energy difference: {diffEnergy:.2e}")
+                print(f"Radiation energy: {totalEnergy:.4e}")
+                print(f"Total energy: {totalEnergy:.4e}")
                 return False
         elif self.params.materialCoupled:
-            Tmat = self.grid.temperatureSet[:, self.grid.timeStep-1]  # Current temperature distribution
-            Emat = self.problem.material.C_v(Tmat) * Tmat  # Energy density of the material
-            Erad = np.sum(self.grid.fullTensorPhiTime[self.grid.timeStep-1] * self.grid.freqGroups[:, None], axis=0)  # Energy density of the radiation
-            Trad = (Erad / self.constants.a / self.constants.c)**0.25  # Radiation temperature for reference
-            totalEnergy = np.sum(Emat) + np.sum(Erad)  # Total energy density
-            diffEnergy = np.abs(totalEnergy - self.params.totalEnergy)  # Change in total energy from previous time step
-            if np.any(diffEnergy > self.params.energyTol):
-                print(f"⚠️ Energy conservation check failed at time step {self.grid.timeStep-1} (time={self.grid.timeSet[self.grid.timeStep-1]:.2e})")
-                print(f"Max energy difference: {np.max(diffEnergy):.2e}")
-                print(f"Material energy: {np.sum(Emat):.4e}, Radiation energy: {np.sum(Erad):.4e}")
+            Tmat = self.grid.temperatureSet[:, self.grid.timeStep]  
+            Emat = self.problem.material.C_v(Tmat) * Tmat  
+            Erad = np.sum(self.grid.fullTensorPhiTime[self.grid.timeStep], axis=0) / self.constants.c  
+            Trad = (Erad / self.constants.a)**0.25  
+            totalEnergy = np.sum((Emat + Erad) * self.grid.dx)  
+            diffEnergy = np.abs(totalEnergy - self.params.totalEnergy)  
+            if diffEnergy > self.params.energyTol:
+                print(f"⚠️ Energy conservation check failed at time step {self.grid.timeStep} (time={self.grid.timeSet[self.grid.timeStep-1]:.2e})")
+                print(f"Max energy difference: {diffEnergy:.2e}")
+                print(f"Material energy: {np.sum(Emat * self.grid.dx):.4e}, Radiation energy: {np.sum(Erad * self.grid.dx):.4e}")
                 print(f'material temperature: {Tmat[20]:.4e}, radiation temperature: {Trad[20]:.4e}')
-                print(f"Total energy: {np.sum(totalEnergy):.4e}")
+                print(f"Total energy: {totalEnergy:.4e}")
                 return False
 
-        print(f"Energy conservation check passed at time step {self.grid.timeStep-1} (time={self.grid.timeSet[self.grid.timeStep-1]:.2e})")
-        print(f"Max energy difference: {np.max(diffEnergy):.8e}")
+        print(f"Energy conservation check passed at time step {self.grid.timeStep-1} (time={self.grid.timeSet[self.grid.timeStep]:.2e})")
+        print(f"Max energy difference: {diffEnergy:.8e}")
         if self.params.materialCoupled:
-            print(f"Material energy: {np.sum(Emat):.4e}, Radiation energy: {np.sum(Erad):.4e}")
+            print(f"Material energy: {np.sum(Emat * self.grid.dx):.4e}, Radiation energy: {np.sum(Erad * self.grid.dx):.4e}")
         else:
-            print(f"Radiation energy: {np.sum(Erad):.4e}")
-        print(f"Total energy: {np.sum(totalEnergy):.4e}")
+            print(f"Radiation energy: {totalEnergy:.4e}")
+        print(f"Total energy: {totalEnergy:.4e}")
         return True
     
     def solve(self):

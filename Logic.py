@@ -123,7 +123,7 @@ class CoupledEquations:
     
     def getPhi(self):
         # Integrate over angles to get scalar flux
-        fullTensorPhi = .5*np.sum(self.grid.w[:, None] * self.grid.fullTensor, axis=1)  # shape: (freqNum, nBins)
+        fullTensorPhi = 4*np.pi*np.sum(self.grid.w[:, None] * self.grid.fullTensor, axis=1)  # shape: (freqNum, nBins)
         return fullTensorPhi
 
     # Simpson for integration over group
@@ -147,20 +147,35 @@ class CoupledEquations:
     
     def energyInitialCondition(self):
         T0 = self.params.radiationTemperature
-        groupEnergies = self.simpson(lambda nu: self.planck(nu, T0), self.grid.freqGrid[:-1], self.grid.freqGrid[1:])  # shape: (freqNum,)
-        totalEnergy = np.sum(groupEnergies) * self.params.nBins  # Total energy density across all groups and spatial bins
-        planckBarEnergy = np.sum(np.sum(self.getPhi() * self.grid.freqGroups[:, None]))  # Energy density from the group-averaged Planck function for reference
+        groupEnergies = self.simpson(lambda nu: self.planck(nu, T0), self.grid.freqGrid[:-1], self.grid.freqGrid[1:])
+        
+        # Calculate the exact expected macroscopic density per cell
+        EradExpectedPerCell = self.const.a * T0**4
+        EradExpected = self.params.nBins * EradExpectedPerCell
+        
+        # Calculate what your discrete phi tensor currently reads per cell
+        currentPhiPerCell = np.sum(self.getPhi()) / self.params.nBins
+        planckBarEnergyPerCell = currentPhiPerCell / self.const.c
+        planckBarEnergy = planckBarEnergyPerCell * self.params.nBins
+        
+        # Calculate total energy directly from the analytical group sum per cell
+        totalEnergy = (4.0 * np.pi / self.const.c) * np.sum(groupEnergies) * self.params.nBins
+        
         if np.abs(totalEnergy - planckBarEnergy) > self.params.energyTol:
             print(f"⚠️ Initial energy check failed: Total energy density from initial condition ({totalEnergy:.4e}) does not match energy density from group-averaged Planck function ({planckBarEnergy:.4e})")
-        EradExpected = self.params.nBins * self.const.a * self.const.c * T0**4  # Expected radiation energy density from the initial condition
+            
         if np.abs(planckBarEnergy - EradExpected) > self.params.energyTol:
             print(f"⚠️ Initial energy check failed: Energy density from group-averaged Planck function ({planckBarEnergy:.4e}) does not match expected radiation energy density from initial condition ({EradExpected:.4e})")
-        mult = EradExpected / planckBarEnergy  # Scaling factor to ensure correct initial energy density
-        self.grid.fullTensor *= mult  # Scale the initial condition to ensure correct total energy density
-        radTemp = (np.sum(np.sum(self.getPhi() * self.grid.freqGroups[:, None])) / self.params.nBins / self.const.a / self.const.c)**0.25
+            
+        # This force-scales your angular intensity tensor to perfectly match a*T^4 per cell
+        mult = EradExpected / planckBarEnergy
+        self.grid.fullTensor *= mult
+        
+        total_u = np.sum(self.getPhi()) / self.const.c
+        radTemp = (total_u / self.params.nBins / self.const.a)**0.25
+        
         print(f'Initial radiation temperature after scaling: {radTemp:.4e}')
         print(f'Planck init scaled by factor {mult:.4e} to ensure correct initial energy density with Radiation Temperature {T0:.4e}')
-
     
     # Set initial Conditions here
     def initialCondition(self):
@@ -222,13 +237,12 @@ class CoupledEquations:
         bbar = self.simpson(integrand, lo, hi)
         return bbar
 
-    def sigmaBar(self):     # Placeholder for group-averaged opacity, currently unnecessary since we are using a constant opacity
+    def sigmaBar(self, T):     # Placeholder for group-averaged opacity, currently unnecessary since we are using a constant opacity
         lo = self.grid.freqGrid[:-1, None]
         hi = self.grid.freqGrid[1:, None]
         integrand = lambda nu: self.planck(nu, T)
-        bbar = self.simpson(integrand, lo, hi)
-        return bbar
-        return
+        sbar = self.simpson(integrand, lo, hi)
+        return sbar
     
     def psiBar(self):       # placeholder, currently unnecessary due to init
         return
@@ -245,20 +259,27 @@ class CoupledEquations:
         bbar = self.planckBar(T)  # Get the group-averaged Planckian for the material 
         
         # Calculation of next temperature
-        T_offset = f * np.sum((self.material.sigma_a(self.grid.freqGrid, T) * phi - 4*np.pi*self.material.sigma_a(self.grid.freqGrid, T) * bbar), axis=0)
+        T_offset = f * np.sum((self.material.sigma_a(self.grid.freqGroups, T) * phi - 4*np.pi*self.material.sigma_a(self.grid.freqGroups, T) * bbar), axis=0)
         T_next = T + T_offset  # Update temperature using the material energy equation)
-        # Calculation of the rhs of eq (Q*)
-        bbarNext = self.planckBar(T)  # Get the group-averaged Planckian for the next temperature
-        bbarNext = np.broadcast_to(bbarNext[:, None,:], (self.params.freqNum, self.sn, self.params.nBins))  # shape: (freqNum, sn, nBins)
-        sa = np.broadcast_to(self.material.sigma_a(self.grid.freqGroups, T_next)[:,None,:], (self.params.freqNum, self.sn, self.params.nBins))  # shape: (freqNum, sn, nBins)
+        # # Calculation of the rhs of eq (Q*)
+        # bbarNext = self.planckBar(T)  # Get the group-averaged Planckian for the next temperature
+        # bbarNext = np.broadcast_to(bbarNext[:, None,:], (self.params.freqNum, self.sn, self.params.nBins))  # shape: (freqNum, sn, nBins)
+        # sa = np.broadcast_to(self.material.sigma_a(self.grid.freqGroups, T_next)[:,None,:], (self.params.freqNum, self.sn, self.params.nBins))  # shape: (freqNum, sn, nBins)
 
-        rhs = 4*np.pi*sa * bbarNext + self.timeTerm * self.psi_old # Right-hand side of the transport equation
+        # rhs = 4*np.pi*sa * bbarNext + self.timeTerm * self.psi_old # Right-hand side of the transport equation
         
-        # Update grid object and persist next temperature on the equations object
-        self.grid.rhs = rhs.copy()
+        # # Update grid object and persist next temperature on the equations object
+        # self.grid.rhs = rhs.copy()
         self.T_next = T_next.copy()
         self.grid.T_next = T_next.copy()
 
+    def rhsUpdate(self):
+        T = self.grid.temperatureSet[:, self.grid.timeStep]
+        bbarNext = self.planckBar(T)  # Get the group-averaged Planckian for the next temperature
+        bbarNext = np.broadcast_to(bbarNext[:, None,:], (self.params.freqNum, self.sn, self.params.nBins))  # shape: (freqNum, sn, nBins)
+        sa = np.broadcast_to(self.material.sigma_a(self.grid.freqGroups, T)[:,None,:], (self.params.freqNum, self.sn, self.params.nBins))  # shape: (freqNum, sn, nBins)
+        rhs = sa * bbarNext + self.timeTerm * self.psi_old
+        self.grid.rhs = rhs.copy()
 
 
     # Define modified opacity
@@ -293,7 +314,7 @@ class CoupledEquations:
                     new_phi[m, 0] = (rhs[m, 0] + (self.mu[m] / self.grid.dx) * phibl[f, m]) / (self.mu[m] / self.grid.dx + sig_t[0])
                     for i in range(self.params.nBins-1):
                         new_phi[m, i + 1] = (
-                            rhs[m, i+1] + (self.mu[m] / self.grid.dx) * phi[m, i]
+                            rhs[m, i+1] + (self.mu[m] / self.grid.dx) * new_phi[m, i]
                         ) / (self.mu[m] / self.grid.dx + sig_t[i+1])
 
                 else:
@@ -301,7 +322,7 @@ class CoupledEquations:
                     new_phi[m, -1] = (rhs[m, -1] + (abs(self.mu[m]) / self.grid.dx) * phibr[f, m]) / (abs(self.mu[m]) / self.grid.dx + sig_t[-1])
                     for i in range(self.params.nBins - 1, 0, -1):
                         new_phi[m, i-1] = (
-                            rhs[m, i-1] + (abs(self.mu[m]) / self.grid.dx) * phi[m, i]
+                            rhs[m, i-1] + (abs(self.mu[m]) / self.grid.dx) * new_phi[m, i]
                         ) / (abs(self.mu[m]) / self.grid.dx + sig_t[i-1])
             # for each group update the tensor
             newFull[f] = new_phi
@@ -344,6 +365,9 @@ class Logic:
 
     def radiationSweep(self):
         self.equations.radiationSweep()
+    
+    def rhsUpdate(self):
+        self.equations.rhsUpdate()
 
     def getPhi(self):
         return self.equations.getPhi()
