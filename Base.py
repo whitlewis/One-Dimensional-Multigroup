@@ -73,12 +73,11 @@ class Base:
 
             # update Temperature and get Q* if material coupled
             if self.params.materialCoupled:
-                # self.problem.equations.materialEquation() # update material temperature before radiation sweep
                 self.problem.equations.rhsUpdate()
-            if self.params.checkEnergy and self.index % self.params.energyCheckFreq == 0 and it==0:  # Check energy conservation every 50 time steps
-                energyConserved = self.checkEnergyConservation()
             # Perform the radiation sweep to get the new solution
             self.problem.equations.radiationSweep()
+            if self.params.checkEnergy and self.index % self.params.energyCheckFreq == 0 and it==0:  # Check energy conservation every 50 time steps
+                energyConserved = self.checkEnergyConservation()
             if self.params.materialCoupled:
                 self.problem.equations.materialEquation() # update material temperature after radiation sweep
 
@@ -134,7 +133,7 @@ class Base:
             print(f"Total energy after accounting for sources: {self.params.totalEnergy:.4e}")
             diffEnergy = np.abs(totalEnergy - self.params.totalEnergy)  
             if diffEnergy > self.params.energyTol:
-                print(f"⚠️ Energy conservation check failed at time step {self.grid.timeStep-1} (time={self.grid.timeSet[self.grid.timeStep-1]:.2e})")
+                print(f"⚠️ Energy conservation check failed at time step {self.grid.timeStep} (time={self.grid.timeSet[self.grid.timeStep]:.2e})")
                 print(f"Max energy difference: {diffEnergy:.2e}")
                 print(f"Radiation energy: {totalEnergy:.4e}")
                 print(f"Total energy: {totalEnergy:.4e}")
@@ -147,7 +146,7 @@ class Base:
             totalEnergy = np.sum((Emat + Erad) * self.grid.dx)  
             diffEnergy = np.abs(totalEnergy - self.params.totalEnergy)  
             if diffEnergy > self.params.energyTol:
-                print(f"⚠️ Energy conservation check failed at time step {self.grid.timeStep} (time={self.grid.timeSet[self.grid.timeStep-1]:.2e})")
+                print(f"⚠️ Energy conservation check failed at time step {self.grid.timeStep} (time={self.grid.timeSet[self.grid.timeStep]:.2e})")
                 print(f"Max energy difference: {diffEnergy:.2e}")
                 print(f"Material energy: {np.sum(Emat * self.grid.dx):.4e}, Radiation energy: {np.sum(Erad * self.grid.dx):.4e}")
                 print(f'material temperature: {Tmat[20]:.4e}, radiation temperature: {Trad[20]:.4e}')
