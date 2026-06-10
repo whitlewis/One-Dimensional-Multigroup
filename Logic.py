@@ -114,6 +114,7 @@ class CoupledEquations:
         self.dx = grid.dx
         self.time_step = None
         self.timeTerm = 0.0
+        self.reflMatrix = [np.argmin(np.abs(self.grid.muSet +muVal)) for muVal in self.grid.muSet]  # Precompute reflection matrix for efficiency
 
         # Init tensors for calculations
         self.fullTensor = grid.fullTensor.copy()  # shape: (freqNum, sn, nBins)
@@ -192,12 +193,8 @@ class CoupledEquations:
 
     # Helper for boundary
     def boundaryPlanck(self):
-        if self.params.boundaryLeft == "Infinite":
-            self.params.boundaryLeft = self.params.radiationTemperature
-        if self.params.boundaryRight == "Infinite":
-            self.params.boundaryRight = self.params.radiationTemperature
-        T0 = self.params.boundaryLeft
-        T1 = self.params.boundaryRight
+        T0 = self.params.radiationTemperature if self.params.boundaryLeft in ["Infinite", "Reflective"] else self.params.boundaryLeft
+        T1 = self.params.radiationTemperature if self.params.boundaryRight in ["Infinite", "Reflective"] else self.params.boundaryRight
         planckLeft = np.broadcast_to(self.planckBar(T0), (self.params.freqNum, self.sn))  # shape: (freqNum, sn)
         planckRight = np.broadcast_to(self.planckBar(T1), (self.params.freqNum, self.sn))  # shape: (freqNum, sn)
         return planckLeft, planckRight
@@ -261,15 +258,6 @@ class CoupledEquations:
         # Calculation of next temperature
         T_offset = f * np.sum((self.material.sigma_a(self.grid.freqGroups, T) * phi - 4*np.pi*self.material.sigma_a(self.grid.freqGroups, T) * bbar), axis=0)
         T_next = T + T_offset  # Update temperature using the material energy equation)
-        # # Calculation of the rhs of eq (Q*)
-        # bbarNext = self.planckBar(T)  # Get the group-averaged Planckian for the next temperature
-        # bbarNext = np.broadcast_to(bbarNext[:, None,:], (self.params.freqNum, self.sn, self.params.nBins))  # shape: (freqNum, sn, nBins)
-        # sa = np.broadcast_to(self.material.sigma_a(self.grid.freqGroups, T_next)[:,None,:], (self.params.freqNum, self.sn, self.params.nBins))  # shape: (freqNum, sn, nBins)
-
-        # rhs = 4*np.pi*sa * bbarNext + self.timeTerm * self.psi_old # Right-hand side of the transport equation
-        
-        # # Update grid object and persist next temperature on the equations object
-        # self.grid.rhs = rhs.copy()
         self.T_next = T_next.copy()
         self.grid.T_next = T_next.copy()
 
@@ -311,7 +299,14 @@ class CoupledEquations:
                 # Upwind 
                 if self.mu[m] > 0:
                     # Forward sweep
-                    new_phi[m, 0] = (rhs[m, 0] + (self.mu[m] / self.grid.dx) * phibl[f, m]) / (self.mu[m] / self.grid.dx + sig_t[0])
+                    if self.params.boundaryLeft == "Reflective":
+                        # Reflective BC: use the reflected angle's outgoing flux as the incoming flux
+                        reflected_m = self.reflMatrix[m]
+                        bVal = new_phi[reflected_m, 0]  # Use the reflected angle's flux at the boundary
+                    else:
+                        bVal = phibl[f, m]  # Use the specified boundary condition if not reflective
+                    
+                    new_phi[m, 0] = (rhs[m, 0] + (self.mu[m] / self.grid.dx) * bVal) / (self.mu[m] / self.grid.dx + sig_t[0])
                     for i in range(self.params.nBins-1):
                         new_phi[m, i + 1] = (
                             rhs[m, i+1] + (self.mu[m] / self.grid.dx) * new_phi[m, i]
@@ -319,7 +314,15 @@ class CoupledEquations:
 
                 else:
                     # Backward sweep
-                    new_phi[m, -1] = (rhs[m, -1] + (abs(self.mu[m]) / self.grid.dx) * phibr[f, m]) / (abs(self.mu[m]) / self.grid.dx + sig_t[-1])
+
+                    if self.params.boundaryRight == "Reflective":
+                        # Reflective BC: use the reflected angle's outgoing flux as the incoming flux
+                        reflected_m = self.reflMatrix[m]
+                        bVal = self.fullTens[f, reflected_m, -1]  # Use the reflected angle's flux at the boundary
+                    else:
+                        bVal = phibr[f, m]  # Use the specified boundary condition if not reflective
+
+                    new_phi[m, -1] = (rhs[m, -1] + (abs(self.mu[m]) / self.grid.dx) * bVal) / (abs(self.mu[m]) / self.grid.dx + sig_t[-1])
                     for i in range(self.params.nBins - 1, 0, -1):
                         new_phi[m, i-1] = (
                             rhs[m, i-1] + (abs(self.mu[m]) / self.grid.dx) * new_phi[m, i]
@@ -371,4 +374,7 @@ class Logic:
 
     def getPhi(self):
         return self.equations.getPhi()
+
+    def simpson(self, integrand, lo, hi):
+        return self.equations.simpson(integrand, lo, hi)
 

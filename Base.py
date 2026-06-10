@@ -4,13 +4,13 @@ import time as machineTime
 
 class Constants:
     # all physical constants
-    c = 1.0  
-    a = 0.01374
+    c = 30.0
+    a = 0.01372
     h = 1.0
 
 class Grid:
     def __init__(self, parameters, Constants=Constants()):
-
+        self.constants = Constants
         # Space grid
         self.dx = (parameters.xMax - parameters.xMin) / parameters.nBins
         self.spaceGrid = np.linspace(parameters.xMin, parameters.xMax, parameters.nBins + 1)  # cell edges
@@ -122,8 +122,8 @@ class Base:
         
         
     def checkEnergyConservation(self):
-        if not self.params.materialCoupled:
-            Erad = np.sum(self.grid.fullTensorPhiTime[self.grid.timeStep], axis=0) / self.constants.c  
+        if not self.params.materialCoupled and self.grid.timeStep > 0:
+            Erad = np.sum(self.grid.fullTensorPhiTime[self.grid.timeStep-1], axis=0) / self.constants.c  
             totalEnergy = np.sum(Erad * self.grid.dx)  
             time = self.grid.timeSet[self.grid.timeStep]
             dt = self.grid.dt[self.grid.timeStep]
@@ -138,10 +138,10 @@ class Base:
                 print(f"Radiation energy: {totalEnergy:.4e}")
                 print(f"Total energy: {totalEnergy:.4e}")
                 return False
-        elif self.params.materialCoupled:
+        elif self.params.materialCoupled and self.grid.timeStep > 0:
             Tmat = self.grid.temperatureSet[:, self.grid.timeStep]  
             Emat = self.problem.material.C_v(Tmat) * Tmat  
-            Erad = np.sum(self.grid.fullTensorPhiTime[self.grid.timeStep], axis=0) / self.constants.c  
+            Erad = np.sum(self.grid.fullTensorPhiTime[self.grid.timeStep-1], axis=0) / self.constants.c  
             Trad = (Erad / self.constants.a)**0.25  
             totalEnergy = np.sum((Emat + Erad) * self.grid.dx)  
             diffEnergy = np.abs(totalEnergy - self.params.totalEnergy)  
@@ -152,8 +152,11 @@ class Base:
                 print(f'material temperature: {Tmat[20]:.4e}, radiation temperature: {Trad[20]:.4e}')
                 print(f"Total energy: {totalEnergy:.4e}")
                 return False
-
-        print(f"Energy conservation check passed at time step {self.grid.timeStep-1} (time={self.grid.timeSet[self.grid.timeStep]:.2e})")
+        if self.grid.timeStep == 0:
+            print("Energy conservation check skipped for initial time step.")
+            return True
+        
+        print(f"Energy conservation check passed at time step {self.grid.timeStep} (time={self.grid.timeSet[self.grid.timeStep]:.2e})")
         print(f"Max energy difference: {diffEnergy:.8e}")
         if self.params.materialCoupled:
             print(f"Material energy: {np.sum(Emat * self.grid.dx):.4e}, Radiation energy: {np.sum(Erad * self.grid.dx):.4e}")
@@ -178,6 +181,7 @@ class Base:
             if index % 200 == 0:  
                 print(f"Completed time step {time:.2e}")
         tock = machineTime.perf_counter()
+        print(f'delta t max of: {np.max(self.grid.dt):.2e}')
         print(f"Solve completed in {tock - tick:.2f} seconds.")
         
         return self.grid.fullTensorTime, self.grid  # Return the full time-dependent solution tensor

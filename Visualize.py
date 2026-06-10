@@ -62,9 +62,10 @@ def plotTemperature(grid):
     T = grid.temperatureSet[20][:-1]  # Final temperature distribution at the last time step
     plt.plot(t, T, label=labelT)
     plt.plot(t, Trad[:-1], label=f"{labelT} from Radiation Energy Density", linestyle='--')
-    plt.xlabel("Time t")
-    plt.ylabel("Temperature T")
+    plt.xlabel("t (ns)")
+    plt.ylabel("Temperature (keV)")
     plt.legend()
+    plt.grid(True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"figures/{labelT}_{timestamp}.pdf"
     plt.savefig(filename)
