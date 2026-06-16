@@ -17,7 +17,6 @@ def main():
     BaseSolver = Base.Base(grid, MarshakProblem, params,  constants)
     print(np.shape(grid.fullTensor))
     print(f'Initial condition check: {grid.fullTensor[:, :, 0]}')  # Print the initial condition for the first spatial bin
-
     fullTensor, grid = BaseSolver.solve()
     fullPhi = np.squeeze(grid.fullTensorPhiTime)
     Vis.plotSpaceTime(fullPhi[:,5,:], params, grid.timeSet)

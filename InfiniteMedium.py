@@ -4,7 +4,7 @@ import Logic as Log
 import Base as Base
 
 class Parameters:
-    def __init__(self, maxIters=100, tol=1e-10, nSteps=250, Transient=True):
+    def __init__(self, maxIters=100, tol=1e-15, nSteps=250, Transient=True):
         # Tolerance and iteration parameters
         self.maxIters = maxIters
         self.tol = tol
@@ -25,7 +25,7 @@ class Parameters:
         self.xMax = 40
         self.nBins = 100
 
-        # Boundary conditions (currently for all frequencies and angles, planckian of temperature)
+        # Boundary conditions (currently for all frequencies and angles, planckian at specified temperature or reflective)
         self.boundaryLeft = "Reflective"
         self.boundaryRight = "Reflective"
 
@@ -53,49 +53,31 @@ class Material:
         self.const = Base.Constants()
     
     # Implementation of opacity from section 9.3 of McClarren's notes
-
     def simpson(self, integrand, lo, hi):
         h = (hi - lo) / 3
         out = 3/8 *h* (integrand(lo) + 3*integrand(lo + h) + 3*integrand(lo +2*h) +integrand(hi))
         return out
 
     # Planckian for opacity calculation
-# Planckian for opacity calculation
     def planckg(self):
         # Calculate the Planck function for each frequency group
         T = self.grid.temperatureSet[:, self.grid.timeStep]
-        
         # FIX: Broadcast frequency as column (freqNum, 1) against T (nBins,) -> Result is (freqNum, nBins)
         nu_lo = self.grid.freqGrid[:-1, None] / T
         nu_hi = self.grid.freqGrid[1:, None] / T
-        
         integrand = lambda nu: (15.0 * nu**3) / np.pi**4 /  np.expm1(nu)
         bg = self.simpson(integrand, nu_lo, nu_hi)
         return bg  # Shape is now (freqNum, nBins)
     
     def sigma_a(self, freq, T): 
-        # FIX: Make these column vectors so they broadcast correctly with T
         nu_lo = self.grid.freqGrid[:-1, None]
         nu_hi = self.grid.freqGrid[1:, None]
-        
-        # NOTE: I changed np.zeros to np.ones. 
-        # If you use zeros, sigma_aZero is 0, so your entire numerator becomes 0!
         sigma_aZero = np.ones((self.params.freqNum, self.params.nBins))
-        
-        # FIX: Do not redefine T here! You passed T into the function arguments.
-        # T = self.grid.temperatureSet[:, self.grid.timeStep] <- DELETE THIS LINE
-        
-        # np.sqrt(T) is (nBins,). self.planckg() is (freqNum, nBins).
-        # These now perfectly broadcast together!
         denom = np.sqrt(T) * self.planckg()
-        
         num = sigma_aZero * (np.exp(-nu_lo/T)-np.exp(-nu_hi/T))
         out = num / denom
-        # print(f'sigma max is {np.max(out)} at frequency group {np.argmax(out)}')
-        # print(f'sigma min is {np.min(out)} at frequency group {np.argmin(out)}')
-        # assert 0
         return out
-
+    # End of opacity implementation
     
     def C_v(self, T):  # Placeholder constant heat capacity
         return .01
