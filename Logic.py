@@ -373,10 +373,10 @@ class MovingMeshEquations:
         return out
 
     # Base Planck definiton
-    def planck(self, nu, T):  # Planck function (not group integrated or weighted)
-        denom = np.expm1(self.const.h * nu/T)  # exp(x)-1 safely
+    def planck(self, u, T):  # Planck function for variable basis (not group integrated or weighted)
+        denom = np.expm1(self.const.h * u)  # exp(x)-1 safely
         f = (15.0 * self.const.a * self.const.c) / (4.0 * np.pi**5)
-        return f * nu**3 / denom
+        return f * u**3 * T**4 / denom
 
     # Function for initial Condition as Planckian (helper for initialCondition)  
     def initSpectra(self):
@@ -507,6 +507,14 @@ class MovingMeshEquations:
         sa = np.broadcast_to(self.material.sigma_a(self.grid.freqGroups, T)[:,None,:], (self.params.freqNum, self.sn, self.params.nBins))  # shape: (freqNum, sn, nBins)
         rhs = sa * bbarNext + self.timeTerm * self.psi_old
         self.grid.rhs = rhs.copy()
+
+    def movingMeshConstant(self):
+        T = self.grid.temperatureSet[:, self.grid.timeStep]
+        Tminus = self.grid.temperatureSet[:, self.grid.timeStep-1] if self.grid.timeStep > 0 else T
+        dt = self.grid.dt[self.grid.timeStep]
+        dTdt = (T - Tminus) / dt
+        dTdx = np.gradient(T, self.grid.dx)
+        constOut = 1/T * (1 / self.const.c * dTdt +  self.grid.mu * dTdx)
 
 
     # Define modified opacity

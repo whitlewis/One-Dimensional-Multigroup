@@ -31,7 +31,7 @@ class Parameters:
 
         # Group parameters
         self.freqNum = 25
-        self.minFreq = 1e-4
+        self.minFreq = 1e-3
         self.maxFreq = 30
         self.infFreq = 150
 
@@ -43,7 +43,7 @@ class Parameters:
         # Choices of type of problem
         self.transient = Transient
         self.materialCoupled = True
-        self.movingCoordinates = False
+        self.movingCoordinates = True
         self.energyCheckFreq = 200 # Check energy conservation every 200 time steps
 
 class Material:
@@ -72,7 +72,7 @@ class Material:
     def sigma_a(self, freq, T): 
         nu_lo = self.grid.freqGrid[:-1, None]
         nu_hi = self.grid.freqGrid[1:, None]
-        sigma_aZero = np.ones((self.params.freqNum, self.params.nBins))*10
+        sigma_aZero = np.ones((self.params.freqNum, self.params.nBins))
         denom = np.sqrt(T) * self.planckg()
         num = sigma_aZero * (np.exp(-nu_lo/T)-np.exp(-nu_hi/T))
         out = num / denom

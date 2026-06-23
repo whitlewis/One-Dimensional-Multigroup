@@ -4,7 +4,7 @@ import time as machineTime
 
 class Constants:
     # all physical constants
-    c = 30.0
+    c = 300.0
     a = 0.01372
     h = 1.0
 
