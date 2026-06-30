@@ -31,8 +31,8 @@ class Parameters:
 
         # Group parameters
         self.freqNum = 25
-        self.minFreq = 1e-3
-        self.maxFreq = 30
+        self.minFreq = 1e-4
+        self.maxFreq = 25
         self.infFreq = 150
 
         # Time stepping parameters

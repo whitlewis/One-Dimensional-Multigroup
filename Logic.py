@@ -360,7 +360,7 @@ class MovingMeshEquations:
         self.mu = self.grid.muSet
         self.rhs = np.zeros((self.freq, self.params.nBins))
         self.T_next = np.ones(self.params.nBins)*self.params.initialTemperature
-    
+
     def getPhi(self):
         # Integrate over angles to get scalar flux
         fullTensorPhi = 4*np.pi*np.sum(self.grid.w[:, None] * self.grid.fullTensor, axis=1)  # shape: (freqNum, nBins)
@@ -377,6 +377,15 @@ class MovingMeshEquations:
         denom = np.expm1(self.const.h * u)  # exp(x)-1 safely
         f = (15.0 * self.const.a * self.const.c) / (4.0 * np.pi**5)
         return f * u**3 * T**4 / denom
+
+    # Group integrated Planck
+    def planckBar(self, T):
+        # Integrate the Planck function over each frequency group to get group-averaged source
+        lo = self.grid.freqGrid[:-1, None]
+        hi = self.grid.freqGrid[1:, None]
+        integrand = lambda u: self.planck(u, T)
+        bbar = self.simpson(integrand, lo, hi)
+        return bbar
 
     # Function for initial Condition as Planckian (helper for initialCondition)  
     def initSpectra(self):
@@ -464,16 +473,6 @@ class MovingMeshEquations:
         self.sigmaStarVar = self.sigmaStar(self.grid.temperatureSet[:, self.grid.timeStep])  # Update sigma* for the time step
         self.movingMeshConst = self.movingMeshConstant()  # Update moving mesh constant for the time step
 
-
-    # Group integrated Planck
-    def planckBar(self, T):
-        # Integrate the Planck function over each frequency group to get group-averaged source
-        lo = self.grid.freqGrid[:-1, None]
-        hi = self.grid.freqGrid[1:, None]
-        integrand = lambda nu: self.planck(nu, T)
-        bbar = self.simpson(integrand, lo, hi)
-        return bbar
-
     def sigmaBar(self, T):     # Placeholder for group-averaged opacity, currently unnecessary since we are using a constant opacity
         lo = self.grid.freqGrid[:-1, None]
         hi = self.grid.freqGrid[1:, None]
@@ -521,7 +520,7 @@ class MovingMeshEquations:
         for m in range(self.sn):
             constOut = 1/T * (1 / self.const.c * dTdt +  self.mu[m] * dTdx)
             constSet[m] = constOut
-        return constOut
+        return constSet
 
 
     # Define modified opacity
