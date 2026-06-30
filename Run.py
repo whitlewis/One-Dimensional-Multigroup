@@ -30,7 +30,7 @@ def mainInfinite():
     constants = Base.Constants()
     params = InfiniteMedium.Parameters()
     grid = Base.Grid(params, constants)
-    InfiniteMediumProblem = IVM(grid, constants)
+    InfiniteMediumProblem = IVM(grid, constants) # This can change to IVM for the infinite variable problem
     BaseSolver = Base.Base(grid, InfiniteMediumProblem, params,  constants)
     fullTensor, grid = BaseSolver.solve()
     fullPhi = np.squeeze(grid.fullTensorPhiTime)

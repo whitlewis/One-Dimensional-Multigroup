@@ -70,6 +70,7 @@ class Material:
         return bg  # Shape is now (freqNum, nBins)
     
     def sigma_a(self, freq, T): 
+        # need to alter this for moving mesh
         nu_lo = self.grid.freqGrid[:-1, None]
         nu_hi = self.grid.freqGrid[1:, None]
         sigma_aZero = np.ones((self.params.freqNum, self.params.nBins))

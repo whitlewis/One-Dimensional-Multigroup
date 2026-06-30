@@ -72,7 +72,7 @@ class Material:
     def sigma_a(self, freq, T): 
         nu_lo = self.grid.freqGrid[:-1, None]
         nu_hi = self.grid.freqGrid[1:, None]
-        sigma_aZero = np.ones((self.params.freqNum, self.params.nBins))*10
+        sigma_aZero = np.ones((self.params.freqNum, self.params.nBins))
         denom = np.sqrt(T) * self.planckg()
         num = sigma_aZero * (np.exp(-nu_lo/T)-np.exp(-nu_hi/T))
         out = num / denom

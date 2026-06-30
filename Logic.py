@@ -328,7 +328,7 @@ class CoupledEquations:
                         bVal = phibr[f, m]  # Use the specified boundary condition if not reflective
 
                     new_phi[m, -1] = (rhs[m, -1] + (abs(self.mu[m]) / self.grid.dx) * bVal) / (abs(self.mu[m]) / self.grid.dx + sig_t[-1])
-                    for i in range(self.params.nBins - 1, 0, -1):
+                    for i in range(self.params.nBins - 1, -1, -1):
                         new_phi[m, i-1] = (
                             rhs[m, i-1] + (abs(self.mu[m]) / self.grid.dx) * new_phi[m, i]
                         ) / (abs(self.mu[m]) / self.grid.dx + sig_t[i-1])
@@ -462,6 +462,7 @@ class MovingMeshEquations:
         self.fullTens = self.grid.fullTensor.copy()
         self.timeTerm = self.timeAbsorption()
         self.sigmaStarVar = self.sigmaStar(self.grid.temperatureSet[:, self.grid.timeStep])  # Update sigma* for the time step
+        self.movingMeshConst = self.movingMeshConstant()  # Update moving mesh constant for the time step
 
 
     # Group integrated Planck
@@ -483,16 +484,17 @@ class MovingMeshEquations:
     def psiBar(self):       # placeholder, currently unnecessary due to init
         return
 
-    # Definition of the coupled material equation (Correct now)
+    # Definition of the coupled material equation (Fully updated for moving mesh)
     def materialEquation(self):
-        # Outer constant calc
-        dt = self.grid.dt[self.grid.timeStep]
-        f = dt / self.material.C_v(self.grid.temperatureSet[:, self.grid.timeStep]) 
-        
+
         # Lagged temperature and phi
         T = self.grid.temperatureSet[:, self.grid.timeStep]  # Current temperature in all x cells (120,1)
         phi = self.getPhi()  # Compute scalar flux by integrating over angles
         bbar = self.planckBar(T)  # Get the group-averaged Planckian for the material 
+
+        # Outer constant calc
+        dt = self.grid.dt[self.grid.timeStep]
+        f = dt / self.material.C_v(self.grid.temperatureSet[:, self.grid.timeStep]) / T
         
         # Calculation of next temperature
         T_offset = f * np.sum((self.material.sigma_a(self.grid.freqGroups, T) * phi - 4*np.pi*self.material.sigma_a(self.grid.freqGroups, T) * bbar), axis=0)
@@ -500,6 +502,7 @@ class MovingMeshEquations:
         self.T_next = T_next.copy()
         self.grid.T_next = T_next.copy()
 
+    # This function updates Q*
     def rhsUpdate(self):
         T = self.grid.temperatureSet[:, self.grid.timeStep]
         bbarNext = self.planckBar(T)  # Get the group-averaged Planckian for the next temperature
@@ -508,13 +511,17 @@ class MovingMeshEquations:
         rhs = sa * bbarNext + self.timeTerm * self.psi_old
         self.grid.rhs = rhs.copy()
 
-    def movingMeshConstant(self):
+    def movingMeshConstant(self):   # This function calculates the C hat constant for the moving mesh equations
         T = self.grid.temperatureSet[:, self.grid.timeStep]
         Tminus = self.grid.temperatureSet[:, self.grid.timeStep-1] if self.grid.timeStep > 0 else T
         dt = self.grid.dt[self.grid.timeStep]
         dTdt = (T - Tminus) / dt
         dTdx = np.gradient(T, self.grid.dx)
-        constOut = 1/T * (1 / self.const.c * dTdt +  self.grid.mu * dTdx)
+        constSet = np.zeros((self.sn, self.params.nBins))
+        for m in range(self.sn):
+            constOut = 1/T * (1 / self.const.c * dTdt +  self.mu[m] * dTdx)
+            constSet[m] = constOut
+        return constOut
 
 
     # Define modified opacity
@@ -533,48 +540,145 @@ class MovingMeshEquations:
         # Initialize the next tensor
         newFull = np.zeros_like(self.fullTens)
 
-        # Loop through frequency
-        for f in range(self.freq):
-            rhs = self.grid.rhs[f]
-            phi = self.fullTens[f]
-            new_phi = np.zeros_like(self.fullTens[f])
-            sig_t = self.sigmaStarVar[f]
 
-            # Loop through Angles
-            for m in range(self.sn):
+        # Loop through Angles
+        for m in range(self.sn):
 
-                # Upwind 
-                if self.mu[m] > 0:
-                    # Forward sweep
-                    if self.params.boundaryLeft == "Reflective":
-                        # Reflective BC: use the reflected angle's outgoing flux as the incoming flux
-                        reflected_m = self.reflMatrix[m]
-                        bVal = new_phi[reflected_m, 0]  # Use the reflected angle's flux at the boundary
+            # Loop through frequency
+            if self.movingMeshConst[m] <= 0:
+                #forward sweep in frequency
+                for f in range(self.freq):
+                    rhs = self.grid.rhs[f]
+                    phi = self.fullTens[f]
+                    new_phi = np.zeros_like(self.fullTens[f])
+                    sig_t = self.sigmaStarVar[f]
+
+                    # Upwind 
+                    if self.mu[m] > 0:
+                        # Forward sweep
+                        if self.params.boundaryLeft == "Reflective":
+                            if f == 0:
+                                bValGroup = 0.0  # No incoming flux from the next group if at the last frequency
+                            else:
+                                bValGroup = self.fullTens[f-1, reflected_m, 0]  # Use the reflected angle's flux at the boundary for the group
+
+                            # Reflective BC: use the reflected angle's outgoing flux as the incoming flux
+                            reflected_m = self.reflMatrix[m]
+                            bVal = new_phi[reflected_m, 0]  # Use the reflected angle's flux at the boundary
+
+                        else:
+                            bVal = phibl[f, m]  # Use the specified boundary condition if not reflective
+                            bValGroup = phibl[f-1, m]  # Use the specified boundary condition if not reflective for the group
+                        
+                        if f == 0:
+                            new_phi[m, 0] = (rhs[m, 0] + (self.mu[m] / self.grid.dx) * bVal + self.movingMeshConst[m] * self.grid.freqGrid[f] * bValGroup) / (self.mu[m] / self.grid.dx + sig_t[0] - self.movingMeshConst[m]* self.grid.freqGroups[f])
+                            for i in range(self.params.nBins-1):
+                                new_phi[m, i + 1] = (
+                                    rhs[m, i+1] + (self.mu[m] / self.grid.dx) * new_phi[m, i] + self.movingMeshConst[m]  * self.grid.freqGrid[f] * bValGroup
+                                ) / (self.mu[m] / self.grid.dx + sig_t[i+1] - self.movingMeshConst[m]* self.grid.freqGroups[f])
+                        else:
+                            new_phi[m, 0] = (rhs[m, 0] + (self.mu[m] / self.grid.dx) * bVal + self.movingMeshConst[m] * self.grid.freqGroups[f-1] * newFull[f-1, m, i+1]) / (self.mu[m] / self.grid.dx + sig_t[0] - self.movingMeshConst[m]* self.grid.freqGroups[f])
+                            for i in range(self.params.nBins-1):
+                                new_phi[m, i + 1] = (
+                                    rhs[m, i+1] + (self.mu[m] / self.grid.dx) * new_phi[m, i] + self.movingMeshConst[m]  * self.grid.freqGroups[f-1] * newFull[f-1, m, i+1]
+                                ) / (self.mu[m] / self.grid.dx + sig_t[i+1] - self.movingMeshConst[m]* self.grid.freqGroups[f])
+
                     else:
-                        bVal = phibl[f, m]  # Use the specified boundary condition if not reflective
-                    
-                    new_phi[m, 0] = (rhs[m, 0] + (self.mu[m] / self.grid.dx) * bVal) / (self.mu[m] / self.grid.dx + sig_t[0])
-                    for i in range(self.params.nBins-1):
-                        new_phi[m, i + 1] = (
-                            rhs[m, i+1] + (self.mu[m] / self.grid.dx) * new_phi[m, i]
-                        ) / (self.mu[m] / self.grid.dx + sig_t[i+1])
+                        # Backward sweep
+                        if self.params.boundaryRight == "Reflective":
+                            # Reflective BC: use the reflected angle's outgoing flux as the incoming flux
+                            if f == 0:
+                                bValGroup = 0.0  # No incoming flux from the next group if at the last frequency
+                            else:
+                                bValGroup = self.fullTens[f-1, reflected_m, 0]  # Use the reflected angle's flux at the boundary for the group
 
-                else:
-                    # Backward sweep
+                            reflected_m = self.reflMatrix[m]
+                            bVal = self.fullTens[f, reflected_m, -1]  # Use the reflected angle's flux at the boundary
 
-                    if self.params.boundaryRight == "Reflective":
-                        # Reflective BC: use the reflected angle's outgoing flux as the incoming flux
-                        reflected_m = self.reflMatrix[m]
-                        bVal = self.fullTens[f, reflected_m, -1]  # Use the reflected angle's flux at the boundary
+                        else:
+                            bVal = phibr[f, m]  # Use the specified boundary condition if not reflective
+                            bValGroup = phibr[f, m]  # Use the specified boundary condition if not reflective for the group
+
+                        if f == 0:
+                            new_phi[m, -1] = (rhs[m, -1] + (abs(self.mu[m]) / self.grid.dx)* bVal + self.movingMeshConst[m] * self.grid.freqGrid[f] * bValGroup) / (abs(self.mu[m]) / self.grid.dx + sig_t[-1]- self.movingMeshConst[m] * self.grid.freqGroups[f])
+                            for i in range(self.params.nBins - 1, -1, -1):
+                                new_phi[m, i-1] = (
+                                    rhs[m, i-1] + (abs(self.mu[m]) / self.grid.dx) * new_phi[m, i] + self.movingMeshConst[m]  * self.grid.freqGrid[f] * bValGroup
+                                ) / (abs(self.mu[m]) / self.grid.dx + sig_t[i-1] - self.movingMeshConst[m]* self.grid.freqGroups[f])                            
+                        else:
+                            new_phi[m, -1] = (rhs[m, -1] + (abs(self.mu[m]) / self.grid.dx)* bVal + self.movingMeshConst[m] * self.grid.freqGroups[f-1]* newFull[f-1, m, i-1]) / (abs(self.mu[m]) / self.grid.dx + sig_t[-1]- self.movingMeshConst[m] * self.grid.freqGroups[f])
+                            for i in range(self.params.nBins - 1, -1, -1):
+                                new_phi[m, i-1] = (
+                                    rhs[m, i-1] + (abs(self.mu[m]) / self.grid.dx) * new_phi[m, i] + self.movingMeshConst[m]  * self.grid.freqGroups[f-1] * newFull[f-1, m, i-1]
+                                ) / (abs(self.mu[m]) / self.grid.dx + sig_t[i-1] - self.movingMeshConst[m]* self.grid.freqGroups[f])
+
+                    newFull[f] = new_phi
+
+            elif self.movingMeshConst[m] > 0:
+                #backward sweep in frequency
+                for f in range(self.freq-1, -1, -1):
+                    rhs = self.grid.rhs[f]
+                    phi = self.fullTens[f]
+                    new_phi = np.zeros_like(self.fullTens[f])
+                    sig_t = self.sigmaStarVar[f]
+                    # Upwind 
+                    if self.mu[m] > 0:
+                        # Forward sweep space
+                        if self.params.boundaryLeft == "Reflective":
+                            # Reflective BC: use the reflected angle's outgoing flux as the incoming flux
+                            if f == self.freq-1:
+                                bValGroup = 0.0  # No incoming flux from the next group if at the last frequency
+                            else:
+                                bValGroup = self.fullTens[f+1, reflected_m, 0]  # Use the reflected angle's flux at the boundary for the group
+                            reflected_m = self.reflMatrix[m]
+                            bVal = new_phi[reflected_m, 0]  # Use the reflected angle's flux at the boundary
+
+                        else:
+                            bVal = phibl[f, m]  # Use the specified boundary condition if not reflective
+                            bValGroup = phibl[f+1, m]  # Use the specified boundary condition if not reflective for the group
+                        if f == self.freq-1:
+                            new_phi[m, 0] = (rhs[m, 0] + (self.mu[m] / self.grid.dx) * bVal + self.movingMeshConst[m] * self.grid.freqGrid[f] * bValGroup) / (self.mu[m] / self.grid.dx + sig_t[0] - self.movingMeshConst[m]* self.grid.freqGroups[f])
+                            for i in range(self.params.nBins-1):
+                                new_phi[m, i + 1] = (
+                                    rhs[m, i+1] + (self.mu[m] / self.grid.dx) * new_phi[m, i] + self.movingMeshConst[m]  * self.grid.freqGrid[f] * bValGroup
+                                ) / (self.mu[m] / self.grid.dx + sig_t[i+1] - self.movingMeshConst[m]* self.grid.freqGroups[f])                            
+                        else:
+                            new_phi[m, 0] = (rhs[m, 0] + (self.mu[m] / self.grid.dx) * bVal + self.movingMeshConst[m] * self.grid.freqGroups[f+1] * newFull[f+1, m, i+1]) / (self.mu[m] / self.grid.dx + sig_t[0] - self.movingMeshConst[m]* self.grid.freqGroups[f])
+                            for i in range(self.params.nBins-1):
+                                new_phi[m, i + 1] = (
+                                    rhs[m, i+1] + (self.mu[m] / self.grid.dx) * new_phi[m, i] + self.movingMeshConst[m]  * self.grid.freqGroups[f+1] * newFull[f+1, m, i+1]
+                                ) / (self.mu[m] / self.grid.dx + sig_t[i+1] - self.movingMeshConst[m]* self.grid.freqGroups[f])
+
                     else:
-                        bVal = phibr[f, m]  # Use the specified boundary condition if not reflective
-                    new_phi[m, -1] = (rhs[m, -1] + (abs(self.mu[m]) / self.grid.dx) * bVal) / (abs(self.mu[m]) / self.grid.dx + sig_t[-1])
-                    for i in range(self.params.nBins - 1, 0, -1):
-                        new_phi[m, i-1] = (
-                            rhs[m, i-1] + (abs(self.mu[m]) / self.grid.dx) * new_phi[m, i]
-                        ) / (abs(self.mu[m]) / self.grid.dx + sig_t[i-1])
-            # for each group update the tensor
-            newFull[f] = new_phi
+                        # Backward sweep (space)
+
+                        if self.params.boundaryRight == "Reflective":
+                            # Reflective BC: use the reflected angle's outgoing flux as the incoming flux
+                            if f == self.freq-1:
+                                bValGroup = 0.0  # No incoming flux from the next group if at the last frequency
+                            else:
+                                bValGroup = self.fullTens[f+1, reflected_m, 0]  # Use the reflected angle's flux at the boundary for the group
+
+                            reflected_m = self.reflMatrix[m]
+                            bVal = self.fullTens[f, reflected_m, -1]  # Use the reflected angle's flux at the boundary
+                        else:
+                            bVal = phibr[f, m]  # Use the specified boundary condition if not reflective
+                            bValGroup = phibr[f+1, m]  # Use the specified boundary condition if not reflective for the group
+
+                        if f == self.freq-1:
+                            new_phi[m, -1] = (rhs[m, -1] + (abs(self.mu[m]) / self.grid.dx)* bVal + self.movingMeshConst[m] * self.grid.freqGrid[f] * bValGroup) / (abs(self.mu[m]) / self.grid.dx + sig_t[-1]- self.movingMeshConst[m] * self.grid.freqGroups[f])
+                            for i in range(self.params.nBins - 1, -1, -1):  
+                                new_phi[m, i-1] = (
+                                    rhs[m, i-1] + (abs(self.mu[m]) / self.grid.dx) * new_phi[m, i] + self.movingMeshConst[m]  * self.grid.freqGrid[f] * bValGroup
+                                ) / (abs(self.mu[m]) / self.grid.dx + sig_t[i-1] - self.movingMeshConst[m]* self.grid.freqGroups[f])                            
+                        else:
+                            new_phi[m, -1] = (rhs[m, -1] + (abs(self.mu[m]) / self.grid.dx)* bVal + self.movingMeshConst[m] * self.grid.freqGroups[f+1] * newFull[f+1, m, i-1]) / (abs(self.mu[m]) / self.grid.dx + sig_t[-1]- self.movingMeshConst[m] * self.grid.freqGroups[f])
+                            for i in range(self.params.nBins - 1, -1, -1):  
+                                new_phi[m, i-1] = (
+                                    rhs[m, i-1] + (abs(self.mu[m]) / self.grid.dx) * new_phi[m, i] + self.movingMeshConst[m]  * self.grid.freqGroups[f+1] * newFull[f+1, m, i-1]
+                                ) / (abs(self.mu[m]) / self.grid.dx + sig_t[i-1] - self.movingMeshConst[m]* self.grid.freqGroups[f])
+
+                    newFull[f] = new_phi
 
         # Set fullTensor to the updated Tensor
         self.grid.fullTensor = newFull.copy()
