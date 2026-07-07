@@ -54,12 +54,12 @@ def plotTemperature(grid):
     EradSet = []
     for i, timeStep in enumerate(grid.timeSet):
         Erad = np.sum(grid.fullTensorPhiTime[i], axis=0)
-        EradSet.append(Erad[20])  # Store the radiation energy density at the middle spatial bin for each time step
+        EradSet.append(Erad[grid.nbins//2])  # Store the radiation energy density at the middle spatial bin for each time step
     Trad = (np.array(EradSet)/ const.a / const.c)**0.25
     labelT = "Temperature vs Time"
     shape = grid.temperatureSet.shape
     print(f'Temperature set shape: {shape}')  # Debugging print statement to check the shape of temperatureSet
-    T = grid.temperatureSet[20][:-1]  # Final temperature distribution at the last time step
+    T = grid.temperatureSet[grid.nbins//2][:-1]  # Final temperature distribution at the last time step
     plt.plot(t, T, label=labelT)
     plt.plot(t, Trad[:-1], label=f"{labelT} from Radiation Energy Density", linestyle='--')
     plt.xlabel("t (ns)")

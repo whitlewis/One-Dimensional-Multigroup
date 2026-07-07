@@ -21,16 +21,16 @@ class Parameters:
         self.sourceTemp = 0.5
 
         # Spatial grid parameters
-        self.xMin = -40
-        self.xMax = 40
-        self.nBins = 100
+        self.xMin = -10
+        self.xMax = 10
+        self.nBins = 40
 
         # Boundary conditions (currently for all frequencies and angles, planckian at specified temperature or reflective)
         self.boundaryLeft = "Reflective"
         self.boundaryRight = "Reflective"
 
         # Group parameters
-        self.freqNum = 25
+        self.freqNum = 10
         self.minFreq = 1e-4
         self.maxFreq = 25
         self.infFreq = 150
@@ -75,9 +75,9 @@ class Material:
         nu_hi = self.grid.freqGrid[1:, None]
         sigma_aZero = np.ones((self.params.freqNum, self.params.nBins))
         denom = np.sqrt(T) * self.planckg()
-        num = sigma_aZero * (np.exp(-nu_lo/T)-np.exp(-nu_hi/T))
+        num = sigma_aZero * (np.exp(-nu_lo)-np.exp(-nu_hi))
         out = num / denom
-        return out
+        return sigma_aZero
     # End of opacity implementation
     
     def C_v(self, T):  # Placeholder constant heat capacity
@@ -86,7 +86,7 @@ class Material:
 
 
 
-class InfiniteMedium:
+class InfiniteVariable:
     def __init__(self, grid, constants):
         self.parameters = Parameters()
         self.material = Material(self.parameters, grid)

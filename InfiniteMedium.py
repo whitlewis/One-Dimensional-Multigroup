@@ -21,8 +21,8 @@ class Parameters:
         self.sourceTemp = 0.5
 
         # Spatial grid parameters
-        self.xMin = -40
-        self.xMax = 40
+        self.xMin = -10
+        self.xMax = 10
         self.nBins = 100
 
         # Boundary conditions (currently for all frequencies and angles, planckian at specified temperature or reflective)

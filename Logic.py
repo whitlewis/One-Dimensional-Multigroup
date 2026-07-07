@@ -1,4 +1,5 @@
 import numpy as np
+np.seterr(divide='raise', invalid='raise', over='raise')
 
 
 # Non coupled equations
@@ -328,7 +329,7 @@ class CoupledEquations:
                         bVal = phibr[f, m]  # Use the specified boundary condition if not reflective
 
                     new_phi[m, -1] = (rhs[m, -1] + (abs(self.mu[m]) / self.grid.dx) * bVal) / (abs(self.mu[m]) / self.grid.dx + sig_t[-1])
-                    for i in range(self.params.nBins - 1, -1, -1):
+                    for i in range(self.params.nBins - 1, 0, -1):
                         new_phi[m, i-1] = (
                             rhs[m, i-1] + (abs(self.mu[m]) / self.grid.dx) * new_phi[m, i]
                         ) / (abs(self.mu[m]) / self.grid.dx + sig_t[i-1])
@@ -531,159 +532,165 @@ class MovingMeshEquations:
 
 
     # Helper function to set boundary values based on the side and boundary condition type
-    def setBoundaryValues(self, f, m, new_phi, time, side):
-
-        if side == "left":
-            phibl = self.boundaryCondition("left", time)
-            if self.params.boundaryLeft == "Reflective":
-                if f == 0:
-                    bValGroup = 0.0  # No incoming flux from the next group if at the last frequency
-                else:
-                    bValGroup = self.fullTens[f-1, reflected_m, 0]  # Use the reflected angle's flux at the boundary for the group
-
-                # Reflective BC: use the reflected angle's outgoing flux as the incoming flux
-                reflected_m = self.reflMatrix[m]
-                bVal = new_phi[reflected_m, 0]  # Use the reflected angle's flux at the boundary
-
-            else:
-                bVal = phibl[f, m]  # Use the specified boundary condition if not reflective
-                bValGroup = phibl[f-1, m]  # Use the specified boundary condition if not reflective for the group
-
-        elif side == "right":
-            phibr = self.boundaryCondition("right", time)
-            if self.params.boundaryLeft == "Reflective":
-                # Reflective BC: use the reflected angle's outgoing flux as the incoming flux
-                if f == self.freq-1:
-                    bValGroup = 0.0  # No incoming flux from the next group if at the last frequency
-                else:
-                    bValGroup = self.fullTens[f+1, reflected_m, 0]  # Use the reflected angle's flux at the boundary for the group
-                reflected_m = self.reflMatrix[m]
-                bVal = new_phi[reflected_m, 0]  # Use the reflected angle's flux at the boundary
-
-            else:
-                bVal = phibl[f, m]  # Use the specified boundary condition if not reflective
-                bValGroup = phibl[f+1, m]  # Use the specified boundary condition if not reflective for the group
+    def setBoundaryValues(self, f, m, c, newFull, time, side):
+        reflected_m = self.reflMatrix[m]
         
+        # 1. Dynamically set spatial side configurations to eliminate copy-paste bugs
+        if side == "left":
+            bc_type = self.params.boundaryLeft
+            phi_source = self.boundaryCondition("left", time)
+            spatial_idx = 0
+        elif side == "right":
+            bc_type = self.params.boundaryRight
+            phi_source = self.boundaryCondition("right", time)
+            spatial_idx = -1
+        else:
+            raise ValueError("Side must be 'left' or 'right'")
+
+        # 2. Handle Reflective Boundary Condition
+        if bc_type == "Reflective":
+            # Spatial flux comes from the reflected angle at the current frequency
+            bVal = newFull[f, reflected_m, spatial_idx]
+            
+            # Frequency upwind flux depends on mesh movement direction (c)
+            if c > 0:
+                bValGroup = 1e-10 if f == 0 else newFull[f-1, reflected_m, spatial_idx]
+            else:
+                bValGroup = 1e-10 if f == self.freq-1 else newFull[f+1, reflected_m, spatial_idx]
+
+        # 3. Handle Prescribed Source / Inflow Boundary Condition
+        else:
+            # Spatial flux comes from the external profile
+            bVal = phi_source[f, m]
+            
+            # Frequency upwind flux from the external profile also obeys c upwinding
+            if c > 0:
+                bValGroup = 1e-10 if f == 0 else phi_source[f-1, m]
+            else:
+                bValGroup = 1e-10 if f == self.freq-1 else phi_source[f+1, m]
+                
         return bVal, bValGroup
 
 
     def radiationSweep(self):
-        # Initialize time set assets
-        self.startTimeStep()
+            # Initialize time set assets
+            self.startTimeStep()
 
-        # Set up Boundary conditions at the time step (allows for variable boundary conditions)
-        time = self.grid.timeSet[self.grid.timeStep]
+            # Set up Boundary conditions at the time step (allows for variable boundary conditions)
+            time = self.grid.timeSet[self.grid.timeStep]
 
-        # Initialize the next tensor
-        newFull = np.zeros_like(self.fullTens)
+            # Initialize the next tensor
+            newFull = np.zeros_like(self.fullTens)
 
-        # Loop through Angles
-        for m in range(self.sn):
+            # Loop through Angles
+            for m in range(self.sn):
 
-            # Forward sweep in frequency 
-            if self.mu[m] > 0:
-                for i in range(self.params.nBins - 1):
-                    if self.movingMeshConst[m,i] > 0:
-                        for f in range(self.freq):
-                            rhs = self.grid.rhs[f]
-                            phi = self.fullTens[f]
-                            new_phi = np.zeros_like(self.fullTens[f])
-                            sig_t = self.sigmaStarVar[f]
+                # Forward sweep in frequency 
+                if self.mu[m] > 0:
+                    for i in range(self.params.nBins - 1):
+                        c = self.movingMeshConst[m, i]
+                        if c > 0:
+                            for f in range(self.freq):
+                                rhs = self.grid.rhs[f]
+                                sig_t = self.sigmaStarVar[f]
 
-                            bVal, bValGroup = self.setBoundaryValues(f, m, new_phi, time, "left")
-                            if f == 0:
-                                # Edge case
-                                newFull[f, m, 0] = (rhs[m, 0] + (self.mu[m] / self.grid.dx) * bVal + self.movingMeshConst[m] * self.grid.freqGrid[f] * bValGroup) / (self.mu[m] / self.grid.dx + sig_t[0] - self.movingMeshConst[m]* self.grid.freqGroups[f])
-                                # Main spatial sweep
-                                newFull[f, m, i + 1] = (
-                                    rhs[m, i+1] + (self.mu[m] / self.grid.dx) *newFull[f, m, i] + self.movingMeshConst[m]  * self.grid.freqGrid[f] * bValGroup
-                                ) / (self.mu[m] / self.grid.dx + sig_t[i+1] - self.movingMeshConst[m]* self.grid.freqGroups[f])
-                            else:
-                                # Edge case
-                                newFull[f, m, 0] = (rhs[m, 0] + (self.mu[m] / self.grid.dx) * bVal + self.movingMeshConst[m] * self.grid.freqGroups[f-1] * newFull[f-1, m, i+1]) / (self.mu[m] / self.grid.dx + sig_t[0] - self.movingMeshConst[m]* self.grid.freqGroups[f])
-                                # Main spatial sweep
-                                newFull[f, m, i + 1] = (
-                                    rhs[m, i+1] + (self.mu[m] / self.grid.dx) * newFull[f, m, i] + self.movingMeshConst[m]  * self.grid.freqGroups[f-1] * newFull[f-1, m, i+1]
-                                ) / (self.mu[m] / self.grid.dx + sig_t[i+1] - self.movingMeshConst[m]* self.grid.freqGroups[f])
+                                bVal, bValGroup = self.setBoundaryValues(f, m, c, newFull, time, "left")
+                                if f == 0:
+                                    # Edge case
+                                    if i == 0:
+                                        newFull[f, m, i] = (rhs[m, i] + (self.mu[m] / self.grid.dx) * bVal + c * self.grid.freqGrid[f] * bValGroup) / (self.mu[m] / self.grid.dx + sig_t[i] + c* self.grid.freqGroups[f])
+                                    # Main spatial sweep
+                                    newFull[f, m, i + 1] = (
+                                        rhs[m, i+1] + (self.mu[m] / self.grid.dx) * newFull[f, m, i] + c  * self.grid.freqGrid[f] * bValGroup
+                                    ) / (self.mu[m] / self.grid.dx + sig_t[i+1] + c* self.grid.freqGroups[f])
+                                else:
+                                    # Edge case
+                                    if i == 0:
+                                        newFull[f, m, 0] = (rhs[m, 0] + (self.mu[m] / self.grid.dx) * bVal + c * self.grid.freqGroups[f-1] * newFull[f-1, m, 0]) / (self.mu[m] / self.grid.dx + sig_t[0] + c* self.grid.freqGroups[f])
+                                    # Main spatial sweep
+                                    newFull[f, m, i + 1] = (
+                                        rhs[m, i+1] + (self.mu[m] / self.grid.dx) * newFull[f, m, i] + c  * self.grid.freqGroups[f-1] * newFull[f-1, m, i+1]
+                                    ) / (self.mu[m] / self.grid.dx + sig_t[i+1] + c* self.grid.freqGroups[f])
 
-                    elif self.movingMeshConst[m,i] <= 0:
-                        for f in range(self.freq-1, -1, -1):
-                            rhs = self.grid.rhs[f]
-                            phi = self.fullTens[f]
-                            new_phi = np.zeros_like(self.fullTens[f])
-                            sig_t = self.sigmaStarVar[f]
+                        elif c <= 0:
+                            for f in range(self.freq-1, -1, -1):
+                                rhs = self.grid.rhs[f]
+                                sig_t = self.sigmaStarVar[f]
 
-                            bVal, bValGroup = self.setBoundaryValues(f, m, new_phi, time, "right")
-                            if f == self.freq-1:
-                                # Edge case
-                                newFull[f, m, 0] = (rhs[m, 0] + (self.mu[m] / self.grid.dx) * bVal + self.movingMeshConst[m] * self.grid.freqGrid[f] * bValGroup) / (self.mu[m] / self.grid.dx + sig_t[0] - self.movingMeshConst[m]* self.grid.freqGroups[f])
-                                # Main spatial sweep
-                                newFull[f, m, i + 1] = (
-                                    rhs[m, i+1] + (self.mu[m] / self.grid.dx) * newFull[f, m, i] + self.movingMeshConst[m]  * self.grid.freqGrid[f] * bValGroup
-                                ) / (self.mu[m] / self.grid.dx + sig_t[i+1] - self.movingMeshConst[m]* self.grid.freqGroups[f])                            
-                            else:
-                                # Edge case
-                                newFull[f, m, 0] = (rhs[m, 0] + (self.mu[m] / self.grid.dx) * bVal + self.movingMeshConst[m] * self.grid.freqGroups[f+1] * newFull[f+1, m, i+1]) / (self.mu[m] / self.grid.dx + sig_t[0] - self.movingMeshConst[m]* self.grid.freqGroups[f])
-                                # Main spatial sweep
-                                newFull[f, m, i + 1] = (
-                                    rhs[m, i+1] + (self.mu[m] / self.grid.dx) * newFull[f, m, i] + self.movingMeshConst[m]  * self.grid.freqGroups[f+1] * newFull[f+1, m, i+1]
-                                ) / (self.mu[m] / self.grid.dx + sig_t[i+1] - self.movingMeshConst[m]* self.grid.freqGroups[f])
+                                bVal, bValGroup = self.setBoundaryValues(f, m, c, newFull, time, "left")
+                                if f == self.freq-1:
+                                    # Edge case
+                                    if i == 0:
+                                        newFull[f, m, 0] = (rhs[m, 0] + (self.mu[m] / self.grid.dx) * bVal + abs(c) * self.grid.freqGrid[f] * bValGroup) / (self.mu[m] / self.grid.dx + sig_t[0] + abs(c) * self.grid.freqGroups[f])
+                                    # Main spatial sweep
+                                    newFull[f, m, i + 1] = (
+                                        rhs[m, i+1] + (self.mu[m] / self.grid.dx) * newFull[f, m, i] + abs(c)  * self.grid.freqGrid[f] * bValGroup
+                                    ) / (self.mu[m] / self.grid.dx + sig_t[i+1] + abs(c) * self.grid.freqGroups[f])                            
+                                else:
+                                    # Edge case
+                                    if i == 0:
+                                        newFull[f, m, 0] = (rhs[m, 0] + (self.mu[m] / self.grid.dx) * bVal + abs(c) * self.grid.freqGroups[f+1] * newFull[f+1, m, 0]) / (self.mu[m] / self.grid.dx + sig_t[0] + abs(c) * self.grid.freqGroups[f])
+                                    # Main spatial sweep
+                                    newFull[f, m, i + 1] = (
+                                        rhs[m, i+1] + (self.mu[m] / self.grid.dx) * newFull[f, m, i] + abs(c)  * self.grid.freqGroups[f+1] * newFull[f+1, m, i+1]
+                                    ) / (self.mu[m] / self.grid.dx + sig_t[i+1] + abs(c) * self.grid.freqGroups[f])
 
+                elif self.mu[m] < 0:
+                    for i in range(self.params.nBins - 1, 0, -1):
+                        # The abs in the spatial sweep switches the sign to match if it was minus the term
+                        c = self.movingMeshConst[m, i]
+                        if c > 0:
+                            for f in range(self.freq):
+                                rhs = self.grid.rhs[f]
+                                sig_t = self.sigmaStarVar[f]
 
+                                bVal, bValGroup = self.setBoundaryValues(f, m, c, newFull, time, "right")
+                                if f == 0:
+                                    # Edge case
+                                    if i == self.params.nBins - 1:
+                                        # FIX: Changed 'bVal' to 'bValGroup' for frequency grid boundaries
+                                        newFull[f, m, -1] = (rhs[m, -1] + (abs(self.mu[m]) / self.grid.dx)* bVal + c * self.grid.freqGrid[f] * bValGroup) / (abs(self.mu[m]) / self.grid.dx + sig_t[-1] + c * self.grid.freqGroups[f])
+                                    # Main spatial sweep
+                                    newFull[f, m, i-1] = (
+                                        rhs[m, i-1] + (abs(self.mu[m]) / self.grid.dx) * newFull[f, m, i] + c  * self.grid.freqGrid[f] * bValGroup
+                                    ) / (abs(self.mu[m]) / self.grid.dx + sig_t[i-1] + c * self.grid.freqGroups[f])                            
+                                else:
+                                    # Edge case
+                                    if i == self.params.nBins - 1:
+                                        # FIX: Changed 'bVal' to 'newFull[f-1, m, -1]' for proper frequency coupling
+                                        newFull[f, m, -1] = (rhs[m, -1] + (abs(self.mu[m]) / self.grid.dx)* bVal + c * self.grid.freqGroups[f-1]* newFull[f-1, m, -1]) / (abs(self.mu[m]) / self.grid.dx + sig_t[-1] + c * self.grid.freqGroups[f])
+                                    # Main spatial sweep
+                                    newFull[f, m, i-1] = (
+                                        rhs[m, i-1] + (abs(self.mu[m]) / self.grid.dx) * newFull[f, m, i] + c  * self.grid.freqGroups[f-1] * newFull[f-1, m, i-1]
+                                    ) / (abs(self.mu[m]) / self.grid.dx + sig_t[i-1] + c * self.grid.freqGroups[f])
 
-            elif self.mu[m] < 0:
-                for i in range(self.params.nBins - 1, -1, -1):
-                    if self.movingMeshConst[m,i] > 0:
-                        for f in range(self.freq):
-                            rhs = self.grid.rhs[f]
-                            phi = self.fullTens[f]
-                            new_phi = np.zeros_like(self.fullTens[f])
-                            sig_t = self.sigmaStarVar[f]
+                        elif c <= 0:
+                            for f in range(self.freq-1, -1, -1):
+                                rhs = self.grid.rhs[f]
+                                sig_t = self.sigmaStarVar[f]
 
-                            bVal, bValGroup = self.setBoundaryValues(f, m, new_phi, time, "right")
-                            if f == 0:
-                                # Edge case
-                                newFull[f, m, -1] = (rhs[m, -1] + (abs(self.mu[m]) / self.grid.dx)* bVal + self.movingMeshConst[m] * self.grid.freqGrid[f] * bValGroup) / (abs(self.mu[m]) / self.grid.dx + sig_t[-1]- self.movingMeshConst[m] * self.grid.freqGroups[f])
-                                # Main spatial sweep
-                                newFull[f, m, i-1] = (
-                                    rhs[m, i-1] + (abs(self.mu[m]) / self.grid.dx) * newFull[f, m, i] + self.movingMeshConst[m]  * self.grid.freqGrid[f] * bValGroup
-                                ) / (abs(self.mu[m]) / self.grid.dx + sig_t[i-1] - self.movingMeshConst[m]* self.grid.freqGroups[f])                            
-                            else:
-                                # Edge case
-                                newFull[f, m, -1] = (rhs[m, -1] + (abs(self.mu[m]) / self.grid.dx)* bVal + self.movingMeshConst[m] * self.grid.freqGroups[f-1]* newFull[f-1, m, i-1]) / (abs(self.mu[m]) / self.grid.dx + sig_t[-1]- self.movingMeshConst[m] * self.grid.freqGroups[f])
-                                # Main spatial sweep
-                                newFull[f, m, i-1] = (
-                                    rhs[m, i-1] + (abs(self.mu[m]) / self.grid.dx) * newFull[f, m, i] + self.movingMeshConst[m]  * self.grid.freqGroups[f-1] * newFull[f-1, m, i-1]
-                                ) / (abs(self.mu[m]) / self.grid.dx + sig_t[i-1] - self.movingMeshConst[m]* self.grid.freqGroups[f])
+                                bVal, bValGroup = self.setBoundaryValues(f, m, c, newFull, time, "right")
+                                if f == self.freq-1:
+                                    # Edge case
+                                    if i == self.params.nBins - 1:
+                                        # FIX: Changed 'bVal' to 'bValGroup' for frequency grid boundaries
+                                        newFull[f, m, -1] = (rhs[m, -1] + (abs(self.mu[m]) / self.grid.dx)* bVal + abs(c) * self.grid.freqGrid[f] * bValGroup) / (abs(self.mu[m]) / self.grid.dx + sig_t[-1] + abs(c) * self.grid.freqGroups[f])
+                                    # Main spatial sweep
+                                    newFull[f, m, i-1] = (
+                                        rhs[m, i-1] + (abs(self.mu[m]) / self.grid.dx) * newFull[f, m, i] + abs(c)  * self.grid.freqGrid[f] * bValGroup
+                                    ) / (abs(self.mu[m]) / self.grid.dx + sig_t[i-1] + abs(c) * self.grid.freqGroups[f])                            
+                                else:
+                                    # Edge case
+                                    if i == self.params.nBins - 1:
+                                        # FIX: Changed 'bVal' to 'newFull[f+1, m, -1]' for proper frequency coupling
+                                        newFull[f, m, -1] = (rhs[m, -1] + (abs(self.mu[m]) / self.grid.dx)* bVal + abs(c) * self.grid.freqGroups[f+1] * newFull[f+1, m, -1]) / (abs(self.mu[m]) / self.grid.dx + sig_t[-1] + abs(c) * self.grid.freqGroups[f])
+                                    # Main spatial sweep
+                                    newFull[f, m, i-1] = (
+                                        rhs[m, i-1] + (abs(self.mu[m]) / self.grid.dx) * newFull[f, m, i] + abs(c) * self.grid.freqGroups[f+1] * newFull[f+1, m, i-1]
+                                    ) / (abs(self.mu[m]) / self.grid.dx + sig_t[i-1] + abs(c) * self.grid.freqGroups[f])
 
-
-
-                    elif self.movingMeshConst[m] <= 0:
-                        for f in range(self.freq-1, -1, -1):
-                            rhs = self.grid.rhs[f]
-                            phi = self.fullTens[f]
-                            new_phi = np.zeros_like(self.fullTens[f])
-                            sig_t = self.sigmaStarVar[f]
-
-                            if f == self.freq-1:
-                                # Edge case
-                                newFull[f, m, -1] = (rhs[m, -1] + (abs(self.mu[m]) / self.grid.dx)* bVal + self.movingMeshConst[m] * self.grid.freqGrid[f] * bValGroup) / (abs(self.mu[m]) / self.grid.dx + sig_t[-1]- self.movingMeshConst[m] * self.grid.freqGroups[f])
-                                # Main spatial sweep
-                                newFull[f, m, i-1] = (
-                                    rhs[m, i-1] + (abs(self.mu[m]) / self.grid.dx) * newFull[f, m, i] + self.movingMeshConst[m]  * self.grid.freqGrid[f] * bValGroup
-                                ) / (abs(self.mu[m]) / self.grid.dx + sig_t[i-1] - self.movingMeshConst[m]* self.grid.freqGroups[f])                            
-                            else:
-                                # Edge case
-                                newFull[f, m, -1] = (rhs[m, -1] + (abs(self.mu[m]) / self.grid.dx)* bVal + self.movingMeshConst[m] * self.grid.freqGroups[f+1] * newFull[f+1, m, i-1]) / (abs(self.mu[m]) / self.grid.dx + sig_t[-1]- self.movingMeshConst[m] * self.grid.freqGroups[f])
-                                # Main spatial sweep
-                                newFull[f, m, i-1] = (
-                                    rhs[m, i-1] + (abs(self.mu[m]) / self.grid.dx) * newFull[f, m, i] + self.movingMeshConst[m]  * self.grid.freqGroups[f+1] * newFull[f+1, m, i-1]
-                                ) / (abs(self.mu[m]) / self.grid.dx + sig_t[i-1] - self.movingMeshConst[m]* self.grid.freqGroups[f])
-
-
-
-        # Set fullTensor to the updated Tensor
-        self.grid.fullTensor = newFull.copy()
+            # Set fullTensor to the updated Tensor
+            self.grid.fullTensor = newFull.copy()
 
 
 

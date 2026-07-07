@@ -12,6 +12,7 @@ class Grid:
     def __init__(self, parameters, Constants=Constants()):
         self.constants = Constants
         # Space grid
+        self.nBins = parameters.nBins
         self.dx = (parameters.xMax - parameters.xMin) / parameters.nBins
         self.spaceGrid = np.linspace(parameters.xMin, parameters.xMax, parameters.nBins + 1)  # cell edges
         self.spaceMid = 0.5 * (self.spaceGrid[:-1] + self.spaceGrid[1:])  # cell centers

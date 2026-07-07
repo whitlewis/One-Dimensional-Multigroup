@@ -2,7 +2,8 @@ import Marshak
 from Marshak import Marshak as MarProblem
 import InfiniteMedium   
 from InfiniteMedium import InfiniteMedium as IM
-from InfiniteVariable import InfiniteMedium as IVM
+import InfiniteVariable
+from InfiniteVariable import InfiniteVariable as IVM
 import Reeds
 from Reeds import Reeds as ReedsProblem
 import Base as Base
@@ -30,7 +31,7 @@ def mainInfinite():
     constants = Base.Constants()
     params = InfiniteMedium.Parameters()
     grid = Base.Grid(params, constants)
-    InfiniteMediumProblem = IVM(grid, constants) # This can change to IVM for the infinite variable problem
+    InfiniteMediumProblem = IM(grid, constants) # This can change to IVM for the infinite variable problem
     BaseSolver = Base.Base(grid, InfiniteMediumProblem, params,  constants)
     fullTensor, grid = BaseSolver.solve()
     fullPhi = np.squeeze(grid.fullTensorPhiTime)
@@ -43,9 +44,9 @@ def mainInfinite():
 
 def mainMovingMesh():
     constants = Base.Constants()
-    params = InfiniteMedium.Parameters()
+    params = InfiniteVariable.Parameters()
     grid = Base.Grid(params, constants)
-    InfiniteMediumProblem = IM(grid, constants)
+    InfiniteMediumProblem = IVM(grid, constants)
     BaseSolver = Base.Base(grid, InfiniteMediumProblem, params,  constants)
     fullTensor, grid = BaseSolver.solve()
     fullPhi = np.squeeze(grid.fullTensorPhiTime)
@@ -70,4 +71,5 @@ def mainReeds():
     Vis.animate_solution(fullPhi, params, grid)
     return grid
 
-grid = mainInfinite()
+# grid = mainInfinite()
+grid = mainMovingMesh()
