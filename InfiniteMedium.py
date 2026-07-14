@@ -4,7 +4,7 @@ import Logic as Log
 import Base as Base
 
 class Parameters:
-    def __init__(self, maxIters=100, tol=1e-15, nSteps=250, Transient=True):
+    def __init__(self, maxIters=100, tol=1e-15, nSteps=25, Transient=True):
         # Tolerance and iteration parameters
         self.maxIters = maxIters
         self.tol = tol
@@ -23,7 +23,7 @@ class Parameters:
         # Spatial grid parameters
         self.xMin = -10
         self.xMax = 10
-        self.nBins = 100
+        self.nBins = 40
 
         # Boundary conditions (currently for all frequencies and angles, planckian at specified temperature or reflective)
         self.boundaryLeft = "Reflective"

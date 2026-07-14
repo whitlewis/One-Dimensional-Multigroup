@@ -27,6 +27,7 @@ class Grid:
 
         # Gives midpoints of frequency groups no matter number
         self.freqGroups = 0.5 * (self.freqGrid[:-1] + self.freqGrid[1:])
+        self.du = np.diff(self.freqGrid)  # frequency group widths
 
 
         # Angular discretization

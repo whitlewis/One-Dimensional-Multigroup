@@ -8,7 +8,7 @@ class Parameters:
         # Tolerance and iteration parameters
         self.maxIters = maxIters
         self.tol = tol
-        self.checkEnergy = True
+        self.checkEnergy = False
         self.energyTol = 1e-15
         self.totalEnergy = 0.0
 
@@ -23,14 +23,14 @@ class Parameters:
         # Spatial grid parameters
         self.xMin = -10
         self.xMax = 10
-        self.nBins = 40
+        self.nBins = 100
 
         # Boundary conditions (currently for all frequencies and angles, planckian at specified temperature or reflective)
         self.boundaryLeft = "Reflective"
         self.boundaryRight = "Reflective"
 
         # Group parameters
-        self.freqNum = 10
+        self.freqNum = 25
         self.minFreq = 1e-4
         self.maxFreq = 25
         self.infFreq = 150
@@ -63,21 +63,26 @@ class Material:
         # Calculate the Planck function for each frequency group
         T = self.grid.temperatureSet[:, self.grid.timeStep]
         # FIX: Broadcast frequency as column (freqNum, 1) against T (nBins,) -> Result is (freqNum, nBins)
-        nu_lo = self.grid.freqGrid[:-1, None] / T
-        nu_hi = self.grid.freqGrid[1:, None] / T
-        integrand = lambda nu: (15.0 * nu**3) / np.pi**4 /  np.expm1(nu)
+        nu_lo = self.grid.freqGrid[:-1, None]
+        nu_hi = self.grid.freqGrid[1:, None] 
+        integrand = lambda nu: (15.0 * nu**3 * T**4) / np.pi**4 / np.expm1(nu)
         bg = self.simpson(integrand, nu_lo, nu_hi)
         return bg  # Shape is now (freqNum, nBins)
     
     def sigma_a(self, freq, T): 
         # need to alter this for moving mesh
-        nu_lo = self.grid.freqGrid[:-1, None]
-        nu_hi = self.grid.freqGrid[1:, None]
+        T = self.grid.temperatureSet[:, self.grid.timeStep]
+        nu_lo = self.grid.freqGrid[:-1, None] * T
+        nu_hi = self.grid.freqGrid[1:, None] * T
         sigma_aZero = np.ones((self.params.freqNum, self.params.nBins))
-        denom = np.sqrt(T) * self.planckg()
-        num = sigma_aZero * (np.exp(-nu_lo)-np.exp(-nu_hi))
-        out = num / denom
-        return sigma_aZero
+
+        # denom = np.sqrt(T) * self.planckg()
+        # num = sigma_aZero * (np.exp(-nu_lo)-np.exp(-nu_hi))
+        # out = num / denom
+        # print(f' temperature T: {T}')
+        # print(f' temperature shape: {T.shape}')
+
+        return sigma_aZero * 100
     # End of opacity implementation
     
     def C_v(self, T):  # Placeholder constant heat capacity
