@@ -485,23 +485,21 @@ class MovingMeshEquations:
     def psiBar(self):       # placeholder, currently unnecessary due to init
         return
 
-    # Definition of the coupled material equation (Fully updated for moving mesh)
     def materialEquation(self):
-
-        # Lagged temperature and phi
-        T = self.grid.temperatureSet[:, self.grid.timeStep]  # Current temperature in all x cells (120,1)
-        phi = self.getPhi()  # Compute scalar flux by integrating over angles
-        bbar = self.planckBar(T)  # Get the group-averaged Planckian for the material 
-
-        # Outer constant calc
-        dt = self.grid.dt[self.grid.timeStep]
-        f = dt / self.material.C_v(self.grid.temperatureSet[:, self.grid.timeStep]) / T
-        
-        # Calculation of next temperature
-        T_offset = f * np.sum((self.material.sigma_a(self.grid.freqGroups, T) * phi - 4*np.pi*self.material.sigma_a(self.grid.freqGroups, T) * bbar), axis=0)
-        T_next = T + T_offset  # Update temperature using the material energy equation)
-        self.T_next = T_next.copy()
-        self.grid.T_next = T_next.copy()
+            # Outer constant calc
+            dt = self.grid.dt[self.grid.timeStep]
+            f = dt / self.material.C_v(self.grid.temperatureSet[:, self.grid.timeStep]) 
+            
+            # Lagged temperature and phi
+            T = self.grid.temperatureSet[:, self.grid.timeStep]  # Current temperature in all x cells (120,1)
+            phi = self.getPhi()  # Compute scalar flux by integrating over angles
+            bbar = self.planckBar(T)  # Get the group-averaged Planckian for the material 
+            
+            # Calculation of next temperature
+            T_offset = f * np.sum((self.material.sigma_a(self.grid.freqGroups, T) * phi - 4*np.pi*self.material.sigma_a(self.grid.freqGroups, T) * bbar), axis=0)
+            T_next = T + T_offset  # Update temperature using the material energy equation)
+            self.T_next = T_next.copy()
+            self.grid.T_next = T_next.copy()
 
     # This function updates Q*
     def rhsUpdate(self):
@@ -634,29 +632,29 @@ class MovingMeshEquations:
                 freqIndex = self.freqIndex(f, c[i], sweepDirection)
                 bValGroup = self.setGroupBoundaryValues(freqIndex, m, c[i], newFull, self.grid.timeSet[self.grid.timeStep])
                 bVal = self.setBoundaryValues(f, m, c[i], newFull, self.grid.timeSet[self.grid.timeStep], "left")
-                newWorkingSet[f, i] = (rhs[f] + (abs(self.mu[m]) / self.grid.dx) * bVal - abs(c[i]) * self.grid.freqGrid[freqIndex] * bValGroup) / (abs(self.mu[m]) / self.grid.dx + sig_t[f] - abs(c[i]) * self.grid.freqGroups[f])
+                newWorkingSet[f, i] = (rhs[f] + (abs(self.mu[m]) / self.grid.dx) * bVal + abs(c[i]) * self.grid.freqGrid[freqIndex] * bValGroup) / (abs(self.mu[m]) / self.grid.dx + sig_t[f] + abs(c[i]) * self.grid.freqGroups[f])
                 for f in range(1, self.freq):
                     freqIndex = self.freqIndex(f, c[i], sweepDirection)
                     bVal = self.setBoundaryValues(f, m, c[i], newFull, self.grid.timeSet[self.grid.timeStep], "left")
-                    newWorkingSet[f, i] = (rhs[f] + (abs(self.mu[m]) / self.grid.dx) * bVal - abs(c[i]) * self.grid.freqGrid[freqIndex] * workingSet[freqIndex, i]) / (abs(self.mu[m]) / self.grid.dx + sig_t[f] - abs(c[i]) * self.grid.freqGroups[f])
+                    newWorkingSet[f, i] = (rhs[f] + (abs(self.mu[m]) / self.grid.dx) * bVal + abs(c[i]) * self.grid.freqGrid[freqIndex] * workingSet[freqIndex, i]) / (abs(self.mu[m]) / self.grid.dx + sig_t[f] + abs(c[i]) * self.grid.freqGroups[f])
             elif i == self.params.nBins-1 and self.mu[m] < 0:
                 f = 0
                 freqIndex = self.freqIndex(f, c[i], sweepDirection)
                 bValGroup = self.setGroupBoundaryValues(freqIndex, m, c[i], newFull, self.grid.timeSet[self.grid.timeStep])
                 bVal = self.setBoundaryValues(f, m, c[i], newFull, self.grid.timeSet[self.grid.timeStep], "right")
-                newWorkingSet[f, i] = (rhs[f] + (abs(self.mu[m]) / self.grid.dx) * bVal - abs(c[i]) * self.grid.freqGrid[freqIndex] * bValGroup) / (abs(self.mu[m]) / self.grid.dx + sig_t[f] - abs(c[i]) * self.grid.freqGroups[f])
+                newWorkingSet[f, i] = (rhs[f] + (abs(self.mu[m]) / self.grid.dx) * bVal + abs(c[i]) * self.grid.freqGrid[freqIndex] * bValGroup) / (abs(self.mu[m]) / self.grid.dx + sig_t[f] + abs(c[i]) * self.grid.freqGroups[f])
                 for f in range(1, self.freq):
                     freqIndex = self.freqIndex(f, c[i], sweepDirection)
                     bVal = self.setBoundaryValues(f, m, c[i], newFull, self.grid.timeSet[self.grid.timeStep], "right")
-                    newWorkingSet[f, i] = (rhs[f] + (abs(self.mu[m]) / self.grid.dx) * bVal - abs(c[i]) * self.grid.freqGrid[freqIndex] * workingSet[freqIndex, i]) / (abs(self.mu[m]) / self.grid.dx + sig_t[f] - abs(c[i]) * self.grid.freqGroups[f])
+                    newWorkingSet[f, i] = (rhs[f] + (abs(self.mu[m]) / self.grid.dx) * bVal + abs(c[i]) * self.grid.freqGrid[freqIndex] * workingSet[freqIndex, i]) / (abs(self.mu[m]) / self.grid.dx + sig_t[f] + abs(c[i]) * self.grid.freqGroups[f])
             else:
                 f = 0
                 freqIndex = self.freqIndex(f, c[i], sweepDirection)
                 bValGroup = self.setGroupBoundaryValues(freqIndex, m, c[i], newFull, self.grid.timeSet[self.grid.timeStep])
-                newWorkingSet[f, i] = (rhs[f] + (abs(self.mu[m]) / self.grid.dx) * newWorkingSet[f, spaceIndex] - abs(c[i]) * self.grid.freqGrid[freqIndex] * bValGroup) / (abs(self.mu[m]) / self.grid.dx + sig_t[f] - abs(c[i]) * self.grid.freqGroups[f])
+                newWorkingSet[f, i] = (rhs[f] + (abs(self.mu[m]) / self.grid.dx) * newWorkingSet[f, spaceIndex] + abs(c[i]) * self.grid.freqGrid[freqIndex] * bValGroup) / (abs(self.mu[m]) / self.grid.dx + sig_t[f] + abs(c[i]) * self.grid.freqGroups[f])
                 for f in range(1, self.freq):
                     freqIndex = self.freqIndex(f, c[i], sweepDirection)
-                    newWorkingSet[f, i] = (rhs[f] + (abs(self.mu[m]) / self.grid.dx) * newWorkingSet[f, spaceIndex] - abs(c[i]) * self.grid.freqGrid[freqIndex] * newWorkingSet[freqIndex, i]) / (abs(self.mu[m]) / self.grid.dx + sig_t[f] - abs(c[i]) * self.grid.freqGroups[f])
+                    newWorkingSet[f, i] = (rhs[f] + (abs(self.mu[m]) / self.grid.dx) * newWorkingSet[f, spaceIndex] + abs(c[i]) * self.grid.freqGrid[freqIndex] * newWorkingSet[freqIndex, i]) / (abs(self.mu[m]) / self.grid.dx + sig_t[f] + abs(c[i]) * self.grid.freqGroups[f])
         
         if sweepDirection == "backward":
             if i == 0 and self.mu[m] >= 0:

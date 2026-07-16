@@ -58,32 +58,28 @@ class Material:
         out = 3/8 *h* (integrand(lo) + 3*integrand(lo + h) + 3*integrand(lo +2*h) +integrand(hi))
         return out
 
+
     # Planckian for opacity calculation
     def planckg(self):
         # Calculate the Planck function for each frequency group
         T = self.grid.temperatureSet[:, self.grid.timeStep]
         # FIX: Broadcast frequency as column (freqNum, 1) against T (nBins,) -> Result is (freqNum, nBins)
-        nu_lo = self.grid.freqGrid[:-1, None]
-        nu_hi = self.grid.freqGrid[1:, None] 
-        integrand = lambda nu: (15.0 * nu**3 * T**4) / np.pi**4 / np.expm1(nu)
+        nu_lo = self.grid.freqGrid[:-1, None] / T
+        nu_hi = self.grid.freqGrid[1:, None] / T
+        integrand = lambda nu: (15.0 * nu**3) / np.pi**4 /  np.expm1(nu)
         bg = self.simpson(integrand, nu_lo, nu_hi)
         return bg  # Shape is now (freqNum, nBins)
     
     def sigma_a(self, freq, T): 
-        # need to alter this for moving mesh
-        T = self.grid.temperatureSet[:, self.grid.timeStep]
-        nu_lo = self.grid.freqGrid[:-1, None] * T
-        nu_hi = self.grid.freqGrid[1:, None] * T
+        nu_lo = self.grid.freqGrid[:-1, None]
+        nu_hi = self.grid.freqGrid[1:, None]
         sigma_aZero = np.ones((self.params.freqNum, self.params.nBins))
+        denom = np.sqrt(T) * self.planckg()
+        num = sigma_aZero * (np.exp(-nu_lo/T)-np.exp(-nu_hi/T))
+        out = num / denom
+        print(T)
+        return out
 
-        # denom = np.sqrt(T) * self.planckg()
-        # num = sigma_aZero * (np.exp(-nu_lo)-np.exp(-nu_hi))
-        # out = num / denom
-        # print(f' temperature T: {T}')
-        # print(f' temperature shape: {T.shape}')
-
-        return sigma_aZero * 100
-    # End of opacity implementation
     
     def C_v(self, T):  # Placeholder constant heat capacity
         return .01
