@@ -228,7 +228,7 @@ class CoupledEquations:
         self.psi_old = self.grid.fullTensor.copy()
         self.fullTens = self.grid.fullTensor.copy()
         self.timeTerm = self.timeAbsorption()
-        self.sigmaStarVar = self.sigmaStar(self.grid.temperatureSet[:, self.grid.timeStep])  # Update sigma* for the time step
+        self.sigmaStarVar = self.sigmaStar(self.grid.T_next)  # Update sigma* for the time step
 
 
     # Group integrated Planck
@@ -258,11 +258,12 @@ class CoupledEquations:
         
         # Lagged temperature and phi
         T = self.grid.temperatureSet[:, self.grid.timeStep]  # Current temperature in all x cells (120,1)
+        T_iterative = self.grid.T_next
         phi = self.getPhi()  # Compute scalar flux by integrating over angles
-        bbar = self.planckBar(T)  # Get the group-averaged Planckian for the material 
+        bbar = self.planckBar(T_iterative)  # Get the group-averaged Planckian for the material 
         
         # Calculation of next temperature
-        T_offset = f * np.sum((self.material.sigma_a(self.grid.freqGroups, T) * phi - 4*np.pi*self.material.sigma_a(self.grid.freqGroups, T) * bbar), axis=0)
+        T_offset = f * np.sum((self.material.sigma_a(self.grid.freqGroups, T_iterative) * phi - 4*np.pi*self.material.sigma_a(self.grid.freqGroups, T_iterative) * bbar), axis=0)
         T_next = T + T_offset  # Update temperature using the material energy equation)
         self.T_next = T_next.copy()
         self.grid.T_next = T_next.copy()
