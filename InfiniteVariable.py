@@ -45,6 +45,7 @@ class Parameters:
         self.materialCoupled = True
         self.movingCoordinates = True
         self.energyCheckFreq = 200 # Check energy conservation every 200 time steps
+        self.iterationCheck = True
 
 class Material:
     def __init__(self, params, grid):
@@ -77,7 +78,7 @@ class Material:
         denom = np.sqrt(T) * self.planckg()
         num = sigma_aZero * (np.exp(-nu_lo/T)-np.exp(-nu_hi/T))
         out = num / denom
-        print(T)
+
         return out
 
     

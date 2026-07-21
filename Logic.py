@@ -268,7 +268,7 @@ class CoupledEquations:
         self.grid.T_next = T_next.copy()
 
     def rhsUpdate(self):
-        T = self.grid.temperatureSet[:, self.grid.timeStep]
+        T = self.grid.T_next
         bbarNext = self.planckBar(T)  # Get the group-averaged Planckian for the next temperature
         bbarNext = np.broadcast_to(bbarNext[:, None,:], (self.params.freqNum, self.sn, self.params.nBins))  # shape: (freqNum, sn, nBins)
         sa = np.broadcast_to(self.material.sigma_a(self.grid.freqGroups, T)[:,None,:], (self.params.freqNum, self.sn, self.params.nBins))  # shape: (freqNum, sn, nBins)
@@ -472,7 +472,7 @@ class MovingMeshEquations:
         self.psi_old = self.grid.fullTensor.copy()
         self.fullTens = self.grid.fullTensor.copy()
         self.timeTerm = self.timeAbsorption()
-        self.sigmaStarVar = self.sigmaStar(self.grid.temperatureSet[:, self.grid.timeStep])  # Update sigma* for the time step
+        self.sigmaStarVar = self.sigmaStar(self.grid.T_next)  # Update sigma* for the time step
         self.movingMeshConst = self.movingMeshConstant()  # Update moving mesh constant for the time step
 
     def sigmaBar(self, T):     # Placeholder for group-averaged opacity, currently unnecessary since we are using a constant opacity
@@ -492,18 +492,20 @@ class MovingMeshEquations:
             
             # Lagged temperature and phi
             T = self.grid.temperatureSet[:, self.grid.timeStep]  # Current temperature in all x cells (120,1)
+            T_iterative = self.grid.T_next
             phi = self.getPhi()  # Compute scalar flux by integrating over angles
-            bbar = self.planckBar(T)  # Get the group-averaged Planckian for the material 
+            bbar = self.planckBar(T_iterative)  # Get the group-averaged Planckian for the material 
+            sa = self.material.sigma_a(self.grid.freqGroups, T_iterative)
             
             # Calculation of next temperature
-            T_offset = f * np.sum((self.material.sigma_a(self.grid.freqGroups, T) * phi - 4*np.pi*self.material.sigma_a(self.grid.freqGroups, T) * bbar), axis=0)
+            T_offset = f * np.sum((sa * phi - 4*np.pi*sa * bbar), axis=0)
             T_next = T + T_offset  # Update temperature using the material energy equation)
             self.T_next = T_next.copy()
             self.grid.T_next = T_next.copy()
 
     # This function updates Q*
     def rhsUpdate(self):
-        T = self.grid.temperatureSet[:, self.grid.timeStep]
+        T = self.grid.T_next
         bbarNext = self.planckBar(T)  # Get the group-averaged Planckian for the next temperature
         bbarNext = np.broadcast_to(bbarNext[:, None,:], (self.params.freqNum, self.sn, self.params.nBins))  # shape: (freqNum, sn, nBins)
         sa = np.broadcast_to(self.material.sigma_a(self.grid.freqGroups, T)[:,None,:], (self.params.freqNum, self.sn, self.params.nBins))  # shape: (freqNum, sn, nBins)
@@ -511,8 +513,8 @@ class MovingMeshEquations:
         self.grid.rhs = rhs.copy()
 
     def movingMeshConstant(self):   # This function calculates the C hat constant for the moving mesh equations
-        T = self.grid.temperatureSet[:, self.grid.timeStep]
-        Tminus = self.grid.temperatureSet[:, self.grid.timeStep-1] if self.grid.timeStep > 0 else T
+        T = self.grid.T_next
+        Tminus = self.grid.temperatureSet[:, self.grid.timeStep] if self.grid.timeStep > 0 else T
         dt = self.grid.dt[self.grid.timeStep]
         dTdt = (T - Tminus) / dt
         dTdx = np.gradient(T, self.grid.dx)
@@ -553,6 +555,7 @@ class MovingMeshEquations:
             # Spatial flux comes from the reflected angle at the current frequency
             bVal = self.fullTens[f, reflected_m, spatial_idx]
 
+
         # 3. Handle Prescribed Source / Inflow Boundary Condition
         elif bc_type in ["Inflow", "Prescribed"]:
             # Spatial flux comes from the external profile
@@ -561,25 +564,7 @@ class MovingMeshEquations:
         return bVal
     
     def setGroupBoundaryValues(self, f, m, c, newFull, time):
-        reflected_m = self.reflMatrix[m]
-        
-        # Determine the boundary condition type based on the direction of c
-        if c > 0:
-            bc_type = self.params.boundaryLeft
-            spatial_idx = 0
-        else:
-            bc_type = self.params.boundaryRight
-            spatial_idx = -1
-
-        # Handle Reflective Boundary Condition
-        if bc_type == "Reflective":
-            bValGroup = newFull[f, reflected_m, spatial_idx]
-        
-        # Handle Prescribed Source / Inflow Boundary Condition
-        elif bc_type in ["Inflow", "Prescribed"]:
-            phi_source = self.boundaryCondition("left" if c > 0 else "right", self.grid.timeSet[self.grid.timeStep])
-            bValGroup = phi_source[f, m]
-        
+        bValGroup = 0.0
         return bValGroup
     
     def freqIndex(self, f, c, sweepDirection):

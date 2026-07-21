@@ -44,6 +44,7 @@ class Grid:
 
         # Individual time step frameworks
         self.fullTensor = np.zeros((parameters.freqNum, parameters.sn, parameters.nBins))  # (nfreq, nMu, nBins)
+        self.fullTensOld = np.zeros((parameters.freqNum, parameters.sn, parameters.nBins))  # (nfreq, nMu, nBins)
         self.temperatureSet = np.zeros((parameters.nBins, parameters.nSteps+1)) # Initialize temperature set for all time steps
         self.temperatureSet[:, 0] = parameters.initialTemperature  # Set initial temperature distribution at time step 0
         self.T_next = self.temperatureSet[:, 0].copy()  # Initialize T_next for the first step
@@ -55,7 +56,7 @@ class Grid:
 
         # Helper variables for calculations
         self.timeStep = 0   # time step counter
-        self.rhsfull = np.zeros((parameters.freqNum, parameters.nBins))  # shape: (freqNum, sn, nBins)
+        self.rhs = np.zeros((parameters.freqNum, parameters.nBins))  # shape: (freqNum, sn, nBins)
         self.psiOld = np.zeros((parameters.freqNum, parameters.sn, parameters.nBins))  # shape: (freqNum, sn, nBins)
 
 
@@ -69,31 +70,59 @@ class Base:
         self.params = params
         self.index = 0  # Initialize index for time stepping
         self.getPhi = self.problem.equations.getPhi  # Initialize getPhi method from the equations object for use in storing scalar flux each step
+        self.err = 0.0
+
     
     def converge(self):
         for it in range(self.params.maxIters):
 
             # update Temperature and get Q* if material coupled
             if self.params.materialCoupled:
+                self.rhs = self.grid.rhs.copy()
                 self.problem.equations.rhsUpdate()
             # Perform the radiation sweep to get the new solution
             self.problem.equations.radiationSweep()
             if self.params.checkEnergy and self.index % self.params.energyCheckFreq == 0 and it==0:  # Check energy conservation every 50 time steps
                 energyConserved = self.checkEnergyConservation()
             if self.params.materialCoupled:
+                self.T_next = self.grid.T_next.copy()
                 self.problem.equations.materialEquation() # update material temperature after radiation sweep
+            diff = np.abs((self.grid.fullTensor - self.grid.fullTensOld))
+            err = np.max(diff)    # directly compare the full values for convergence (Space, angle, and frequency group convergence)
+            if self.params.iterationCheck == True:
+                if it % 10 == 0:
 
-            err = np.max(np.abs((self.grid.fullTensor - self.fullTensOld)))    # directly compare the full values for convergence (Space, angle, and frequency group convergence)
+                    print(f"Time step {self.index}, Iteration {it}, Error change: {self.err - err:.2e}")
+                    print(f'Old error: {self.err}, New error{err}, Mean Error {np.mean(diff)}')
+                    self.err = err  # Store the error for external access if needed
+
+                    max_idx = np.unravel_index(np.argmax(diff), diff.shape)
+
+                    val_new = self.grid.fullTensor[max_idx]
+                    val_old = self.grid.fullTensOld[max_idx]
+
+                    print(f"Max Error: {err:.6e}")
+                    print(f"Occurred at Index: {max_idx}")
+                    print(f"  fullTensor: {val_new}")
+                    print(f"  fullTensOld: {val_old}")
             if np.isnan(err).any() or np.isinf(err).any():
                 name = "Convergence Check"
                 print("\n⚠️ INVALID RESULT DETECTED")
                 print("Operation:", name)
                 print("a =",self.grid.fullTensor)
-                print("b =", self.fullTensOld)
+                print("b =", self.grid.fullTensOld)
                 print("result =", err)
             if err < self.params.tol:
                 if it > 40: print(f"Converged in {it} iterations")
                 break
+        # print(f'Rhs diff: {np.max(self.rhs - self.grid.rhs)}')
+        # print(f'T_next diff {np.max(self.T_next - self.grid.T_next)}')
+        # print(diff)
+        if it == self.params.maxIters - 1:
+            print(f"⚠️ WARNING: Did not converge in {self.params.maxIters} iterations, final error: {err:.2e}")
+        if self.params.iterationCheck == True:
+            assert 0
+
     
     def updateAll(self, index):
         # Updates grid object with new solutions each step

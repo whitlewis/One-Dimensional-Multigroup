@@ -4,7 +4,7 @@ import Logic as Log
 import Base as Base
 
 class Parameters:
-    def __init__(self, maxIters=100, tol=1e-15, nSteps=25, Transient=True):
+    def __init__(self, maxIters=200, tol=1e-15, nSteps=100, Transient=True):
         # Tolerance and iteration parameters
         self.maxIters = maxIters
         self.tol = tol
@@ -21,9 +21,9 @@ class Parameters:
         self.sourceTemp = 0.5
 
         # Spatial grid parameters
-        self.xMin = -10
-        self.xMax = 10
-        self.nBins = 40
+        self.xMin = -1
+        self.xMax = 1
+        self.nBins = 25
 
         # Boundary conditions (currently for all frequencies and angles, planckian at specified temperature or reflective)
         self.boundaryLeft = "Reflective"
@@ -45,6 +45,7 @@ class Parameters:
         self.materialCoupled = True
         self.movingCoordinates = False
         self.energyCheckFreq = 200 # Check energy conservation every 200 time steps
+        self.iterationCheck = False
 
 class Material:
     def __init__(self, params, grid):
