@@ -83,7 +83,7 @@ class Base:
             # Perform the radiation sweep to get the new solution
             self.problem.equations.radiationSweep()
             if self.params.checkEnergy and self.index % self.params.energyCheckFreq == 0 and it==0:  # Check energy conservation every 50 time steps
-                energyConserved = self.checkEnergyConservation()
+                self.checkEnergyConservation()
             if self.params.materialCoupled:
                 self.T_next = self.grid.T_next.copy()
                 self.problem.equations.materialEquation() # update material temperature after radiation sweep

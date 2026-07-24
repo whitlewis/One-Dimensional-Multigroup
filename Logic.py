@@ -587,7 +587,7 @@ class MovingMeshEquations:
         c = self.movingMeshConst[m, :]  # shape: (nBins,)
 
         if self.mu[m] >= 0:
-            for i in range(0, self.params.nBins-1):
+            for i in range(self.params.nBins):
                 if c[i] > 0:
                     spaceIndex = i - 1
                     sweepDirection = "forward"

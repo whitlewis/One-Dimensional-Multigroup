@@ -17,13 +17,13 @@ class Parameters:
 
         # Initial and source temperature parameters
         self.initialTemperature = 0.4       # material temperature
-        self.radiationTemperature = .5     # Radiation temperature
+        self.radiationTemperature = 0.5     # Radiation temperature
         self.sourceTemp = 0.5
 
         # Spatial grid parameters
-        self.xMin = -1
-        self.xMax = 1
-        self.nBins = 25
+        self.xMin = -10
+        self.xMax = 10
+        self.nBins = 100
 
         # Boundary conditions (currently for all frequencies and angles, planckian at specified temperature or reflective)
         self.boundaryLeft = "Reflective"
@@ -59,6 +59,7 @@ class Material:
         out = 3/8 *h* (integrand(lo) + 3*integrand(lo + h) + 3*integrand(lo +2*h) +integrand(hi))
         return out
 
+
     # Planckian for opacity calculation
     def planckg(self):
         # Calculate the Planck function for each frequency group
@@ -77,6 +78,7 @@ class Material:
         denom = np.sqrt(T) * self.planckg()
         num = sigma_aZero * (np.exp(-nu_lo/T)-np.exp(-nu_hi/T))
         out = num / denom
+
         return out
     # End of opacity implementation
     

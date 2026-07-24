@@ -4,20 +4,20 @@ import Logic as Log
 import Base as Base
 
 class Parameters:
-    def __init__(self, maxIters=100, tol=1e-15, nSteps=250, Transient=True):
+    def __init__(self, tol=1e-6, maxIters=400, nSteps=250, Transient=True):
         # Tolerance and iteration parameters
         self.maxIters = maxIters
         self.tol = tol
         self.checkEnergy = False
-        self.energyTol = 1e-15
+        self.energyTol = 1e-6
         self.totalEnergy = 0.0
 
         # Angular discretization parameters
         self.sn = 4
 
         # Initial and source temperature parameters
-        self.initialTemperature = 0.4       # material temperature
-        self.radiationTemperature = .5     # Radiation temperature
+        self.initialTemperature = 0.4      # material temperature
+        self.radiationTemperature = 0.5     # Radiation temperature
         self.sourceTemp = 0.5
 
         # Spatial grid parameters
@@ -37,7 +37,7 @@ class Parameters:
 
         # Time stepping parameters
         self.nSteps = nSteps
-        self.timeMax = 1.0
+        self.timeMax = 10.0
         self.timeScale = "linear"  # "log" or "linear"
 
         # Choices of type of problem
@@ -45,7 +45,7 @@ class Parameters:
         self.materialCoupled = True
         self.movingCoordinates = True
         self.energyCheckFreq = 200 # Check energy conservation every 200 time steps
-        self.iterationCheck = True
+        self.iterationCheck = False
 
 class Material:
     def __init__(self, params, grid):
