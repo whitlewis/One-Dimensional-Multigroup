@@ -71,5 +71,5 @@ def mainReeds():
     Vis.animate_solution(fullPhi, params, grid)
     return grid
 
-grid = mainInfinite()
-# grid = mainMovingMesh()
+# grid = mainInfinite()
+grid = mainMovingMesh()

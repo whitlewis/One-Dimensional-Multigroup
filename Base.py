@@ -71,6 +71,7 @@ class Base:
         self.index = 0  # Initialize index for time stepping
         self.getPhi = self.problem.equations.getPhi  # Initialize getPhi method from the equations object for use in storing scalar flux each step
         self.err = 0.0
+        self.errorStag = 0
 
     
     def converge(self):
@@ -115,9 +116,12 @@ class Base:
             if err < self.params.tol:
                 if it > 40: print(f"Converged in {it} iterations")
                 break
-        # print(f'Rhs diff: {np.max(self.rhs - self.grid.rhs)}')
-        # print(f'T_next diff {np.max(self.T_next - self.grid.T_next)}')
-        # print(diff)
+            if abs(self.err - err) < 1e-20:
+                self.errorStag += 1
+                if self.errorStag > 10:
+                    print(f'Not further trending toward convergence, breaking loop and Moving to next step after {it} iterations, final error: {err}')
+                    break
+            self.err = err
         if it == self.params.maxIters - 1:
             print(f"⚠️ WARNING: Did not converge in {self.params.maxIters} iterations, final error: {err:.2e}")
         if self.params.iterationCheck == True:
