@@ -116,10 +116,11 @@ class Base:
             if err < self.params.tol:
                 if it > 40: print(f"Converged in {it} iterations")
                 break
-            if abs(self.err - err) < 1e-20:
+            if abs(self.err - err) < 1e-30:
                 self.errorStag += 1
-                if self.errorStag > 10:
+                if self.errorStag > 25:
                     print(f'Not further trending toward convergence, breaking loop and Moving to next step after {it} iterations, final error: {err}')
+                    self.errorStag = 0
                     break
             self.err = err
         if it == self.params.maxIters - 1:

@@ -275,6 +275,7 @@ class CoupledEquations:
         sa = np.broadcast_to(self.material.sigma_a(self.grid.freqGroups, T)[:,None,:], (self.params.freqNum, self.sn, self.params.nBins))  # shape: (freqNum, sn, nBins)
         rhs = sa * bbarNext + self.timeTerm * self.psi_old
         self.grid.rhs = rhs.copy()
+        self.sigmaStarVar = self.sigmaStar(self.grid.T_next)
 
 
     # Define modified opacity
