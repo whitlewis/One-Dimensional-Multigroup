@@ -541,13 +541,13 @@ class MovingMeshEquations:
         # 1. Dynamically set spatial side configurations to eliminate copy-paste bugs
         if side == "left":
             bc_type = self.params.boundaryLeft
-            if bc_type != "Reflective":
-                phi_source = self.boundaryCondition("left", time)
+            # if bc_type != "Reflective" or "Vacuum":
+            #     phi_source = self.boundaryCondition("left", time)
             spatial_idx = 0
         elif side == "right":
             bc_type = self.params.boundaryRight
-            if bc_type != "Reflective":
-                phi_source = self.boundaryCondition("right", time)
+            # if bc_type != "Reflective" or "Vacuum":
+            #     phi_source = self.boundaryCondition("right", time)
             spatial_idx = -1
         else:
             raise ValueError("Side must be 'left' or 'right'")
@@ -556,12 +556,15 @@ class MovingMeshEquations:
         if bc_type == "Reflective":
             # Spatial flux comes from the reflected angle at the current frequency
             bVal = self.fullTens[f, reflected_m, spatial_idx]
+        
+        if bc_type == "Vacuum":
+            bVal = 0.0
 
 
-        # 3. Handle Prescribed Source / Inflow Boundary Condition
-        elif bc_type in ["Inflow", "Prescribed"]:
-            # Spatial flux comes from the external profile
-            bVal = phi_source[f, m]
+        # # 3. Handle Prescribed Source / Inflow Boundary Condition
+        # elif bc_type in ["Inflow", "Prescribed"]:
+        #     # Spatial flux comes from the external profile
+        #     bVal = phi_source[f, m]
                 
         return bVal
     

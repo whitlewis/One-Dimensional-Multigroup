@@ -5,8 +5,8 @@ import time as machineTime
 class Constants:
     # all physical constants
     c = 300.0
-    a = 0.01372
-    h = 1.0
+    a = 0.0137202
+    h = 1.0  # Frequency grid in keV
 
 class Grid:
     def __init__(self, parameters, Constants=Constants()):

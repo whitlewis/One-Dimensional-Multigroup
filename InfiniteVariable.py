@@ -13,7 +13,7 @@ class Parameters:
         self.totalEnergy = 0.0
 
         # Angular discretization parameters
-        self.sn = 4
+        self.sn = 8
 
         # Initial and source temperature parameters
         self.initialTemperature = 0.4      # material temperature
@@ -26,8 +26,8 @@ class Parameters:
         self.nBins = 100
 
         # Boundary conditions (currently for all frequencies and angles, planckian at specified temperature or reflective)
-        self.boundaryLeft = "Reflective"
-        self.boundaryRight = "Reflective"
+        self.boundaryLeft = "Vacuum"
+        self.boundaryRight = "Vacuum"
 
         # Group parameters
         self.freqNum = 25
