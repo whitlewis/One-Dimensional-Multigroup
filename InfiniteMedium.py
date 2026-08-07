@@ -4,7 +4,7 @@ import Logic as Log
 import Base as Base
 
 class Parameters:
-    def __init__(self, maxIters=200, tol=1e-8, nSteps=4000, Transient=True):
+    def __init__(self, maxIters=200, tol=1e-8, nSteps=400, Transient=True):
         # Tolerance and iteration parameters
         self.maxIters = maxIters
         self.tol = tol

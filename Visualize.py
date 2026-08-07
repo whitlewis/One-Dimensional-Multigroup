@@ -229,11 +229,11 @@ def plotSelectSpectra(fullphi, grid, params, cell_idx=0, ax=None, save_path=None
     else:
         standalone = False
 
-    ax.plot(freq_centers, spectrum, 'o-', color='crimson', lw=2, ms=4, label=f'Cell {cell_idx}')
+    ax.plot(freq_centers, spectrum, lw=.4, label=f"Cell {cell_idx} Spectrum")
 
-    ax.set_xscale('log')
-    ax.set_yscale('log')
-    ax.set_xlabel(r'Frequency $\nu$ [1/ns]', fontsize=11)
+    # ax.set_xscale('log')
+    # ax.set_yscale('log')
+    ax.set_xlabel(r'Frequency [1/ns]', fontsize=11)
     ax.set_ylabel(r'Scalar Flux $\phi_g$', fontsize=11)
     ax.grid(True, which="both", ls=":", alpha=0.5)
     ax.legend(loc='best')
