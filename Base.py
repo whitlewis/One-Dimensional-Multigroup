@@ -71,7 +71,8 @@ class Base:
         self.index = 0  # Initialize index for time stepping
         self.getPhi = self.problem.equations.getPhi  # Initialize getPhi method from the equations object for use in storing scalar flux each step
         self.err = 0.0
-        self.errorStag = 0
+        self.errorStag = 0.0
+        self.errorLag= 0.0
 
     
     def converge(self):
@@ -96,7 +97,6 @@ class Base:
                     print(f"Time step {self.index}, Iteration {it}, Error change: {self.err - err:.2e}")
                     print(f'Old error: {self.err}, New error{err}, Mean Error {np.mean(diff)}')
                     self.err = err  # Store the error for external access if needed
-
                     max_idx = np.unravel_index(np.argmax(diff), diff.shape)
 
                     val_new = self.grid.fullTensor[max_idx]
@@ -116,9 +116,11 @@ class Base:
             if err < self.params.tol:
                 if it > 40: print(f"Converged in {it} iterations")
                 break
-            if abs(self.err - err) < 1e-30:
+            if it % 10 == 0:
+                self.errorLag = err
+            if abs(self.err - err) < 1e-30 and abs(self.errorLag - err) < 1e-30:
                 self.errorStag += 1
-                if self.errorStag > 25:
+                if self.errorStag > 5:
                     print(f'Not further trending toward convergence, breaking loop and Moving to next step after {it} iterations, final error: {err}')
                     self.errorStag = 0
                     break

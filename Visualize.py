@@ -210,3 +210,39 @@ def animate_solution(fullPhi, params, grid, interval=15):
         interval=interval
     )
     plt.show()
+
+def plotSelectSpectra(fullphi, grid, params, cell_idx=0, ax=None, save_path=None):
+
+    freq_centers = grid.freqGroups
+
+    # 2. Extract spectrum array for selected cell
+    phi_arr = np.asarray(fullphi)
+    if phi_arr.shape[0] == params.freqNum:
+        spectrum = phi_arr[:, cell_idx]
+    else:
+        spectrum = phi_arr[cell_idx, :]
+
+    # 3. Setup plot
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(7, 4.5), dpi=120)
+        standalone = True
+    else:
+        standalone = False
+
+    ax.plot(freq_centers, spectrum, 'o-', color='crimson', lw=2, ms=4, label=f'Cell {cell_idx}')
+
+    ax.set_xscale('log')
+    ax.set_yscale('log')
+    ax.set_xlabel(r'Frequency $\nu$ [1/ns]', fontsize=11)
+    ax.set_ylabel(r'Scalar Flux $\phi_g$', fontsize=11)
+    ax.grid(True, which="both", ls=":", alpha=0.5)
+    ax.legend(loc='best')
+
+    if standalone:
+        plt.tight_layout()
+        if save_path:
+            plt.savefig(save_path, dpi=300)
+            print(f"Spectrum saved to {save_path}")
+        plt.show()
+
+    return ax

@@ -4,7 +4,7 @@ import Logic as Log
 import Base as Base
 
 class Parameters:
-    def __init__(self, maxIters=200, tol=1e-15, nSteps=2500, Transient=True):
+    def __init__(self, maxIters=200, tol=1e-8, nSteps=4000, Transient=True):
         # Tolerance and iteration parameters
         self.maxIters = maxIters
         self.tol = tol
@@ -13,7 +13,7 @@ class Parameters:
         self.totalEnergy = 0.0
 
         # Angular discretization parameters
-        self.sn = 4
+        self.sn = 8
 
         # Initial and source temperature parameters
         self.initialTemperature = 0.4       # material temperature
@@ -21,8 +21,8 @@ class Parameters:
         self.sourceTemp = 0.5
 
         # Spatial grid parameters
-        self.xMin = -10
-        self.xMax = 10
+        self.xMin = -1
+        self.xMax = 1
         self.nBins = 100
 
         # Boundary conditions (currently for all frequencies and angles, planckian at specified temperature or reflective)
@@ -30,15 +30,15 @@ class Parameters:
         self.boundaryRight = "Reflective"
 
         # Group parameters
-        self.freqNum = 25
+        self.freqNum = 40
         self.minFreq = 1e-4
         self.maxFreq = 30
         self.infFreq = 150
 
         # Time stepping parameters
         self.nSteps = nSteps
-        self.timeMax = 1.0
-        self.timeScale = "linear"  # "log" or "linear"
+        self.timeMax = .1
+        self.timeScale = "log"  # "log" or "linear"
 
         # Choices of type of problem
         self.transient = Transient
@@ -77,8 +77,7 @@ class Material:
         sigma_aZero = np.ones((self.params.freqNum, self.params.nBins))
         denom = np.sqrt(T) * self.planckg()
         num = sigma_aZero * (np.exp(-nu_lo/T)-np.exp(-nu_hi/T))
-        out = num / denom
-
+        out = np.clip(num / denom, a_min=1e-4, a_max=1e8)
         return out
     # End of opacity implementation
     

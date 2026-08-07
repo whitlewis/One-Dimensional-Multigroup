@@ -4,13 +4,14 @@ import Logic as Log
 import Base as Base
 
 class Parameters:
-    def __init__(self, tol=1e-6, maxIters=400, nSteps=100, Transient=True):
+    def __init__(self, tol=1e-8, maxIters=200, nSteps=4000, Transient=True):
         # Tolerance and iteration parameters
         self.maxIters = maxIters
         self.tol = tol
         self.checkEnergy = False
         self.energyTol = 1e-6
         self.totalEnergy = 0.0
+        self.temperatureLearningRate = 1.0  # Learning rate for temperature updates
 
         # Angular discretization parameters
         self.sn = 8
@@ -21,24 +22,24 @@ class Parameters:
         self.sourceTemp = 0.5
 
         # Spatial grid parameters
-        self.xMin = -10
-        self.xMax = 10
+        self.xMin = -1
+        self.xMax = 1
         self.nBins = 100
 
         # Boundary conditions (currently for all frequencies and angles, planckian at specified temperature or reflective)
-        self.boundaryLeft = "Vacuum"
-        self.boundaryRight = "Vacuum"
+        self.boundaryLeft = "Reflective"
+        self.boundaryRight = "Reflective"
 
         # Group parameters
-        self.freqNum = 25
-        self.minFreq = 1e-4
+        self.freqNum = 40
+        self.minFreq = 1e-3
         self.maxFreq = 25
         self.infFreq = 150
 
         # Time stepping parameters
         self.nSteps = nSteps
-        self.timeMax = 1.0
-        self.timeScale = "linear"  # "log" or "linear"
+        self.timeMax = .1
+        self.timeScale = "log"  # "log" or "linear"
 
         # Choices of type of problem
         self.transient = Transient
@@ -72,13 +73,14 @@ class Material:
         return bg  # Shape is now (freqNum, nBins)
     
     def sigma_a(self, freq, T): 
+
         nu_lo = self.grid.freqGrid[:-1, None]
         nu_hi = self.grid.freqGrid[1:, None]
         sigma_aZero = np.ones((self.params.freqNum, self.params.nBins))
         denom = np.sqrt(T) * self.planckg()
         num = sigma_aZero * (np.exp(-nu_lo/T)-np.exp(-nu_hi/T))
-        out = num / denom
-
+        out = np.clip(num / denom, a_min = 1.0e-8, a_max=1.0e9)  # Avoid division by zero and ensure non-negative opacities
+        # print(f"Calculated opacities with shape: {out.shape}, min: {np.min(out):3e}, max: {np.max(out):3e}")  # Debugging statement
         return out
 
     

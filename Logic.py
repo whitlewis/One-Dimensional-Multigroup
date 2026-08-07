@@ -199,8 +199,8 @@ class CoupledEquations:
 
     # Helper for boundary
     def boundaryPlanck(self):
-        T0 = self.params.radiationTemperature if self.params.boundaryLeft in ["Infinite", "Reflective"] else self.params.boundaryLeft
-        T1 = self.params.radiationTemperature if self.params.boundaryRight in ["Infinite", "Reflective"] else self.params.boundaryRight
+        T0 = self.params.radiationTemperature if self.params.boundaryLeft in ["Infinite", "Reflective", "Vacuum"] else self.params.boundaryLeft
+        T1 = self.params.radiationTemperature if self.params.boundaryRight in ["Infinite", "Reflective", "Vacuum"] else self.params.boundaryRight
         planckLeft = np.broadcast_to(self.planckBar(T0), (self.params.freqNum, self.sn))  # shape: (freqNum, sn)
         planckRight = np.broadcast_to(self.planckBar(T1), (self.params.freqNum, self.sn))  # shape: (freqNum, sn)
         return planckLeft, planckRight
@@ -312,6 +312,8 @@ class CoupledEquations:
                         # Reflective BC: use the reflected angle's outgoing flux as the incoming flux
                         reflected_m = self.reflMatrix[m]
                         bVal = new_phi[reflected_m, 0]  # Use the reflected angle's flux at the boundary
+                    elif self.params.boundaryLeft == "Vacuum":
+                        bVal = 0.0  # Vacuum boundary condition: incoming flux is zero
                     else:
                         bVal = phibl[f, m]  # Use the specified boundary condition if not reflective
                     
@@ -328,6 +330,8 @@ class CoupledEquations:
                         # Reflective BC: use the reflected angle's outgoing flux as the incoming flux
                         reflected_m = self.reflMatrix[m]
                         bVal = self.fullTens[f, reflected_m, -1]  # Use the reflected angle's flux at the boundary
+                    elif self.params.boundaryRight == "Vacuum":
+                        bVal = 0.0  # Vacuum boundary condition: incoming flux is zero
                     else:
                         bVal = phibr[f, m]  # Use the specified boundary condition if not reflective
 
@@ -500,8 +504,10 @@ class MovingMeshEquations:
             sa = self.material.sigma_a(self.grid.freqGroups, T_iterative)
             
             # Calculation of next temperature
-            T_offset = f * np.sum((sa * phi - 4*np.pi*sa * bbar), axis=0)
-            T_next = T + T_offset  # Update temperature using the material energy equation)
+            T_offset = self.params.temperatureLearningRate*f * np.sum((sa * phi - 4*np.pi*sa * bbar), axis=0)  # Limit the temperature change to avoid instability
+            # print(f"Temperature offset: {np.max(T_offset):.4e}, min: {np.min(T_offset):.4e}")
+            # print(f"Current temperature: {np.max(T):.4e}, min: {np.min(T):.4e}")
+            T_next = np.clip(T + T_offset, a_min=1e-4, a_max=1)  # Update temperature using the material energy equation)
             self.T_next = T_next.copy()
             self.grid.T_next = T_next.copy()
 
