@@ -4,7 +4,7 @@ import time as machineTime
 
 class Constants:
     # all physical constants
-    c = 300.0
+    c = 29.9792458 # speed of light in cm/ns
     a = 0.0137202
     h = 1.0  # Frequency grid in keV
 

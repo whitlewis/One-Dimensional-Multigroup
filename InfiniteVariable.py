@@ -4,7 +4,7 @@ import Logic as Log
 import Base as Base
 
 class Parameters:
-    def __init__(self, tol=1e-8, maxIters=200, nSteps=4000, Transient=True):
+    def __init__(self, tol=1e-8, maxIters=200, nSteps=401, Transient=True):
         # Tolerance and iteration parameters
         self.maxIters = maxIters
         self.tol = tol
@@ -33,7 +33,7 @@ class Parameters:
         # Group parameters
         self.freqNum = 40
         self.minFreq = 1e-3
-        self.maxFreq = 25
+        self.maxFreq = 30
         self.infFreq = 150
 
         # Time stepping parameters
@@ -65,17 +65,16 @@ class Material:
     def planckg(self):
         # Calculate the Planck function for each frequency group
         T = self.grid.temperatureSet[:, self.grid.timeStep]
-        # FIX: Broadcast frequency as column (freqNum, 1) against T (nBins,) -> Result is (freqNum, nBins)
-        nu_lo = self.grid.freqGrid[:-1, None] / T
-        nu_hi = self.grid.freqGrid[1:, None] / T
+        nu_lo = self.grid.freqGrid[:-1, None]    # No need to divide by T here; we want the actual frequency range for for each group not the u range
+        nu_hi = self.grid.freqGrid[1:, None]
         integrand = lambda nu: (15.0 * nu**3) / np.pi**4 /  np.expm1(nu)
         bg = self.simpson(integrand, nu_lo, nu_hi)
         return bg  # Shape is now (freqNum, nBins)
     
     def sigma_a(self, freq, T): 
-
-        nu_lo = self.grid.freqGrid[:-1, None]
-        nu_hi = self.grid.freqGrid[1:, None]
+        T = self.grid.temperatureSet[:, self.grid.timeStep]   # Get the nu from u grid
+        nu_lo = self.grid.freqGrid[:-1, None] * T
+        nu_hi = self.grid.freqGrid[1:, None] * T
         sigma_aZero = np.ones((self.params.freqNum, self.params.nBins))
         denom = np.sqrt(T) * self.planckg()
         num = sigma_aZero * (np.exp(-nu_lo/T)-np.exp(-nu_hi/T))

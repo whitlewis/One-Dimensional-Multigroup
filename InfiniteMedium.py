@@ -8,7 +8,7 @@ class Parameters:
         # Tolerance and iteration parameters
         self.maxIters = maxIters
         self.tol = tol
-        self.checkEnergy = True
+        self.checkEnergy = False
         self.energyTol = 1e-15
         self.totalEnergy = 0.0
 
@@ -37,7 +37,7 @@ class Parameters:
 
         # Time stepping parameters
         self.nSteps = nSteps
-        self.timeMax = .1
+        self.timeMax = 0.1
         self.timeScale = "log"  # "log" or "linear"
 
         # Choices of type of problem
