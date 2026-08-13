@@ -30,6 +30,8 @@ def main():
 def mainMovingMesh():
     constants = Base.Constants()
     params = InfiniteVariable.Parameters()
+    nSteps = params.nSteps
+    plotSet = [0, nSteps//4, nSteps//2, nSteps-1]
     grid = Base.Grid(params, constants)
     InfiniteVariableProblem = IVM(grid, constants)
     BaseSolver = Base.Base(grid, InfiniteVariableProblem, params,  constants)
@@ -40,7 +42,9 @@ def mainMovingMesh():
     # Vis.animate_solution(fullPhi, params, grid)
     Vis.plotTemperatureTime(grid)
     Vis.plotTemperature(grid)
-    return grid
+    rankInfo = Vis.analyzeRank(fullPhi, BaseSolver.grid.timeSet, time_indices=None, energy_threshold=None, tol=1e-16, plot=True)
+    Vis.analyze_rank_psi(fullTensor, BaseSolver.grid.timeSet, time_indices=None, energy_threshold=None, tol=1e-16, plot=True)
+    return grid, rankInfo, plotSet
 
 
 def mainReeds():

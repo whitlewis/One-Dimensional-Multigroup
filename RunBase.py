@@ -12,6 +12,8 @@ import Visualize as Vis
 def mainInfinite():
     constants = Base.Constants()
     params = InfiniteMedium.Parameters()
+    nSteps = params.nSteps
+    plotSet = [0, nSteps//4, nSteps//2, nSteps-1]
     grid = Base.Grid(params, constants)
     InfiniteMediumProblem = IM(grid, constants) # This can change to IVM for the infinite variable problem
     BaseSolver = Base.Base(grid, InfiniteMediumProblem, params,  constants)
@@ -22,10 +24,10 @@ def mainInfinite():
     # Vis.animate_solution(fullPhi, params, grid)
     Vis.plotTemperatureTime(grid)
     Vis.plotTemperature(grid)
-    nSteps = params.nSteps
-    plotSet = [0, nSteps//4, nSteps//2, nSteps-1]
+
     Vis.plot_spectra_at_times(fullPhi, plotSet, 20, params, freqs=grid.freqGroups)
-    rankInfo = Vis.analyze_rank(time_indices=plotSet, energy_threshold=0.99)
+    rankInfo = Vis.analyzeRank(fullPhi, BaseSolver.grid.timeSet, time_indices=None, energy_threshold=None, tol=1e-16, plot=True)
+    Vis.analyze_rank_psi(fullTensor, BaseSolver.grid.timeSet, time_indices=None, energy_threshold=None, tol=1e-16, plot=True)
     return grid, rankInfo, plotSet
 
 
@@ -43,6 +45,4 @@ def mainReeds():
     return grid
 
 grid, rankInfo, plotSet = mainInfinite()
-print("Rank information at specified time steps:")
-rank, singular_values = rankInfo
-print(f"Ranks at time steps {plotSet}: {rank}")
+

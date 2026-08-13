@@ -38,7 +38,7 @@ class Parameters:
 
         # Time stepping parameters
         self.nSteps = nSteps
-        self.timeMax = .1
+        self.timeMax = 1.0
         self.timeScale = "log"  # "log" or "linear"
 
         # Choices of type of problem
