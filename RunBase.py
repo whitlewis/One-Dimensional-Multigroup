@@ -22,8 +22,11 @@ def mainInfinite():
     # Vis.animate_solution(fullPhi, params, grid)
     Vis.plotTemperatureTime(grid)
     Vis.plotTemperature(grid)
-    Vis.plotSelectSpectra(fullPhi, grid, params, cell_idx=20)
-    return grid
+    nSteps = params.nSteps
+    plotSet = [0, nSteps//4, nSteps//2, nSteps-1]
+    Vis.plot_spectra_at_times(fullPhi, plotSet, 20, params, freqs=grid.freqGroups)
+    rankInfo = Vis.analyze_rank(time_indices=plotSet, energy_threshold=0.99)
+    return grid, rankInfo, plotSet
 
 
 def mainReeds():
@@ -39,5 +42,7 @@ def mainReeds():
     Vis.animate_solution(fullPhi, params, grid)
     return grid
 
-grid = mainInfinite()
-
+grid, rankInfo, plotSet = mainInfinite()
+print("Rank information at specified time steps:")
+rank, singular_values = rankInfo
+print(f"Ranks at time steps {plotSet}: {rank}")

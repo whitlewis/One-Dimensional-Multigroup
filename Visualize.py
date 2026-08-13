@@ -246,3 +246,117 @@ def plotSelectSpectra(fullphi, grid, params, cell_idx=0, ax=None, save_path=None
         plt.show()
 
     return ax
+
+def plot_spectra_at_times(phi_tensor, time_indices, bin_idx, params, freqs=None):
+
+    n_steps, freq_num, n_bins = phi_tensor.shape
+
+    if not (0 <= bin_idx < n_bins):
+        raise ValueError(f"bin_idx {bin_idx} out of bounds for array with {n_bins} bins.")
+
+    x_axis = freqs if freqs is not None else np.arange(freq_num)
+
+    plt.figure(figsize=(8, 5))
+
+    for t_idx in time_indices:
+        if 0 <= t_idx < n_steps:
+            spectrum = phi_tensor[t_idx, :, bin_idx]
+            plt.plot(x_axis, spectrum, label=f"Time step: {t_idx}")
+        else:
+            print(f"Warning: Time step index {t_idx} is out of bounds (max {n_steps - 1}) and skipped.")
+
+    plt.xlabel("Frequency" if freqs is not None else "Frequency Index")
+    plt.ylabel("Spectrum Magnitude ($\Phi$)")
+    plt.xlim(0, params.maxFreq/2)  # Adjust x-axis limit based on your frequency range
+    plt.title(f"Spectra Comparison for Bin {bin_idx}")
+    plt.legend()
+    plt.grid(True, linestyle="--", alpha=0.6)
+    plt.tight_layout()
+    plt.show()
+
+
+    import numpy as np
+
+    def analyze_svd_rank_over_time(phi_tensor, time_indices=None, energy_threshold=0.99, tol=None, plot=True):
+        """
+        Performs SVD on slices of shape (freqNum, nBins) at specified time steps to compute rank.
+
+        Parameters:
+        -----------
+        phi_tensor : np.ndarray
+            3D solution tensor of shape (nSteps + 1, freqNum, nBins).
+        time_indices : list or array-like, optional
+            Time step indices to analyze. If None, analyzes all time steps.
+        energy_threshold : float or None, optional
+            Fraction of cumulative variance/energy (sum(s^2)) to define effective rank (e.g., 0.99 for 99%).
+            Set to None to use numerical tolerance instead.
+        tol : float or None, optional
+            Absolute singular value threshold (s > tol). If both energy_threshold and tol are None,
+            uses numpy's default matrix_rank tolerance.
+        plot : bool
+            If True, plots effective rank over time and the singular value spectra.
+
+        Returns:
+        --------
+        ranks : np.ndarray
+            Computed ranks for each evaluated time step.
+        s_matrix : np.ndarray
+            Singular values for each analyzed time step, shape (len(time_indices), min(freqNum, nBins)).
+        """
+        if time_indices is None:
+            time_indices = np.arange(phi_tensor.shape[0])
+        else:
+            time_indices = np.array(time_indices)
+
+        # Extract sub-tensor at requested times and compute SVD in batch
+        sub_tensor = phi_tensor[time_indices, :, :]
+        s_matrix = np.linalg.svd(sub_tensor, compute_uv=False)  # shape: (n_selected_times, min(freqNum, nBins))
+
+        ranks = []
+        for idx, s in enumerate(s_matrix):
+            if energy_threshold is not None:
+                # Effective rank based on retained energy cutoff
+                cum_energy = np.cumsum(s**2) / np.sum(s**2)
+                r = np.searchsorted(cum_energy, energy_threshold) + 1
+            elif tol is not None:
+                # Rank based on singular value magnitude cutoff
+                r = np.sum(s > tol)
+            else:
+                # Default numerical rank using matrix_rank
+                r = np.linalg.matrix_rank(sub_tensor[idx])
+            ranks.append(r)
+
+        ranks = np.array(ranks)
+
+        if plot:
+            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4.5))
+
+            # Rank vs. Time
+            ax1.plot(time_indices, ranks, "o-", color="tab:blue")
+            ax1.set_xlabel("Time Step Index")
+            ax1.set_ylabel("Rank")
+            title_suffix = f"({energy_threshold*100}% Energy)" if energy_threshold else ""
+            ax1.set_title(f"Rank Over Time {title_suffix}")
+            ax1.grid(True, linestyle="--", alpha=0.6)
+
+            # Singular Value Decay
+            for idx, t_idx in enumerate(time_indices):
+                ax2.semilogy(s_matrix[idx], label=f"t = {t_idx}")
+            ax2.set_xlabel("Singular Value Index")
+            ax2.set_ylabel("Singular Value Magnitude (log scale)")
+            ax2.set_title("Singular Value Spectra")
+            ax2.grid(True, linestyle="--", alpha=0.6)
+            if len(time_indices) <= 10:
+                ax2.legend()
+
+            plt.tight_layout()
+            plt.show()
+
+        return ranks, s_matrix
+
+    def analyze_rank(self, time_indices=None, energy_threshold=0.99):
+        return analyze_svd_rank_over_time(
+            self.fullTensorPhiTime, 
+            time_indices=time_indices, 
+            energy_threshold=energy_threshold
+        )
