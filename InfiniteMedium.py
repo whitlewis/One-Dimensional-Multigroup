@@ -30,9 +30,10 @@ class Parameters:
         self.boundaryRight = "Reflective"
 
         # Group parameters
-        self.freqNum = 40
+        self.groupSpace = 'linear' # log or linear
+        self.freqNum = 100
         self.minFreq = 1e-4
-        self.maxFreq = 30
+        self.maxFreq = 15
         self.infFreq = 150
 
         # Time stepping parameters

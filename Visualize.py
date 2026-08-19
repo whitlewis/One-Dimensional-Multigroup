@@ -14,6 +14,9 @@ def planck(nu, T):  # Planck function (not group integrated or weighted)
     f = (15.0 * const.a * const.c) / (4.0 * np.pi**5)
     return f * nu**3 / denom
 
+# def movingPlanck(u, T):
+
+
 # Simpson for integration over group
 def simpson(integrand, lo, hi):
     h = (hi - lo) / 3
@@ -301,40 +304,76 @@ def analyzeRank(phi_tensor, time_set, time_indices=None, energy_threshold=None, 
         Singular values for each analyzed time step, shape (len(time_indices), min(freqNum, nBins)).
     """
     if time_indices is None:
-        time_indices = np.arange(phi_tensor.shape[0])
+        time_indices = np.arange(phi_tensor.shape[0]-1)
     else:
         time_indices = np.array(time_indices)
 
     # Extract sub-tensor at requested times and compute SVD in batch
+
     sub_tensor = phi_tensor[time_indices, :, :]
     s_matrix = np.linalg.svd(sub_tensor, compute_uv=False)  # shape: (n_selected_times, min(freqNum, nBins))
+    print(s_matrix)
 
-    ranks = []
-    for idx, s in enumerate(s_matrix):
-        if energy_threshold is not None:
-            # Effective rank based on retained energy cutoff
-            cum_energy = np.cumsum(s**2) / np.sum(s**2)
-            r = np.searchsorted(cum_energy, energy_threshold) + 1
-        elif tol is not None:
-            # Rank based on singular value magnitude cutoff
-            r = np.sum(s > tol)
-        else:
-            # Default numerical rank using matrix_rank
-            r = np.linalg.matrix_rank(sub_tensor[idx])
-        ranks.append(r)
+    if energy_threshold is None and tol is not None:
+        label = 'Tol Threshold'
+        rankSet = []
+        for t in tol:
+            ranks = []
+            for idx, s in enumerate(s_matrix):
+                r = np.sum(s > t)
+                ranks.append(r)
+            rankSet.append(ranks)
 
-    ranks = np.array(ranks)
+
+
+    if energy_threshold is not None and tol is None:
+        rankSet = []
+        label = 'Percentage Threshold'
+        for energy in energy_threshold:
+            ranks = []
+            for idx, s in enumerate(s_matrix):
+                try:
+                    with np.errstate(divide='raise', invalid='raise', over='raise'):
+                        cum_energy = np.cumsum(s**2) / np.sum(s**2)
+                        r = np.searchsorted(cum_energy, energy) + 1
+                        ranks.append(r)
+                except FloatingPointError:
+                    print("Floating-point error during SVD truncation")
+                    print(f' Numerator: {np.cumsum(s**2)}')
+                    print(f' Denominator: {np.sum(s**2)}')
+
+            ranks = np.array(ranks)
+            rankSet.append(ranks)
+    
+    if energy_threshold is None and tol is None:
+        label = 'Numpy calc'
+        rankSet = []
+        ranks = []
+
+        for idx, set in enumerate(sub_tensor):
+            r = np.linalg.matrix_rank(set)
+            ranks = np.array(r)
+        rankSet.append(ranks)
+    
+    
+
 
     if plot:
+
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4.5))
 
         # Rank vs. Time
         if time_indices is None:
             time_indices = np.arange(phi_tensor.shape[0])
-        ax1.plot(np.take(time_set, time_indices)[:-1], ranks[:-1], "o-", color="tab:blue")
+        for i, ranks in enumerate(rankSet):
+            if energy_threshold is None:
+                ax1.plot(np.take(time_set, time_indices)[:-1], ranks[:-1], label=f'Rank at cutoff of {tol[i]} ' )
+            else:
+                ax1.plot(np.take(time_set, time_indices)[:-1], ranks[:-1], label=f'Rank at cutoff of {100 * energy_threshold[i]} %' )
         ax1.set_xlabel("Time Step Index")
         ax1.set_ylabel("Rank")
         ax1.grid(True, linestyle="--", alpha=0.6)
+        ax1.legend()
 
         # Singular Value Decay
         for idx, t_idx in enumerate(time_indices):
@@ -342,13 +381,16 @@ def analyzeRank(phi_tensor, time_set, time_indices=None, energy_threshold=None, 
         ax2.set_xlabel("Singular Value Index")
         ax2.set_ylabel("Singular Value Magnitude (log scale)")
         ax2.grid(True, linestyle="--", alpha=0.6)
-        if len(time_indices) <= 10:
+        if len(time_indices) <= 5:
             ax2.legend()
 
         plt.tight_layout()
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"figures/{label}_{timestamp}.pdf"
+        plt.savefig(filename)
         plt.show()
 
-    return ranks, s_matrix
+    return rankSet, s_matrix
 
 def analyze_rank_psi(psi_tensor, time_set, time_indices=None, energy_threshold=None, tol=None, plot=True):
 

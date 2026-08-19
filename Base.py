@@ -19,7 +19,10 @@ class Grid:
 
         # Frequency grid
         if parameters.freqNum > 2:
-            self.freqGrid = np.append(np.logspace(np.log10(parameters.minFreq), np.log10(parameters.maxFreq), parameters.freqNum), parameters.infFreq)  # logarithmic spacing over group boundaries
+            if parameters.groupSpace == 'log':
+                self.freqGrid = np.append(np.logspace(np.log10(parameters.minFreq), np.log10(parameters.maxFreq), parameters.freqNum), parameters.infFreq)  # logarithmic spacing over group boundaries
+            elif parameters.groupSpace == 'linear':
+                self.freqGrid = np.append(np.linspace(parameters.minFreq, parameters.maxFreq, parameters.freqNum), parameters.infFreq)
         elif parameters.freqNum == 2:
             self.freqGrid = np.array([1e-3, parameters.maxFreq, parameters.infFreq])  # two groups: one for low frequencies and one for high frequencies
         else:

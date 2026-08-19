@@ -31,6 +31,7 @@ class Parameters:
         self.boundaryRight = "Reflective"
 
         # Group parameters
+        self.groupSpace = 'log' # log or linear
         self.freqNum = 40
         self.minFreq = 1e-3
         self.maxFreq = 30

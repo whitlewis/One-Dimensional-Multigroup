@@ -36,14 +36,15 @@ def mainMovingMesh():
     InfiniteVariableProblem = IVM(grid, constants)
     BaseSolver = Base.Base(grid, InfiniteVariableProblem, params,  constants)
     fullTensor, grid = BaseSolver.solve()
-    fullPhi = np.squeeze(grid.fullTensorPhiTime)
-    Vis.plotSpaceTime(fullPhi[:,5,:], params, grid.timeSet)
-    Vis.plotFinalFlux(grid)
+    fullPhi = np.squeeze(grid.fullTensorPhiTime)[:-1,:,:]
+    # Vis.plotSpaceTime(fullPhi[:,5,:], params, grid.timeSet)
+    # Vis.plotFinalFlux(grid)
     # Vis.animate_solution(fullPhi, params, grid)
     Vis.plotTemperatureTime(grid)
     Vis.plotTemperature(grid)
-    rankInfo = Vis.analyzeRank(fullPhi, BaseSolver.grid.timeSet, time_indices=None, energy_threshold=None, tol=1e-16, plot=True)
-    Vis.analyze_rank_psi(fullTensor, BaseSolver.grid.timeSet, time_indices=None, energy_threshold=None, tol=1e-16, plot=True)
+    rankInfo = Vis.analyzeRank(fullPhi, BaseSolver.grid.timeSet, time_indices=None, energy_threshold=[.999999999, .999999, .9999  ,.99], tol=None, plot=True)
+    Vis.analyzeRank(fullPhi, BaseSolver.grid.timeSet, energy_threshold=None, tol = [1e-8, 1e-14, 1e-16, 1e-18], plot = True)
+    # Vis.analyze_rank_psi(fullTensor, BaseSolver.grid.timeSet, time_indices=None, energy_threshold=None, tol=1e-16, plot=True)
     return grid, rankInfo, plotSet
 
 
