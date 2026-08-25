@@ -74,6 +74,29 @@ def plotTemperature(grid):
     plt.savefig(filename)
     plt.show()
 
+def plotTemperatureLoaded(data, params, const):
+    t = data["timeSet"][:-1] # cell centers
+    EradSet = []
+    for i, timeStep in enumerate(data["timeSet"]):
+        Erad = np.sum(data["fullTensorPhi"][i-1], axis=0)
+        EradSet.append(Erad[params["nBins"]//2])  # Store the radiation energy density at the middle spatial bin for each time step
+    Trad = (np.array(EradSet)/ const.a / const.c)**0.25
+    labelT = "Temperature vs Time"
+    shape = data["temperatureSet"].shape
+    print(f'Temperature set shape: {shape}')  # Debugging print statement to check the shape of temperatureSet
+    T = data["temperatureSet"][params["nBins"]//2][:-1]  # Final temperature distribution at the last time step
+    plt.plot(t, T, label=labelT)
+    plt.plot(t, Trad[:-1], label=f"{labelT} from Radiation Energy Density", linestyle='--')
+    plt.xlabel("t (ns)")
+    plt.ylabel("Temperature (keV)")
+    plt.legend()
+    plt.grid(True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"figures/{labelT}_{timestamp}.pdf"
+    plt.savefig(filename)
+    plt.show()
+  
+
 def plotTemperatureTime(grid):
     x = grid.spaceMid  # cell centers
     time = grid.timeSet
@@ -100,6 +123,33 @@ def plotTemperatureTime(grid):
 
     plt.tight_layout()
     plt.show()
+
+def plotTemperatureTimeLoaded(data, params):
+    x = params["spaceMid"]  # cell centers
+    time = data["timeSet"]
+    T_time = data["temperatureSet"]  # shape: (nBins, nSteps+1)
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+    pcm = ax.pcolormesh(
+        x,
+        time,
+        T_time.T,
+        shading='auto',
+        cmap='viridis'
+    )
+    fig.colorbar(pcm, label='Temperature T', ax=ax)
+    ax.set_xlabel('Position x')
+    ax.set_ylabel('Time')
+    ax.set_title('Space-Time Temperature Distribution')
+    ax.xaxis.set_major_formatter(ScalarFormatter(useOffset=False, useMathText=False))
+    ax.yaxis.set_major_formatter(ScalarFormatter(useOffset=False, useMathText=False))
+    ax.ticklabel_format(style='plain', axis='both', useOffset=False)
+    ax.xaxis.get_offset_text().set_visible(False)
+    ax.yaxis.get_offset_text().set_visible(False)
+
+    plt.tight_layout()
+    plt.show()
+
 
 def plotFinalFlux(grid, label="Final Scalar Flux"):
     x = grid.spaceMid
@@ -250,7 +300,7 @@ def plotSelectSpectra(fullphi, grid, params, cell_idx=0, ax=None, save_path=None
 
     return ax
 
-def plot_spectra_at_times(phi_tensor, time_indices, bin_idx, params, freqs=None):
+def plot_spectra_at_times(phi_tensor, time_indices, bin_idx, maxFreq, freqs=None):
 
     n_steps, freq_num, n_bins = phi_tensor.shape
 
@@ -270,7 +320,7 @@ def plot_spectra_at_times(phi_tensor, time_indices, bin_idx, params, freqs=None)
 
     plt.xlabel("Frequency" if freqs is not None else "Frequency Index")
     plt.ylabel("Spectrum Magnitude ($\Phi$)")
-    plt.xlim(0, params.maxFreq/2)  # Adjust x-axis limit based on your frequency range
+    plt.xlim(0, maxFreq/2)  # Adjust x-axis limit based on your frequency range
     plt.title(f"Spectra Comparison for Bin {bin_idx}")
     plt.legend()
     plt.grid(True, linestyle="--", alpha=0.6)
@@ -327,6 +377,8 @@ def analyzeRank(phi_tensor, time_set, time_indices=None, energy_threshold=None, 
 
 
     if energy_threshold is not None and tol is None:
+        array = sub_tensor - np.mean(sub_tensor, axis=0)  # Center the data by subtracting the mean across time
+        s_matrix = np.linalg.svd(array, compute_uv=False)  # shape: (n_selected_times, min(freqNum, nBins))
         rankSet = []
         label = 'Percentage Threshold'
         for energy in energy_threshold:
@@ -349,12 +401,10 @@ def analyzeRank(phi_tensor, time_set, time_indices=None, energy_threshold=None, 
         label = 'Numpy calc'
         rankSet = []
         ranks = []
-
-        for idx, set in enumerate(sub_tensor):
-            r = np.linalg.matrix_rank(set)
-            ranks = np.array(r)
-        rankSet.append(ranks)
-    
+        if energy_threshold is None and tol is None:
+            label = 'Numpy calc'
+            ranks = [np.linalg.matrix_rank(s) for s in sub_tensor]
+            rankSet = [np.array(ranks)] # Now a 1D array of ranks over time
     
 
 
@@ -366,7 +416,10 @@ def analyzeRank(phi_tensor, time_set, time_indices=None, energy_threshold=None, 
         if time_indices is None:
             time_indices = np.arange(phi_tensor.shape[0])
         for i, ranks in enumerate(rankSet):
-            if energy_threshold is None:
+
+            if energy_threshold is None and tol is None:
+                ax1.plot(np.take(time_set, time_indices)[:-1], ranks[:-1], label=f'Rank from numpy matrix_rank')
+            elif energy_threshold is None:
                 ax1.plot(np.take(time_set, time_indices)[:-1], ranks[:-1], label=f'Rank at cutoff of {tol[i]} ' )
             else:
                 ax1.plot(np.take(time_set, time_indices)[:-1], ranks[:-1], label=f'Rank at cutoff of {100 * energy_threshold[i]} %' )
@@ -442,3 +495,14 @@ def analyze_rank_psi(psi_tensor, time_set, time_indices=None, energy_threshold=N
         plt.show()
 
     return ranks, s_matrix
+
+
+    def readResults(filepath, cls):
+        """Reads a text file and restores both the array and the class instance."""
+        with open(filepath, "r") as file:
+            data = json.load(file)
+
+        restored_array = data["array"]
+        restored_instance = cls(**data["object"])
+
+        return restored_array, restored_instance

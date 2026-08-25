@@ -1,6 +1,8 @@
 import numpy as np
 import numpy.polynomial.legendre as leggauss
 import time as machineTime
+import h5py
+from datetime import datetime
 
 class Constants:
     # all physical constants
@@ -224,8 +226,45 @@ class Base:
         tock = machineTime.perf_counter()
         print(f'delta t max of: {np.max(self.grid.dt):.2e}')
         print(f"Solve completed in {tock - tick:.2f} seconds.")
-        
+        if self.params.saveResults:
+            self.saveResults()
+            print("Results saved successfully.")
+        else:
+            saveResults = input("Would you like to save the results? (y/n): ")
+            if saveResults.lower() == 'y':
+                self.runName = input("Enter a filename descripter for run: ")
+                self.saveResults()
+                print("Results saved successfully.")
+            else:
+                print("Results not saved.")
+            
         return self.grid.fullTensorTime, self.grid  # Return the full time-dependent solution tensor
+    
+    def saveResults(self):
+        filePrefix = self.params.fileFolder
+        runName = self.runName
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filepath = f"dataStash/{filePrefix}/{runName}_{timestamp}.h5"
+        fullTensorPhiTime = np.squeeze(self.grid.fullTensorPhiTime)[:-1,:,:]
+        with h5py.File(filepath, "w") as f:
+            f.create_dataset("fullTensorPhi", data=fullTensorPhiTime, compression="gzip")
+            f.create_dataset("temperatureSet", data=self.grid.temperatureSet, compression="gzip")
+            f.create_dataset("timeSet", data=self.grid.timeSet, compression="gzip")
+            f.attrs["spaceGrid"] = self.grid.spaceGrid
+            f.attrs["spaceMid"] = self.grid.spaceMid
+            f.attrs["freqGrid"] = self.grid.freqGrid
+            f.attrs["dt"] = self.grid.dt
+            f.attrs["dx"] = self.grid.dx
+            f.attrs["nBins"] = self.grid.nBins
+            f.attrs["nSteps"] = self.params.nSteps
+            f.attrs["sn"] = self.params.sn
+            f.attrs["maxFreq"] = self.params.maxFreq
+
+    
+
+
+
+
     
 
 

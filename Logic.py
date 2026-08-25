@@ -201,7 +201,7 @@ class CoupledEquations:
     # Helper for boundary
     def boundaryPlanck(self):
         T0 = self.params.radiationTemperature if self.params.boundaryLeft in ["Infinite", "Reflective", "Vacuum"] else self.params.boundaryLeft
-        T1 = self.params.radiationTemperature if self.params.boundaryRight in ["Infinite", "Reflective", ] else self.params.boundaryRight
+        T1 = self.params.radiationTemperature if self.params.boundaryRight in ["Infinite", "Reflective", "Vacuum"] else self.params.boundaryRight
         planckLeft = np.broadcast_to(self.planckBar(T0), (self.params.freqNum, self.sn))  # shape: (freqNum, sn)
         planckRight = np.broadcast_to(self.planckBar(T1), (self.params.freqNum, self.sn))  # shape: (freqNum, sn)
         return planckLeft, planckRight

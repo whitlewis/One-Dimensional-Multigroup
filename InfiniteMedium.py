@@ -4,7 +4,7 @@ import Logic as Log
 import Base as Base
 
 class Parameters:
-    def __init__(self, maxIters=200, tol=1e-8, nSteps=400, Transient=True):
+    def __init__(self, maxIters=200, tol=1e-8, nSteps=1600, Transient=True):
         # Tolerance and iteration parameters
         self.maxIters = maxIters
         self.tol = tol
@@ -26,8 +26,8 @@ class Parameters:
         self.nBins = 100
 
         # Boundary conditions (currently for all frequencies and angles, planckian at specified temperature or reflective)
-        self.boundaryLeft = "Reflective"
-        self.boundaryRight = "Reflective"
+        self.boundaryLeft = "Vacuum"
+        self.boundaryRight = "Vacuum"
 
         # Group parameters
         self.groupSpace = 'linear' # log or linear
@@ -38,7 +38,7 @@ class Parameters:
 
         # Time stepping parameters
         self.nSteps = nSteps
-        self.timeMax = 1.0
+        self.timeMax = 4.0
         self.timeScale = "log"  # "log" or "linear"
 
         # Choices of type of problem
@@ -47,6 +47,8 @@ class Parameters:
         self.movingCoordinates = False
         self.energyCheckFreq = 200 # Check energy conservation every 200 time steps
         self.iterationCheck = False
+        self.fileFolder = "InfiniteMedium"
+        self.saveResults = False  # Flag to determine whether to save results after simulation (asks after the simulation)
 
 class Material:
     def __init__(self, params, grid):
