@@ -1,5 +1,6 @@
 import numpy as np
 np.seterr(divide='raise', invalid='raise', over='raise')
+from numba import njit
 
 
 # Non coupled equations
@@ -200,10 +201,17 @@ class CoupledEquations:
 
     # Helper for boundary
     def boundaryPlanck(self):
-        T0 = self.params.radiationTemperature if self.params.boundaryLeft in ["Infinite", "Reflective", "Vacuum"] else self.params.boundaryLeft
-        T1 = self.params.radiationTemperature if self.params.boundaryRight in ["Infinite", "Reflective", "Vacuum"] else self.params.boundaryRight
+        T0 = self.params.setLeftBoundaryTemp if self.params.boundaryLeft in ["Infinite", "Reflective", "Vacuum"] else self.params.boundaryLeft
+        T1 = self.params.setRightBoundaryTemp if self.params.boundaryRight in ["Infinite", "Reflective", "Vacuum"] else self.params.boundaryRight
         planckLeft = np.broadcast_to(self.planckBar(T0), (self.params.freqNum, self.sn))  # shape: (freqNum, sn)
         planckRight = np.broadcast_to(self.planckBar(T1), (self.params.freqNum, self.sn))  # shape: (freqNum, sn)
+        if self.params.boundaryLeft == "Delta":
+            totalFlux = np.sum(self.grid.du * self.simpson(lambda nu: self.planck(nu, T0), self.grid.freqGrid[:-1], self.grid.freqGrid[1:]))
+            planckLeft[self.params.freqNum//4, :] = totalFlux / self.grid.du[self.params.freqNum/4]  # Delta function at the middle frequency group
+        if self.params.boundaryRight == "Delta":
+            totalFlux = np.sum(self.grid.du * self.simpson(lambda nu: self.planck(nu, T1), self.grid.freqGrid[:-1], self.grid.freqGrid[1:]))
+            planckRight[self.params.freqNum//4, :] = totalFlux / self.grid.du[self.params.freqNum//4]      # Delta function at the middle frequency group
+
         return planckLeft, planckRight
 
     # Possible time varying Boundary condition
@@ -450,8 +458,8 @@ class MovingMeshEquations:
 
     # Helper for boundary
     def boundaryPlanck(self):
-        T0 = self.params.radiationTemperature if self.params.boundaryLeft in ["Infinite", "Reflective"] else self.params.boundaryLeft
-        T1 = self.params.radiationTemperature if self.params.boundaryRight in ["Infinite", "Reflective"] else self.params.boundaryRight
+        T0 = self.params.setLeftBoundaryTemp if self.params.boundaryLeft in ["Planckian", "Infinite", "Reflective"] else self.params.boundaryLeft
+        T1 = self.params.setRightBoundaryTemp if self.params.boundaryRight in ["Planckian", "Infinite", "Reflective"] else self.params.boundaryRight
         planckLeft = np.broadcast_to(self.planckBar(T0), (self.params.freqNum, self.sn))  # shape: (freqNum, sn)
         planckRight = np.broadcast_to(self.planckBar(T1), (self.params.freqNum, self.sn))  # shape: (freqNum, sn)
         return planckLeft, planckRight
@@ -566,6 +574,20 @@ class MovingMeshEquations:
         
         if bc_type == "Vacuum":
             bVal = 0.0
+
+        if bc_type == "Planckian":
+            phi_source = self.boundaryCondition(side, time)
+            bVal = phi_source[f, m]
+
+        if bc_type == "delta":
+            if side == "left":
+                T0 = self.params.setLeftBoundaryTemp
+            elif side == "right":
+                T0 = self.params.setRightBoundaryTemp
+            deltaSet = np.zeros((self.params.freqNum, self.sn))
+            totalFlux = np.sum(self.grid.du * self.simpson(lambda nu: self.planck(nu, T0), self.grid.freqGrid[:-1], self.grid.freqGrid[1:]))
+            deltaSet[self.params.freqNum//4, :] = totalFlux / self.grid.du[self.params.freqNum//4]      # Delta function at the middle frequency group
+            bVal = deltaSet[f, m]
 
 
         # # 3. Handle Prescribed Source / Inflow Boundary Condition

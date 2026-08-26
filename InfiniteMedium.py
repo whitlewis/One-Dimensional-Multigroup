@@ -28,6 +28,8 @@ class Parameters:
         # Boundary conditions (currently for all frequencies and angles, planckian at specified temperature or reflective)
         self.boundaryLeft = "Vacuum"
         self.boundaryRight = "Vacuum"
+        self.setLeftBoundaryTemp = 0.5  # Temperature for Planckian or delta boundary condition on the left
+        self.setRightBoundaryTemp = 0.5  # Temperature for Planckian or delta boundary condition on the right
 
         # Group parameters
         self.groupSpace = 'linear' # log or linear
@@ -38,7 +40,7 @@ class Parameters:
 
         # Time stepping parameters
         self.nSteps = nSteps
-        self.timeMax = 4.0
+        self.timeMax = 1.0
         self.timeScale = "log"  # "log" or "linear"
 
         # Choices of type of problem

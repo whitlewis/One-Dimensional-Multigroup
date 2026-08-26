@@ -4,7 +4,7 @@ import Logic as Log
 import Base as Base
 
 class Parameters:
-    def __init__(self, tol=1e-8, maxIters=200, nSteps=1600, Transient=True):
+    def __init__(self, tol=1e-8, maxIters=200, nSteps=2000, Transient=True):
         # Tolerance and iteration parameters
         self.maxIters = maxIters
         self.tol = tol
@@ -39,7 +39,7 @@ class Parameters:
 
         # Time stepping parameters
         self.nSteps = nSteps
-        self.timeMax = 4.0
+        self.timeMax = 1.0
         self.timeScale = "log"  # "log" or "linear"
 
         # Choices of type of problem
