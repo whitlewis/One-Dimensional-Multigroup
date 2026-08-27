@@ -37,9 +37,6 @@ def mainMovingMesh():
     BaseSolver = Base.Base(grid, InfiniteVariableProblem, params,  constants)
     fullTensor, grid = BaseSolver.solve()
     fullPhi = np.squeeze(grid.fullTensorPhiTime)[:-1,:,:]
-    # Vis.plotSpaceTime(fullPhi[:,5,:], params, grid.timeSet)s
-    # Vis.plotFinalFlux(grid)
-    # Vis.animate_solution(fullPhi, params, grid)
     Vis.plotTemperatureTime(grid)
     Vis.plotTemperature(grid)
 
