@@ -27,7 +27,7 @@ class Parameters:
 
         # Boundary conditions (currently for all frequencies and angles, planckian at specified temperature or reflective)
         self.boundaryLeft = "Vacuum"
-        self.boundaryRight = "Vacuum"
+        self.boundaryRight = "Planckian"
         self.setLeftBoundaryTemp = 0.5  # Temperature for Planckian or delta boundary condition on the left
         self.setRightBoundaryTemp = 0.5  # Temperature for Planckian or delta boundary condition on the right
 

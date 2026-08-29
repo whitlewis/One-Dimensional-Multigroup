@@ -201,8 +201,8 @@ class CoupledEquations:
 
     # Helper for boundary
     def boundaryPlanck(self):
-        T0 = self.params.setLeftBoundaryTemp if self.params.boundaryLeft in ["Infinite", "Reflective", "Vacuum"] else self.params.boundaryLeft
-        T1 = self.params.setRightBoundaryTemp if self.params.boundaryRight in ["Infinite", "Reflective", "Vacuum"] else self.params.boundaryRight
+        T0 = self.params.setLeftBoundaryTemp if self.params.boundaryLeft in ["Infinite", "Reflective", "Vacuum"] else self.params.setLeftBoundaryTemp
+        T1 = self.params.setRightBoundaryTemp if self.params.boundaryRight in ["Infinite", "Reflective", "Vacuum"] else self.params.setRightBoundaryTemp
         planckLeft = np.broadcast_to(self.planckBar(T0), (self.params.freqNum, self.sn))  # shape: (freqNum, sn)
         planckRight = np.broadcast_to(self.planckBar(T1), (self.params.freqNum, self.sn))  # shape: (freqNum, sn)
         if self.params.boundaryLeft == "Delta":
@@ -211,7 +211,10 @@ class CoupledEquations:
         if self.params.boundaryRight == "Delta":
             totalFlux = np.sum(self.grid.du * self.simpson(lambda nu: self.planck(nu, T1), self.grid.freqGrid[:-1], self.grid.freqGrid[1:]))
             planckRight[self.params.freqNum//4, :] = totalFlux / self.grid.du[self.params.freqNum//4]      # Delta function at the middle frequency group
-
+        if self.params.boundaryLeft not in ["Infinite", "Reflective", "Vacuum", "Delta", "Planckian"]:
+            raise ValueError("Boundary must be one of: [Infinite, Reflective, Vacuum, Delta, Planckian]")
+        if self.params.boundaryRight not in ["Infinite", "Reflective", "Vacuum", "Delta", "Planckian"]:
+            raise ValueError("Boundary must be one of: [Infinite, Reflective, Vacuum, Delta, Planckian]")
         return planckLeft, planckRight
 
     # Possible time varying Boundary condition
