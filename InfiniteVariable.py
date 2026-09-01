@@ -49,8 +49,10 @@ class Parameters:
         self.transient = Transient
         self.materialCoupled = True
         self.movingCoordinates = True
+        self.extrapolateTemp = False  # provides a better guess for the temperature by using a 2nd order polynomial fit before iteration
         self.energyCheckFreq = 200 # Check energy conservation every 200 time steps
         self.iterationCheck = False
+        self.runName = "Run"
         self.fileFolder = "InfiniteVariable"
         self.saveResults = False  # Flag to determine whether to save results after simulation
 

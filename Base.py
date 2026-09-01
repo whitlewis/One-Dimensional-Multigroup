@@ -123,9 +123,9 @@ class Base:
                 break
             if it % 10 == 0:
                 self.errorLag = err
-            if abs(self.err - err) < 1e-30 and abs(self.errorLag - err) < 1e-30:
+            if abs(self.err - err) < 1e-40 and abs(self.errorLag - err) < 1e-40:
                 self.errorStag += 1
-                if self.errorStag > 5:
+                if self.errorStag > 2:
                     print(f'Not further trending toward convergence, breaking loop and Moving to next step after {it} iterations, final error: {err}')
                     self.errorStag = 0
                     break
@@ -224,6 +224,8 @@ class Base:
             if index % 200 == 0:  
                 print(f"Completed time step {time:.2e}")
         tock = machineTime.perf_counter()
+        self.runTime = tock - tick
+        self.dtMax = np.max(self.grid.dt)
         print(f'delta t max of: {np.max(self.grid.dt):.2e}')
         print(f"Solve completed in {tock - tick:.2f} seconds.")
         if self.params.saveResults:
@@ -242,7 +244,7 @@ class Base:
     
     def saveResults(self):
         filePrefix = self.params.fileFolder
-        runName = self.runName
+        runName = self.params.runName
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filepath = f"dataStash/{filePrefix}/{runName}_{timestamp}.h5"
         fullTensorPhiTime = np.squeeze(self.grid.fullTensorPhiTime)[:-1,:,:]
@@ -259,6 +261,7 @@ class Base:
             f.attrs["nSteps"] = self.params.nSteps
             f.attrs["sn"] = self.params.sn
             f.attrs["maxFreq"] = self.params.maxFreq
+            f.attrs['runTime'] = self.runTime
 
     
 

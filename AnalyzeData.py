@@ -51,8 +51,8 @@ def plotSet():
     plotSet = [0, params["nSteps"]//4, params["nSteps"]//2, params["nSteps"]-1]
     freqGroups = 0.5 * (params["freqGrid"][:-1] + params["freqGrid"][1:])
     Vis.plot_spectra_at_times(data["fullTensorPhi"], plotSet, 20, params["maxFreq"], freqs=freqGroups)
-    Vis.analyzeRank(data["fullTensorPhi"], data["timeSet"], time_indices=None, energy_threshold=[.999999999, .999999, .9999  ,.99], tol=None, plot=True)
-    Vis.analyzeRank(data["fullTensorPhi"], data["timeSet"], energy_threshold=None, tol = [1e-8, 1e-14, 1e-16, 1e-18], plot = True)
+    Vis.analyzeRank(data["fullTensorPhi"], data["timeSet"], time_indices=None, energy_threshold=[.999, .99, .98 ,.95], tol=None, plot=True)
+    # Vis.analyzeRank(data["fullTensorPhi"], data["timeSet"], energy_threshold=None, tol = [1e-8, 1e-14, 1e-16, 1e-18], plot = True)
     Vis.analyzeRank(data["fullTensorPhi"], data["timeSet"], time_indices=None, energy_threshold=None, tol=None, plot=True)
 
 plotSet()

@@ -23,7 +23,7 @@ def mainInfinite():
     Vis.plotTemperature(grid)
 
     Vis.plot_spectra_at_times(fullPhi, plotSet, 20, params.maxFreq, freqs=grid.freqGroups)
-    rankInfo = Vis.analyzeRank(fullPhi, BaseSolver.grid.timeSet, time_indices=None, energy_threshold=[.999999999, .999999, .9999  ,.99], tol=None, plot=True)
+    rankInfo = Vis.analyzeRank(fullPhi, BaseSolver.grid.timeSet, time_indices=None, energy_threshold=[0.999, 0.99, 0.98  ,0.95], tol=None, plot=True)
     Vis.analyzeRank(fullPhi, BaseSolver.grid.timeSet, energy_threshold=None, tol = [1e-8, 1e-14, 1e-16, 1e-18], plot = True)
     Vis.analyze_rank_psi(fullTensor, BaseSolver.grid.timeSet, time_indices=None, energy_threshold=None, tol=None, plot=True)
     return grid, rankInfo, plotSet

@@ -2,7 +2,6 @@ import numpy as np
 np.seterr(divide='raise', invalid='raise', over='raise')
 from numba import njit
 
-
 # Non coupled equations
 class Equations:
 
@@ -107,6 +106,8 @@ class Equations:
         # Set fullTensor to the updated Tensor
         self.grid.fullTensor = newFull.copy()
 
+
+
 class CoupledEquations:
     def __init__(self, params, grid, material, constants):
         # Init classes
@@ -203,11 +204,11 @@ class CoupledEquations:
     def boundaryPlanck(self):
         T0 = self.params.setLeftBoundaryTemp if self.params.boundaryLeft in ["Infinite", "Reflective", "Vacuum"] else self.params.setLeftBoundaryTemp
         T1 = self.params.setRightBoundaryTemp if self.params.boundaryRight in ["Infinite", "Reflective", "Vacuum"] else self.params.setRightBoundaryTemp
-        planckLeft = np.broadcast_to(self.planckBar(T0), (self.params.freqNum, self.sn))  # shape: (freqNum, sn)
-        planckRight = np.broadcast_to(self.planckBar(T1), (self.params.freqNum, self.sn))  # shape: (freqNum, sn)
+        planckLeft = np.broadcast_to(self.planckBar(T0), (self.params.freqNum, self.sn)).copy()  # shape: (freqNum, sn)
+        planckRight = np.broadcast_to(self.planckBar(T1), (self.params.freqNum, self.sn)).copy()  # shape: (freqNum, sn)
         if self.params.boundaryLeft == "Delta":
             totalFlux = np.sum(self.grid.du * self.simpson(lambda nu: self.planck(nu, T0), self.grid.freqGrid[:-1], self.grid.freqGrid[1:]))
-            planckLeft[self.params.freqNum//4, :] = totalFlux / self.grid.du[self.params.freqNum/4]  # Delta function at the middle frequency group
+            planckLeft[self.params.freqNum//4, :] = totalFlux / self.grid.du[self.params.freqNum//4]  # Delta function at the middle frequency group
         if self.params.boundaryRight == "Delta":
             totalFlux = np.sum(self.grid.du * self.simpson(lambda nu: self.planck(nu, T1), self.grid.freqGrid[:-1], self.grid.freqGrid[1:]))
             planckRight[self.params.freqNum//4, :] = totalFlux / self.grid.du[self.params.freqNum//4]      # Delta function at the middle frequency group
@@ -359,6 +360,41 @@ class CoupledEquations:
         self.grid.fullTensor = newFull.copy()
 
 
+
+@njit
+def planckBarNumbaVariable(freqGrid, T, a, c, h):
+    nGroups = freqGrid.shape[0] - 1
+    nBins = T.shape[0]
+
+    out = np.empty((nGroups, nBins))
+
+    C = (15.0 * a * c) / (4.0 * np.pi**5)
+
+    for g in range(nGroups):
+        lo = freqGrid[g]
+        hi = freqGrid[g + 1]
+        dx = (hi - lo) / 3.0
+
+        u0 = lo
+        u1 = lo + dx
+        u2 = lo + 2.0 * dx
+        u3 = hi
+
+        for i in range(nBins):
+            Ti = T[i]
+            T4 = Ti**4
+
+            B0 = C * u0**3 * T4 / np.expm1(h * u0)
+            B1 = C * u1**3 * T4 / np.expm1(h * u1)
+            B2 = C * u2**3 * T4 / np.expm1(h * u2)
+            B3 = C * u3**3 * T4 / np.expm1(h * u3)
+
+            out[g, i] = (3.0 / 8.0) * dx * (
+                B0 + 3.0*B1 + 3.0*B2 + B3
+            )
+
+    return out
+
 class MovingMeshEquations:
     def __init__(self, params, grid, material, constants):
         # Init classes
@@ -399,18 +435,27 @@ class MovingMeshEquations:
         return f * u**3 * T**4 / denom
 
     # Group integrated Planck
-    def planckBar(self, T):
+    def planckBarInit(self, T):
         # Integrate the Planck function over each frequency group to get group-averaged source
         lo = self.grid.freqGrid[:-1, None]
         hi = self.grid.freqGrid[1:, None]
         integrand = lambda u: self.planck(u, T)
         bbar = self.simpson(integrand, lo, hi)
         return bbar
+    
+    def planckBar(self, T):
+        return planckBarNumbaVariable(
+            self.grid.freqGrid,
+            T,
+            self.const.a,
+            self.const.c,
+            self.const.h
+        )
 
     # Function for initial Condition as Planckian (helper for initialCondition)  
     def initSpectra(self):
         T0 = self.params.radiationTemperature
-        planck = self.planckBar(T0) 
+        planck = self.planckBarInit(T0) 
         self.grid.fullTensor[:] = planck[:, None]
         return self.grid.fullTensor.copy()
     
@@ -463,8 +508,8 @@ class MovingMeshEquations:
     def boundaryPlanck(self):
         T0 = self.params.setLeftBoundaryTemp if self.params.boundaryLeft in ["Planckian", "Infinite", "Reflective"] else self.params.boundaryLeft
         T1 = self.params.setRightBoundaryTemp if self.params.boundaryRight in ["Planckian", "Infinite", "Reflective"] else self.params.boundaryRight
-        planckLeft = np.broadcast_to(self.planckBar(T0), (self.params.freqNum, self.sn))  # shape: (freqNum, sn)
-        planckRight = np.broadcast_to(self.planckBar(T1), (self.params.freqNum, self.sn))  # shape: (freqNum, sn)
+        planckLeft = np.broadcast_to(self.planckBarInit(T0), (self.params.freqNum, self.sn))  # shape: (freqNum, sn)
+        planckRight = np.broadcast_to(self.planckBarInit(T1), (self.params.freqNum, self.sn))  # shape: (freqNum, sn)
         return planckLeft, planckRight
 
     # Possible time varying Boundary condition
@@ -503,22 +548,32 @@ class MovingMeshEquations:
     def psiBar(self):       # placeholder, currently unnecessary due to init
         return
 
+    def polyPredict(self):
+        t2 = self.grid.temperatureSet[:, self.grid.timeStep - 2]
+        t1 = self.grid.temperatureSet[:, self.grid.timeStep - 1]
+        t = self.grid.temperatureSet[:, self.grid.timeStep]
+        T_guess = 3*t - 3*t1 + t2
+        return T_guess
+
     def materialEquation(self):
             # Outer constant calc
             dt = self.grid.dt[self.grid.timeStep]
             f = dt / self.material.C_v(self.grid.temperatureSet[:, self.grid.timeStep]) 
             
             # Lagged temperature and phi
-            T = self.grid.temperatureSet[:, self.grid.timeStep]  # Current temperature in all x cells (120,1)
-            T_iterative = self.grid.T_next
+            if self.grid.timeStep < 3:      
+                T_iterative = self.grid.T_next
+            elif self.params.extrapolateTemp == True: 
+                T_iterative = self.polyPredict()
+            else:
+                T_iterative = self.grid.T_next
+            T = self.grid.temperatureSet[:, self.grid.timeStep]
             phi = self.getPhi()  # Compute scalar flux by integrating over angles
             bbar = self.planckBar(T_iterative)  # Get the group-averaged Planckian for the material 
             sa = self.material.sigma_a(self.grid.freqGroups, T_iterative)
             
             # Calculation of next temperature
             T_offset = self.params.temperatureLearningRate*f * np.sum((sa * phi - 4*np.pi*sa * bbar), axis=0)  # Limit the temperature change to avoid instability
-            # print(f"Temperature offset: {np.max(T_offset):.4e}, min: {np.min(T_offset):.4e}")
-            # print(f"Current temperature: {np.max(T):.4e}, min: {np.min(T):.4e}")
             T_next = np.clip(T + T_offset, a_min=1e-4, a_max=1)  # Update temperature using the material energy equation)
             self.T_next = T_next.copy()
             self.grid.T_next = T_next.copy()
@@ -582,7 +637,7 @@ class MovingMeshEquations:
             phi_source = self.boundaryCondition(side, time)
             bVal = phi_source[f, m]
 
-        if bc_type == "delta":
+        if bc_type == "Delta":
             if side == "left":
                 T0 = self.params.setLeftBoundaryTemp
             elif side == "right":

@@ -17,7 +17,7 @@ class Parameters:
 
         # Initial and source temperature parameters
         self.initialTemperature = 0.4       # material temperature
-        self.radiationTemperature = 0.5     # Radiation temperature
+        self.radiationTemperature = 0.4     # Radiation temperature
         self.sourceTemp = 0.5
 
         # Spatial grid parameters
@@ -26,10 +26,10 @@ class Parameters:
         self.nBins = 100
 
         # Boundary conditions (currently for all frequencies and angles, planckian at specified temperature or reflective)
-        self.boundaryLeft = "Vacuum"
-        self.boundaryRight = "Planckian"
-        self.setLeftBoundaryTemp = 0.5  # Temperature for Planckian or delta boundary condition on the left
-        self.setRightBoundaryTemp = 0.5  # Temperature for Planckian or delta boundary condition on the right
+        self.boundaryLeft = "Delta"
+        self.boundaryRight = "Delta"
+        self.setLeftBoundaryTemp = 0.8  # Temperature for Planckian or delta boundary condition on the left
+        self.setRightBoundaryTemp = 0.8  # Temperature for Planckian or delta boundary condition on the right
 
         # Group parameters
         self.groupSpace = 'linear' # log or linear
@@ -50,6 +50,7 @@ class Parameters:
         self.energyCheckFreq = 200 # Check energy conservation every 200 time steps
         self.iterationCheck = False
         self.fileFolder = "InfiniteMedium"
+        self.runName = "Run"
         self.saveResults = False  # Flag to determine whether to save results after simulation (asks after the simulation)
 
 class Material:
