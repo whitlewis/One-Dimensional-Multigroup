@@ -26,8 +26,8 @@ class Parameters:
         self.nBins = 100
 
         # Boundary conditions (currently for all frequencies and angles, planckian at specified temperature or reflective)
-        self.boundaryLeft = "Delta"
-        self.boundaryRight = "Delta"
+        self.boundaryLeft = "None"
+        self.boundaryRight = "None"
         self.setLeftBoundaryTemp = 0.8  # Temperature for Planckian or delta boundary condition on the left
         self.setRightBoundaryTemp = 0.8  # Temperature for Planckian or delta boundary condition on the right
 

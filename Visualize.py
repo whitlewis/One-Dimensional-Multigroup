@@ -81,7 +81,7 @@ def plotTemperatureLoaded(data, params, const):
         Erad = np.sum(data["fullTensorPhi"][i-1], axis=0)
         EradSet.append(Erad[params["nBins"]//2])  # Store the radiation energy density at the middle spatial bin for each time step
     Trad = (np.array(EradSet)/ const.a / const.c)**0.25
-    labelT = "Temperature vs Time"
+    labelT = f'Temperature vs Time'
     shape = data["temperatureSet"].shape
     print(f'Temperature set shape: {shape}')  # Debugging print statement to check the shape of temperatureSet
     T = data["temperatureSet"][params["nBins"]//2][:-1]  # Final temperature distribution at the last time step
@@ -92,7 +92,7 @@ def plotTemperatureLoaded(data, params, const):
     plt.legend()
     plt.grid(True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"figures/{labelT}_{timestamp}.pdf"
+    filename = f"figures/TempPlot_{timestamp}.pdf"
     plt.savefig(filename)
     plt.show()
   
