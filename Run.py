@@ -33,7 +33,7 @@ def mainMovingMesh():
     nSteps = params.nSteps
     plotSet = [0, nSteps//4, nSteps//2, nSteps-1]
     grid = Base.Grid(params, constants)
-    InfiniteVariableProblem = IVM(grid, constants)
+    InfiniteVariableProblem = IVM(grid, constants, params)
     BaseSolver = Base.Base(grid, InfiniteVariableProblem, params,  constants)
     fullTensor, grid = BaseSolver.solve()
     fullPhi = np.squeeze(grid.fullTensorPhiTime)[:-1,:,:]

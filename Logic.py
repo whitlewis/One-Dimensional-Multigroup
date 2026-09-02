@@ -202,6 +202,7 @@ class CoupledEquations:
 
     # Helper for boundary
     def boundaryPlanck(self):
+
         T0 = self.params.setLeftBoundaryTemp if self.params.boundaryLeft in ["Infinite", "Reflective", "Vacuum"] else self.params.setLeftBoundaryTemp
         T1 = self.params.setRightBoundaryTemp if self.params.boundaryRight in ["Infinite", "Reflective", "Vacuum"] else self.params.setRightBoundaryTemp
         planckLeft = np.broadcast_to(self.planckBar(T0), (self.params.freqNum, self.sn)).copy()  # shape: (freqNum, sn)

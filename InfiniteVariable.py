@@ -99,8 +99,8 @@ class Material:
 
 
 class InfiniteVariable:
-    def __init__(self, grid, constants):
-        self.parameters = Parameters()
+    def __init__(self, grid, constants, params):
+        self.parameters = params
         self.material = Material(self.parameters, grid)
         self.equations = Log.Logic(self.parameters, grid, self.material, constants)
         self.equations.applyInitialConditions()

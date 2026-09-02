@@ -234,7 +234,7 @@ class Base:
         else:
             saveResults = input("Would you like to save the results? (y/n): ")
             if saveResults.lower() == 'y':
-                self.runName = input("Enter a filename descripter for run: ")
+                self.params.runName = input("Enter a filename descripter for run: ")
                 self.saveResults()
                 print("Results saved successfully.")
             else:

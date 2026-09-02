@@ -15,7 +15,7 @@ def mainInfinite():
     nSteps = params.nSteps
     plotSet = [0, nSteps//4, nSteps//2, nSteps-1]
     grid = Base.Grid(params, constants)
-    InfiniteMediumProblem = IM(grid, constants) # This can change to IVM for the infinite variable problem
+    InfiniteMediumProblem = IM(grid, constants, params) # This can change to IVM for the infinite variable problem
     BaseSolver = Base.Base(grid, InfiniteMediumProblem, params,  constants)
     fullTensor, grid = BaseSolver.solve()
     fullPhi = np.squeeze(grid.fullTensorPhiTime)[:-1,:,:]

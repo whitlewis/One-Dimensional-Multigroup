@@ -17,7 +17,7 @@ class Parameters:
 
         # Initial and source temperature parameters
         self.initialTemperature = 0.4       # material temperature
-        self.radiationTemperature = 0.4     # Radiation temperature
+        self.radiationTemperature = 0.5     # Radiation temperature
         self.sourceTemp = 0.5
 
         # Spatial grid parameters
@@ -26,8 +26,8 @@ class Parameters:
         self.nBins = 100
 
         # Boundary conditions (currently for all frequencies and angles, planckian at specified temperature or reflective)
-        self.boundaryLeft = "None"
-        self.boundaryRight = "None"
+        self.boundaryLeft = "Reflective"
+        self.boundaryRight = "Reflective"
         self.setLeftBoundaryTemp = 0.8  # Temperature for Planckian or delta boundary condition on the left
         self.setRightBoundaryTemp = 0.8  # Temperature for Planckian or delta boundary condition on the right
 
@@ -94,8 +94,8 @@ class Material:
 
 
 class InfiniteMedium:
-    def __init__(self, grid, constants):
-        self.parameters = Parameters()
+    def __init__(self, grid, constants, params):
+        self.parameters = params
         self.material = Material(self.parameters, grid)
         self.equations = Log.Logic(self.parameters, grid, self.material, constants)
         self.equations.applyInitialConditions()

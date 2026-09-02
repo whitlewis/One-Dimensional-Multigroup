@@ -34,6 +34,7 @@ def setRun(params, runName, config):
 
     # Choose to save
     params.saveResults = True
+    return params
 
 
 
@@ -45,7 +46,7 @@ def run_single_standard(item):
     setRun(params, runName, config)
 
     grid = Base.Grid(params, constants)
-    problem = IM(grid, constants)
+    problem = IM(grid, constants, params)
     solver = Base.Base(grid, problem, params, constants)
 
     fullTensor, grid = solver.solve()
@@ -56,10 +57,10 @@ def run_single_variable(item):
     runName, config = item
     constants = Base.Constants()
     params = InfiniteVariable.Parameters()
-    setRun(params, runName, config)
+    params = setRun(params, runName, config)
 
     grid = Base.Grid(params, constants)
-    problem = IVM(grid, constants)
+    problem = IVM(grid, constants, params)
     solver = Base.Base(grid, problem, params, constants)
     fullTensor, grid = solver.solve()
     return f"{runName}_IVM", fullTensor, grid
@@ -105,6 +106,8 @@ RunSet = {
         "Number of Bins": 100,
         "xMin": -1,
         "xMax": 1,
+        "RadTemp": 0.5,
+        "MatTemp": 0.4,
         "leftBC": "Reflective",
         "rightBC": "Reflective",
         "leftTemp": 0.5,
@@ -119,6 +122,8 @@ RunSet = {
         "Number of Bins": 100,
         "xMin": -1,
         "xMax": 1,
+        "RadTemp": 0.5,
+        "MatTemp": 0.4,
         "leftBC": "Vacuum",
         "rightBC": "Vacuum",
         "leftTemp": 0.5,
@@ -133,6 +138,8 @@ RunSet = {
         "Number of Bins": 100,
         "xMin": -1,
         "xMax": 1,
+        "RadTemp": 0.5,
+        "MatTemp": 0.4,
         "leftBC": "Planckian",
         "rightBC": "Planckian",
         "leftTemp": 0.5,
@@ -147,13 +154,15 @@ RunSet = {
         "Number of Bins": 100,
         "xMin": -1,
         "xMax": 1,
+        "RadTemp": 0.5,
+        "MatTemp": 0.4,
         "leftBC": "Delta",
         "rightBC": "Delta",
         "leftTemp": 0.5,
         "rightTemp": 0.5,
     },
     "Reflective": {
-        "Steps": 2000,
+        "Steps": 4000,
         "Maximum Time": 1.0,
         "Max Frequency": 20,
         "Number of frequencies": 100,
@@ -161,13 +170,15 @@ RunSet = {
         "Number of Bins": 100,
         "xMin": -1,
         "xMax": 1,
+        "RadTemp": 0.5,
+        "MatTemp": 0.4,
         "leftBC": "Reflective",
         "rightBC": "Reflective",
         "leftTemp": 0.5,
         "rightTemp": 0.5,
     },
         "Vacuum": {
-        "Steps": 2000,
+        "Steps": 4000,
         "Maximum Time": 1.0,
         "Max Frequency": 20,
         "Number of frequencies": 100,
@@ -175,13 +186,15 @@ RunSet = {
         "Number of Bins": 100,
         "xMin": -1,
         "xMax": 1,
+        "RadTemp": 0.5,
+        "MatTemp": 0.4,
         "leftBC": "Vacuum",
         "rightBC": "Vacuum",
         "leftTemp": 0.5,
         "rightTemp": 0.5,
     },
     "Planck": {
-        "Steps": 2000,
+        "Steps": 4000,
         "Maximum Time": 1.0,
         "Max Frequency": 20,
         "Number of frequencies": 100,
@@ -189,13 +202,15 @@ RunSet = {
         "Number of Bins": 100,
         "xMin": -1,
         "xMax": 1,
+        "RadTemp": 0.5,
+        "MatTemp": 0.4,
         "leftBC": "Planckian",
         "rightBC": "Planckian",
         "leftTemp": 0.5,
         "rightTemp": 0.5,
     },
         "Delta": {
-        "Steps": 2000,
+        "Steps": 4000,
         "Maximum Time": 1.0,
         "Max Frequency": 20,
         "Number of frequencies": 100,
@@ -203,67 +218,77 @@ RunSet = {
         "Number of Bins": 100,
         "xMin": -1,
         "xMax": 1,
+        "RadTemp": 0.5,
+        "MatTemp": 0.4,
         "leftBC": "Delta",
         "rightBC": "Delta",
         "leftTemp": 0.5,
         "rightTemp": 0.5,
     },
-    "ReflectiveLong": {
-        "Steps": 5000,
-        "Maximum Time": 2.0,
-        "Max Frequency": 20,
-        "Number of frequencies": 100,
-        "Sn": 8,
-        "Number of Bins": 100,
-        "xMin": -1,
-        "xMax": 1,
-        "leftBC": "Reflective",
-        "rightBC": "Reflective",
-        "leftTemp": 0.5,
-        "rightTemp": 0.5,
-    },
-        "VacuumLong": {
-        "Steps": 5000,
-        "Maximum Time": 2.0,
-        "Max Frequency": 20,
-        "Number of frequencies": 100,
-        "Sn": 8,
-        "Number of Bins": 100,
-        "xMin": -1,
-        "xMax": 1,
-        "leftBC": "Vacuum",
-        "rightBC": "Vacuum",
-        "leftTemp": 0.5,
-        "rightTemp": 0.5,
-    },
-    "PlanckLong": {
-        "Steps": 5000,
-        "Maximum Time": 2.0,
-        "Max Frequency": 20,
-        "Number of frequencies": 100,
-        "Sn": 8,
-        "Number of Bins": 100,
-        "xMin": -1,
-        "xMax": 1,
-        "leftBC": "Planckian",
-        "rightBC": "Planckian",
-        "leftTemp": 0.5,
-        "rightTemp": 0.5,
-    },
-        "DeltaLong": {
-        "Steps": 5000,
-        "Maximum Time": 2.0,
-        "Max Frequency": 20,
-        "Number of frequencies": 100,
-        "Sn": 8,
-        "Number of Bins": 100,
-        "xMin": -1,
-        "xMax": 1,
-        "leftBC": "Delta",
-        "rightBC": "Delta",
-        "leftTemp": 0.5,
-        "rightTemp": 0.5,
-    },
+    # "ReflectiveLong": {
+    #     "Steps": 5000,
+    #     "Maximum Time": 2.0,
+    #     "Max Frequency": 20,
+    #     "Number of frequencies": 100,
+    #     "Sn": 8,
+    #     "Number of Bins": 100,
+    #     "xMin": -1,
+    #     "xMax": 1,
+    #     "RadTemp": 0.5,
+    #     "MatTemp": 0.4,
+    #     "leftBC": "Reflective",
+    #     "rightBC": "Reflective",
+    #     "leftTemp": 0.5,
+    #     "rightTemp": 0.5,
+    # },
+    #     "VacuumLong": {
+    #     "Steps": 5000,
+    #     "Maximum Time": 2.0,
+    #     "Max Frequency": 20,
+    #     "Number of frequencies": 100,
+    #     "Sn": 8,
+    #     "Number of Bins": 100,
+    #     "xMin": -1,
+    #     "xMax": 1,
+    #     "RadTemp": 0.5,
+    #     "MatTemp": 0.4,
+    #     "leftBC": "Vacuum",
+    #     "rightBC": "Vacuum",
+    #     "leftTemp": 0.5,
+    #     "rightTemp": 0.5,
+    # },
+    # "PlanckLong": {
+    #     "Steps": 5000,
+    #     "Maximum Time": 2.0,
+    #     "Max Frequency": 20,
+    #     "Number of frequencies": 100,
+    #     "Sn": 8,
+    #     "Number of Bins": 100,
+    #     "xMin": -1,
+    #     "xMax": 1,
+    #     "RadTemp": 0.5,
+    #     "MatTemp": 0.4,
+    #     "leftBC": "Planckian",
+    #     "rightBC": "Planckian",
+    #     "leftTemp": 0.5,
+    #     "rightTemp": 0.5,
+    # },
+    #     "DeltaLong": {
+    #     "Steps": 5000,
+    #     "Maximum Time": 2.0,
+    #     "Max Frequency": 20,
+    #     "Number of frequencies": 100,
+    #     "Sn": 8,
+    #     "Number of Bins": 100,
+    #     "xMin": -1,
+    #     "xMax": 1,
+    #     "RadTemp": 0.5,
+    #     "MatTemp": 0.4,
+    #     "leftBC": "Delta",
+    #     "rightBC": "Delta",
+    #     "leftTemp": 0.5,
+    #     "rightTemp": 0.5,
+    # },
 
 
 }

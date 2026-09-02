@@ -74,23 +74,32 @@ def plotTemperature(grid):
     plt.savefig(filename)
     plt.show()
 
-def plotTemperatureLoaded(data, params, const):
-    t = data["timeSet"][:-1] # cell centers
-    EradSet = []
-    for i, timeStep in enumerate(data["timeSet"]):
-        Erad = np.sum(data["fullTensorPhi"][i-1], axis=0)
-        EradSet.append(Erad[params["nBins"]//2])  # Store the radiation energy density at the middle spatial bin for each time step
-    Trad = (np.array(EradSet)/ const.a / const.c)**0.25
-    labelT = f'Temperature vs Time'
-    shape = data["temperatureSet"].shape
-    print(f'Temperature set shape: {shape}')  # Debugging print statement to check the shape of temperatureSet
-    T = data["temperatureSet"][params["nBins"]//2][:-1]  # Final temperature distribution at the last time step
-    plt.plot(t, T, label=labelT)
-    plt.plot(t, Trad[:-1], label=f"{labelT} from Radiation Energy Density", linestyle='--')
-    plt.xlabel("t (ns)")
-    plt.ylabel("Temperature (keV)")
-    plt.legend()
-    plt.grid(True)
+def plotTemperatureLoaded(dataSet, paramsSet, fileSet, folderSet, const):
+    for i, data in enumerate(dataSet):
+        params = paramsSet[i]
+        file = fileSet[i]
+        folder = folderSet[i]
+        if folder == "InfiniteMedium":
+            methodName = "Standard Multigroup"
+        else:
+            methodName = "Variable Coordinate Multigroup"
+
+        t = data["timeSet"][:-1] # cell centers
+        EradSet = []
+        for i, timeStep in enumerate(data["timeSet"]):
+            Erad = np.sum(data["fullTensorPhi"][i-1], axis=0)
+            EradSet.append(Erad[params["nBins"]//2])  # Store the radiation energy density at the middle spatial bin for each time step
+        Trad = (np.array(EradSet)/ const.a / const.c)**0.25
+        labelT = f'Init with {file} Boundaries using {methodName} method'
+        shape = data["temperatureSet"].shape
+        print(f'Temperature set shape: {shape}')  # Debugging print statement to check the shape of temperatureSet
+        T = data["temperatureSet"][params["nBins"]//2][:-1]  # Final temperature distribution at the last time step
+        plt.plot(t, T, label=labelT)
+        plt.plot(t, Trad[:-1], label=f"{labelT} from Radiation Energy Density", linestyle='--')
+        plt.xlabel("t (ns)")
+        plt.ylabel("Temperature (keV)")
+        plt.legend()
+        plt.grid(True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"figures/TempPlot_{timestamp}.pdf"
     plt.savefig(filename)
@@ -300,23 +309,32 @@ def plotSelectSpectra(fullphi, grid, params, cell_idx=0, ax=None, save_path=None
 
     return ax
 
-def plot_spectra_at_times(phi_tensor, time_indices, bin_idx, maxFreq, freqs=None):
+def plot_spectra_at_times(dataSet, time_indices, paramsSet, fileSet, folderSet, bin_idx, maxFreq, freqs=None):
 
-    n_steps, freq_num, n_bins = phi_tensor.shape
-
-    if not (0 <= bin_idx < n_bins):
-        raise ValueError(f"bin_idx {bin_idx} out of bounds for array with {n_bins} bins.")
-
-    x_axis = freqs if freqs is not None else np.arange(freq_num)
-
-    plt.figure(figsize=(8, 5))
-
-    for t_idx in time_indices:
-        if 0 <= t_idx < n_steps:
-            spectrum = phi_tensor[t_idx, :, bin_idx]
-            plt.plot(x_axis, spectrum, label=f"Time step: {t_idx}")
+    for i, data in enumerate(dataSet):
+        params = paramsSet[i]
+        file = fileSet[i]
+        folder = folderSet[i]
+        if folder == "InfiniteMedium":
+            methodName = "Standard Multigroup"
         else:
-            print(f"Warning: Time step index {t_idx} is out of bounds (max {n_steps - 1}) and skipped.")
+            methodName = "Variable Coordinate Multigroup"
+        phi_tensor = data["fullTensorPhi"]
+        n_steps, freq_num, n_bins = phi_tensor.shape
+
+        if not (0 <= bin_idx < n_bins):
+            raise ValueError(f"bin_idx {bin_idx} out of bounds for array with {n_bins} bins.")
+
+        x_axis = freqs if freqs is not None else np.arange(freq_num)
+
+        plt.figure(figsize=(8, 5))
+
+        for t_idx in time_indices:
+            if 0 <= t_idx < n_steps:
+                spectrum = phi_tensor[t_idx, :, bin_idx]
+                plt.plot(x_axis, spectrum, label=f"Time step: {t_idx} for {methodName} with {file} init")
+            else:
+                print(f"Warning: Time step index {t_idx} is out of bounds (max {n_steps - 1}) and skipped.")
 
     plt.xlabel("Frequency" if freqs is not None else "Frequency Index")
     plt.ylabel("Spectrum Magnitude ($\Phi$)")
@@ -327,7 +345,7 @@ def plot_spectra_at_times(phi_tensor, time_indices, bin_idx, maxFreq, freqs=None
     plt.tight_layout()
     plt.show()
 
-def analyzeRank(phi_tensor, time_set, time_indices=None, energy_threshold=None, tol=None, plot=True):
+def analyzeRank(dataSet, time_set, paramsSet, fileSet, folderSet, time_indices=None, energy_threshold=None, tol=None, plot=True):
     """
     Performs SVD on slices of shape (freqNum, nBins) at specified time steps to compute rank.
 
@@ -353,89 +371,100 @@ def analyzeRank(phi_tensor, time_set, time_indices=None, energy_threshold=None, 
     s_matrix : np.ndarray
         Singular values for each analyzed time step, shape (len(time_indices), min(freqNum, nBins)).
     """
-    if time_indices is None:
-        time_indices = np.arange(phi_tensor.shape[0]-1)
-    else:
-        time_indices = np.array(time_indices)
-
-    # Extract sub-tensor at requested times and compute SVD in batch
-
-    sub_tensor = phi_tensor[time_indices, :, :]
-    s_matrix = np.linalg.svd(sub_tensor, compute_uv=False)  # shape: (n_selected_times, min(freqNum, nBins))
-    print(s_matrix)
-
-    if energy_threshold is None and tol is not None:
-        label = 'Tol Threshold'
-        rankSet = []
-        for t in tol:
-            ranks = []
-            for idx, s in enumerate(s_matrix):
-                r = np.sum(s > t)
-                ranks.append(r)
-            rankSet.append(ranks)
+    for i, data in enumerate(dataSet):
+        params = paramsSet[i]
+        file = fileSet[i]
+        folder = folderSet[i]
+        if folder == "InfiniteMedium":
+            methodName = "Standard Multigroup"
+        else:
+            methodName = "Variable Coordinate Multigroup"
+        phi_tensor = data["fullTensorPhi"]
 
 
+        if time_indices is None:
+            time_indices = np.arange(phi_tensor.shape[0]-1)
+        else:
+            time_indices = np.array(time_indices)
 
-    if energy_threshold is not None and tol is None:
-        array = sub_tensor - np.mean(sub_tensor, axis=0)  # Center the data by subtracting the mean across time
-        s_matrix = np.linalg.svd(array, compute_uv=False)  # shape: (n_selected_times, min(freqNum, nBins))
-        rankSet = []
-        label = 'Percentage Threshold'
-        for energy in energy_threshold:
-            ranks = []
-            for idx, s in enumerate(s_matrix):
-                try:
-                    with np.errstate(divide='raise', invalid='raise', over='raise'):
-                        cum_energy = np.cumsum(s**2) / np.sum(s**2)
-                        r = np.searchsorted(cum_energy, energy) + 1
-                        ranks.append(r)
-                except FloatingPointError:
-                    print("Floating-point error during SVD truncation")
-                    print(f' Numerator: {np.cumsum(s**2)}')
-                    print(f' Denominator: {np.sum(s**2)}')
+        # Extract sub-tensor at requested times and compute SVD in batch
 
-            ranks = np.array(ranks)
-            rankSet.append(ranks)
-    
-    if energy_threshold is None and tol is None:
-        label = 'Numpy calc'
-        rankSet = []
-        ranks = []
+        sub_tensor = phi_tensor[time_indices, :, :]
+        s_matrix = np.linalg.svd(sub_tensor, compute_uv=False)  # shape: (n_selected_times, min(freqNum, nBins))
+
+
+        if energy_threshold is None and tol is not None:
+            label = 'Tol Threshold'
+            rankSet = []
+            for t in tol:
+                ranks = []
+                for idx, s in enumerate(s_matrix):
+                    r = np.sum(s > t)
+                    ranks.append(r)
+                rankSet.append(ranks)
+
+
+
+        if energy_threshold is not None and tol is None:
+            array = sub_tensor - np.mean(sub_tensor, axis=0)  # Center the data by subtracting the mean across time
+            s_matrix = np.linalg.svd(array, compute_uv=False)  # shape: (n_selected_times, min(freqNum, nBins))
+            rankSet = []
+            label = 'Percentage Threshold'
+            for energy in energy_threshold:
+                ranks = []
+                for idx, s in enumerate(s_matrix):
+                    try:
+                        with np.errstate(divide='raise', invalid='raise', over='raise'):
+                            cum_energy = np.cumsum(s**2) / np.sum(s**2)
+                            r = np.searchsorted(cum_energy, energy) + 1
+                            ranks.append(r)
+                    except FloatingPointError:
+                        print("Floating-point error during SVD truncation")
+                        print(f' Numerator: {np.cumsum(s**2)}')
+                        print(f' Denominator: {np.sum(s**2)}')
+
+                ranks = np.array(ranks)
+                rankSet.append(ranks)
+        
         if energy_threshold is None and tol is None:
             label = 'Numpy calc'
-            ranks = [np.linalg.matrix_rank(s) for s in sub_tensor]
-            rankSet = [np.array(ranks)] # Now a 1D array of ranks over time
-    
-
-
-    if plot:
-
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4.5))
-
-        # Rank vs. Time
-        if time_indices is None:
-            time_indices = np.arange(phi_tensor.shape[0])
-        for i, ranks in enumerate(rankSet):
-
+            rankSet = []
+            ranks = []
             if energy_threshold is None and tol is None:
-                ax1.plot(np.take(time_set, time_indices)[:-1], ranks[:-1], label=f'Rank from numpy matrix_rank')
-            elif energy_threshold is None:
-                ax1.plot(np.take(time_set, time_indices)[:-1], ranks[:-1], label=f'Rank at cutoff of {tol[i]} ' )
-            else:
-                ax1.plot(np.take(time_set, time_indices)[:-1], ranks[:-1], label=f'Rank at cutoff of {100 * energy_threshold[i]} %' )
-        ax1.set_xlabel("Time Step Index")
-        ax1.set_ylabel("Rank")
-        ax1.grid(True, linestyle="--", alpha=0.6)
-        ax1.legend()
+                label = 'Numpy calc'
+                ranks = [np.linalg.matrix_rank(s) for s in sub_tensor]
+                rankSet = [np.array(ranks)] # Now a 1D array of ranks over time
+        
 
-        # Singular Value Decay
-        for idx, t_idx in enumerate(time_indices):
-            ax2.semilogy(s_matrix[idx], label=f"t = {t_idx}")
-        ax2.set_xlabel("Singular Value Index")
-        ax2.set_ylabel("Singular Value Magnitude (log scale)")
-        ax2.grid(True, linestyle="--", alpha=0.6)
-        if len(time_indices) <= 5:
-            ax2.legend()
+
+        if plot:
+
+            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4.5))
+
+            # Rank vs. Time
+            if time_indices is None:
+                time_indices = np.arange(phi_tensor.shape[0])
+            for i, ranks in enumerate(rankSet):
+
+                if energy_threshold is None and tol is None:
+                    ax1.plot(np.take(time_set, time_indices)[:-1], ranks[:-1], label=f'Rank from numpy matrix_rank')
+                elif energy_threshold is None:
+                    ax1.plot(np.take(time_set, time_indices)[:-1], ranks[:-1], label=f'Rank at cutoff of {tol[i]} ' )
+                else:
+                    ax1.plot(np.take(time_set, time_indices)[:-1], ranks[:-1], label=f'Rank at cutoff of {100 * energy_threshold[i]} %' )
+            ax1.set_xlabel("Time Step Index")
+            ax1.set_ylabel("Rank")
+            ax1.grid(True, linestyle="--", alpha=0.6)
+            ax1.legend()
+
+            # # Singular Value Decay
+            # for idx, t_idx in enumerate(time_indices):
+            #     ax2.semilogy(s_matrix[idx], label=f"t = {t_idx}")
+            # ax2.set_xlabel("Singular Value Index")
+            # ax2.set_ylabel("Singular Value Magnitude (log scale)")
+            # ax2.grid(True, linestyle="--", alpha=0.6)
+            # if len(time_indices) <= 5:
+            #     ax2.legend()
 
         plt.tight_layout()
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -443,7 +472,7 @@ def analyzeRank(phi_tensor, time_set, time_indices=None, energy_threshold=None, 
         plt.savefig(filename)
         plt.show()
 
-    return rankSet, s_matrix
+        return rankSet, s_matrix
 
 def analyze_rank_psi(psi_tensor, time_set, time_indices=None, energy_threshold=None, tol=None, plot=True):
 
