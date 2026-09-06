@@ -47,6 +47,7 @@ def loadResults(filepaths=None):
                 "nSteps": f.attrs["nSteps"],
                 "sn": f.attrs["sn"],
                 "maxFreq": f.attrs["maxFreq"],
+                "runLabel" : f.attrs["runLabel"]
             }
             all_data.append(data)
             all_params.append(params)

@@ -39,11 +39,17 @@ class Parameters:
         self.minFreq = 1e-4
         self.maxFreq = 25
         self.infFreq = 150
+    
 
         # Time stepping parameters
         self.nSteps = nSteps
         self.timeMax = 0.1
         self.timeScale = "log"  # "log" or "linear"
+        self.logLinTime = "log"
+        self.stepSplit = .5
+        self.splitStepsBool = False
+        self.timeSplit = 0.1
+
 
         # Choices of type of problem
         self.transient = Transient

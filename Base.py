@@ -15,6 +15,7 @@ class Grid:
         self.constants = Constants
         # Space grid
         self.nBins = parameters.nBins
+        self.nSteps = parameters.nSteps
         self.dx = (parameters.xMax - parameters.xMin) / parameters.nBins
         self.spaceGrid = np.linspace(parameters.xMin, parameters.xMax, parameters.nBins + 1)  # cell edges
         self.spaceMid = 0.5 * (self.spaceGrid[:-1] + self.spaceGrid[1:])  # cell centers
@@ -40,12 +41,20 @@ class Grid:
         self.w /= 2.0  # Normalize weights to sum to 1
 
         # Time discretization (log or linear spaced)
-        if parameters.timeScale == "log":
-            self.timeSet = np.logspace(-12, np.log10(parameters.timeMax), parameters.nSteps+1)  # logarithmic time steps (could be linear)
-        
-        if parameters.timeScale == 'linear':
-            self.timeSet = np.linspace(0, parameters.timeMax, parameters.nSteps+1)  # linear time steps
+        if parameters.logLinTime == "Split":
+            stepsLog = round(parameters.stepSplit * self.nSteps)
+            stepsLin = self.nSteps - stepsLog
+            logSet = np.logspace(-12, parameters.timeSplit, stepsLog, endpoint=False)
+            linSet = np.linspace(parameters.timeSplit, parameters.timeMax, stepsLin + 1)
+            self.timeSet = np.concatenate(logSet, linSet, axis=0)
+        else:
+            if parameters.timeScale == "log":
+                self.timeSet = np.logspace(-12, np.log10(parameters.timeMax), parameters.nSteps+1)  # logarithmic time steps (could be linear)
+            if parameters.timeScale == 'linear':
+                self.timeSet = np.linspace(0, parameters.timeMax, parameters.nSteps+1)  # linear time steps
         self.dt = np.diff(self.timeSet)  # time step sizes
+        if np.max(self.dt) > 1e-3:
+            print(f'Max time step exceeds recommended. Max time step of: {np.max(self.dt)}')
 
         # Individual time step frameworks
         self.fullTensor = np.zeros((parameters.freqNum, parameters.sn, parameters.nBins))  # (nfreq, nMu, nBins)
@@ -125,8 +134,10 @@ class Base:
                 self.errorLag = err
             if abs(self.err - err) < 1e-40 and abs(self.errorLag - err) < 1e-40:
                 self.errorStag += 1
-                if self.errorStag > 2:
+                if self.errorStag > 4:
                     print(f'Not further trending toward convergence, breaking loop and Moving to next step after {it} iterations, final error: {err}')
+                    if err > 1.00:
+                        raise ValueError(f'Change Iteration is not converging to reasonable value, try a smaller time step. Final iteration difference: {err}')
                     self.errorStag = 0
                     break
             self.err = err
@@ -262,6 +273,7 @@ class Base:
             f.attrs["sn"] = self.params.sn
             f.attrs["maxFreq"] = self.params.maxFreq
             f.attrs['runTime'] = self.runTime
+            f.attrs["runLabel"] = self.params.runLabel
 
     
 
