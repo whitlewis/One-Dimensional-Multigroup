@@ -5,6 +5,48 @@ from datetime import datetime
 from matplotlib.animation import FuncAnimation
 from Base import Constants as const
 
+# Plot Stuff
+import os
+import tkinter as tk
+from tkinter import filedialog
+from cycler import cycler
+
+
+plt.rcParams.update({
+    "font.family": "serif",
+    "font.size": 11,
+
+    "axes.labelsize": 12,
+    "axes.titlesize": 12,
+
+    "xtick.labelsize": 10,
+    "ytick.labelsize": 10,
+
+    "legend.fontsize": 9,
+
+    "axes.linewidth": 1.0,
+    "lines.linewidth": 1.5,
+
+    # Ticks point inward
+    "xtick.direction": "in",
+    "ytick.direction": "in",
+
+    "xtick.major.size": 4,
+    "ytick.major.size": 4,
+    "xtick.minor.size": 2,
+    "ytick.minor.size": 2,
+
+    # Colorblind-friendly Okabe-Ito-style colors
+    "axes.prop_cycle": cycler("color", [
+        "#0072B2",  # blue
+        "#D55E00",  # vermillion
+        "#009E73",  # green
+        "#CC79A7",  # purple
+        "#E69F00",  # orange
+        "#56B4E9",  # light blue
+        "#000000",  # black
+    ]),
+})
 
 
 # Helpful equations for plot ref (from Logic.py)
@@ -80,9 +122,9 @@ def plotTemperatureLoaded(dataSet, paramsSet, fileSet, folderSet, const):
         file = fileSet[i]
         folder = folderSet[i]
         if folder == "InfiniteMedium":
-            methodName = "Standard Multigroup"
+            methodName = "SM"
         else:
-            methodName = "Variable Coordinate Multigroup"
+            methodName = "VCM"
 
         t = data["timeSet"][:-1] # cell centers
         EradSet = []
@@ -90,16 +132,27 @@ def plotTemperatureLoaded(dataSet, paramsSet, fileSet, folderSet, const):
             Erad = np.sum(data["fullTensorPhi"][i-1], axis=0)
             EradSet.append(Erad[params["nBins"]//2])  # Store the radiation energy density at the middle spatial bin for each time step
         Trad = (np.array(EradSet)/ const.a / const.c)**0.25
-        labelT = f'Init with {file} Boundaries using {methodName} method'
+        labelT = f'{file} using {methodName} for {params["groups"]} groups'
         shape = data["temperatureSet"].shape
         print(f'Temperature set shape: {shape}')  # Debugging print statement to check the shape of temperatureSet
         T = data["temperatureSet"][params["nBins"]//2][:-1]  # Final temperature distribution at the last time step
         plt.plot(t, T, label=labelT)
         plt.plot(t, Trad[:-1], label=f"{labelT} from Radiation Energy Density", linestyle='--')
-        plt.xlabel("t (ns)")
-        plt.ylabel("Temperature (keV)")
-        plt.legend()
-        plt.grid(True)
+    plt.xlabel("t (ns)")
+    plt.ylabel("Temperature (keV)")
+    plt.minorticks_on()
+
+    plt.tick_params(
+        which="both",
+        direction="in",
+        top=True,
+        right=True
+    )
+
+    plt.legend(
+        frameon=False,
+        loc="best"
+    )
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"figures/TempPlot_{timestamp}.pdf"
     plt.savefig(filename)
@@ -133,7 +186,8 @@ def plotTemperatureTime(grid):
     plt.tight_layout()
     plt.show()
 
-def plotTemperatureTimeLoaded(data, params):
+def plotTemperatureTimeLoaded(dataSet, paramsSet, fileSet, folderSet):
+    data, params = dataSet[0], paramsSet[0]
     x = params["spaceMid"]  # cell centers
     time = data["timeSet"]
     T_time = data["temperatureSet"]  # shape: (nBins, nSteps+1)
@@ -155,7 +209,19 @@ def plotTemperatureTimeLoaded(data, params):
     ax.ticklabel_format(style='plain', axis='both', useOffset=False)
     ax.xaxis.get_offset_text().set_visible(False)
     ax.yaxis.get_offset_text().set_visible(False)
+    plt.minorticks_on()
 
+    plt.tick_params(
+        which="both",
+        direction="in",
+        top=True,
+        right=True
+    )
+
+    plt.legend(
+        frameon=False,
+        loc="best"
+    )
     plt.tight_layout()
     plt.show()
 
@@ -310,15 +376,15 @@ def plotSelectSpectra(fullphi, grid, params, cell_idx=0, ax=None, save_path=None
     return ax
 
 def plot_spectra_at_times(dataSet, time_indices, paramsSet, fileSet, folderSet, bin_idx, maxFreq, freqs=None):
-
+    plt.figure(figsize=(8, 5))
     for i, data in enumerate(dataSet):
         params = paramsSet[i]
         file = fileSet[i]
         folder = folderSet[i]
         if folder == "InfiniteMedium":
-            methodName = "Standard Multigroup"
+            methodName = "SM"
         else:
-            methodName = "Variable Coordinate Multigroup"
+            methodName = "VCM"
         phi_tensor = data["fullTensorPhi"]
         n_steps, freq_num, n_bins = phi_tensor.shape
 
@@ -327,12 +393,10 @@ def plot_spectra_at_times(dataSet, time_indices, paramsSet, fileSet, folderSet, 
 
         x_axis = freqs if freqs is not None else np.arange(freq_num)
 
-        plt.figure(figsize=(8, 5))
-
         for t_idx in time_indices:
             if 0 <= t_idx < n_steps:
                 spectrum = phi_tensor[t_idx, :, bin_idx]
-                plt.plot(x_axis, spectrum, label=f"Time step: {t_idx} for {methodName} with {file} init")
+                plt.plot(x_axis, spectrum, label=f'Time: {t_idx}, {methodName} with {file} init {params["groups"]} groups')
             else:
                 print(f"Warning: Time step index {t_idx} is out of bounds (max {n_steps - 1}) and skipped.")
 
@@ -340,8 +404,19 @@ def plot_spectra_at_times(dataSet, time_indices, paramsSet, fileSet, folderSet, 
     plt.ylabel("Spectrum Magnitude ($\Phi$)")
     plt.xlim(0, maxFreq/2)  # Adjust x-axis limit based on your frequency range
     plt.title(f"Spectra Comparison for Bin {bin_idx}")
-    plt.legend()
-    plt.grid(True, linestyle="--", alpha=0.6)
+    plt.minorticks_on()
+
+    plt.tick_params(
+        which="both",
+        direction="in",
+        top=True,
+        right=True
+    )
+
+    plt.legend(
+        frameon=False,
+        loc="best"
+    )
     plt.tight_layout()
     plt.show()
 
@@ -376,9 +451,9 @@ def analyzeRank(dataSet, time_set, paramsSet, fileSet, folderSet, time_indices=N
         file = fileSet[i]
         folder = folderSet[i]
         if folder == "InfiniteMedium":
-            methodName = "Standard Multigroup"
+            methodName = "SM"
         else:
-            methodName = "Variable Coordinate Multigroup"
+            methodName = "VCM"
         phi_tensor = data["fullTensorPhi"]
 
 
@@ -439,7 +514,7 @@ def analyzeRank(dataSet, time_set, paramsSet, fileSet, folderSet, time_indices=N
 
         if plot:
 
-            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4.5))
+            fig, ax1 = plt.subplots(figsize=(12, 4.5))
 
             # Rank vs. Time
             if time_indices is None:
@@ -447,15 +522,14 @@ def analyzeRank(dataSet, time_set, paramsSet, fileSet, folderSet, time_indices=N
             for i, ranks in enumerate(rankSet):
 
                 if energy_threshold is None and tol is None:
-                    ax1.plot(np.take(time_set, time_indices)[:-1], ranks[:-1], label=f'Rank from numpy matrix_rank')
+                    ax1.plot(np.take(time_set, time_indices)[:-1], ranks[:-1], label=f'NP matrix_rank of {methodName} {params["groups"]} groups')
                 elif energy_threshold is None:
-                    ax1.plot(np.take(time_set, time_indices)[:-1], ranks[:-1], label=f'Rank at cutoff of {tol[i]} ' )
+                    ax1.plot(np.take(time_set, time_indices)[:-1], ranks[:-1], label=f'Rank at cutoff of {tol[i]} for {methodName} {params["groups"]} groups')
                 else:
-                    ax1.plot(np.take(time_set, time_indices)[:-1], ranks[:-1], label=f'Rank at cutoff of {100 * energy_threshold[i]} %' )
+                    ax1.plot(np.take(time_set, time_indices)[:-1], ranks[:-1], label=f'Rank at cutoff of {100 * energy_threshold[i]} % for {methodName} {params["groups"]} groups' )
             ax1.set_xlabel("Time Step Index")
             ax1.set_ylabel("Rank")
-            ax1.grid(True, linestyle="--", alpha=0.6)
-            ax1.legend()
+
 
             # # Singular Value Decay
             # for idx, t_idx in enumerate(time_indices):
@@ -465,10 +539,23 @@ def analyzeRank(dataSet, time_set, paramsSet, fileSet, folderSet, time_indices=N
             # ax2.grid(True, linestyle="--", alpha=0.6)
             # if len(time_indices) <= 5:
             #     ax2.legend()
+        plt.minorticks_on()
 
+        plt.tick_params(
+            which="both",
+            direction="in",
+            top=True,
+            right=True
+        )
+
+        plt.legend(
+            frameon=False,
+            loc="best"
+        )
+        saveName = params['runLabel']
         plt.tight_layout()
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"figures/{label}_{timestamp}.pdf"
+        filename = f"figures/{saveName}_{timestamp}.pdf"
         plt.savefig(filename)
         plt.show()
 

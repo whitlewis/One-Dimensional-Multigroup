@@ -42,7 +42,10 @@ class Grid:
 
         # Time discretization (log or linear spaced)
         if parameters.logLinTime == "Split":
-            stepsLog = round(parameters.stepSplit * self.nSteps)
+            if parameters.stepSplit > 1:
+                stepsLog = parameters.stepSplit
+            else:
+                stepsLog = round(self.nsteps * parameters.stepSplit)
             stepsLin = self.nSteps - stepsLog
             logSet = np.logspace(-12, parameters.timeSplit, stepsLog, endpoint=False)
             linSet = np.linspace(parameters.timeSplit, parameters.timeMax, stepsLin + 1)
@@ -54,7 +57,7 @@ class Grid:
                 self.timeSet = np.linspace(0, parameters.timeMax, parameters.nSteps+1)  # linear time steps
         self.dt = np.diff(self.timeSet)  # time step sizes
         if np.max(self.dt) > 1e-3:
-            print(f'Max time step exceeds recommended. Max time step of: {np.max(self.dt)}')
+            print(f'Max time step exceeds recommended for {parameters.fileFolder} solve of {parameters.runName}. Max time step of: {np.max(self.dt)}')
 
         # Individual time step frameworks
         self.fullTensor = np.zeros((parameters.freqNum, parameters.sn, parameters.nBins))  # (nfreq, nMu, nBins)
@@ -136,7 +139,7 @@ class Base:
                 self.errorStag += 1
                 if self.errorStag > 4:
                     print(f'Not further trending toward convergence, breaking loop and Moving to next step after {it} iterations, final error: {err}')
-                    if err > 1.00:
+                    if err > 10000.00:
                         raise ValueError(f'Change Iteration is not converging to reasonable value, try a smaller time step. Final iteration difference: {err}')
                     self.errorStag = 0
                     break
@@ -257,7 +260,7 @@ class Base:
         filePrefix = self.params.fileFolder
         runName = self.params.runName
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filepath = f"dataStash/{filePrefix}/{runName}_{timestamp}.h5"
+        filepath = f"dataStash/{filePrefix}/{runName}_{self.params.nSteps}_Steps_{self.params.freqNum}_groups{timestamp}.h5"
         fullTensorPhiTime = np.squeeze(self.grid.fullTensorPhiTime)[:-1,:,:]
         with h5py.File(filepath, "w") as f:
             f.create_dataset("fullTensorPhi", data=fullTensorPhiTime, compression="gzip")
@@ -274,6 +277,8 @@ class Base:
             f.attrs["maxFreq"] = self.params.maxFreq
             f.attrs['runTime'] = self.runTime
             f.attrs["runLabel"] = self.params.runLabel
+            f.attrs["groups"] = self.params.freqNum
+            f.attrs["solveType"] = self.params.fileFolder
 
     
 
