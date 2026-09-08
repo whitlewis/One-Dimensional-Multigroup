@@ -100,10 +100,10 @@ def ExecuteRunSetParallel(runSet):
     return results
 
 
-shortSteps = 2000
+shortSteps = 800
 midShort = 3000
-stepSplit = .25
-timeSplit = .05
+stepSplit = 1.0
+timeSplit = 0.1
 
 
 RunSet = {

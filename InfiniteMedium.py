@@ -34,7 +34,7 @@ class Parameters:
         # Group parameters
         self.groupSpace = 'linear' # log or linear
         self.freqNum = 100
-        self.minFreq = 1e-4
+        self.minFreq = 1e-6
         self.maxFreq = 15
         self.infFreq = 150
 

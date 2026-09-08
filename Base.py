@@ -3,6 +3,7 @@ import numpy.polynomial.legendre as leggauss
 import time as machineTime
 import h5py
 from datetime import datetime
+import os
 
 class Constants:
     # all physical constants
@@ -141,6 +142,9 @@ class Base:
                     print(f'Not further trending toward convergence, breaking loop and Moving to next step after {it} iterations, final error: {err}')
                     if err > 10000.00:
                         raise ValueError(f'Change Iteration is not converging to reasonable value, try a smaller time step. Final iteration difference: {err}')
+                        self.params.fileFolder = self.params.fileFolder+ "Failed"
+                        self.params.runName = self.params.runName + "Failed"
+                        self.saveResults()
                     self.errorStag = 0
                     break
             self.err = err
@@ -259,6 +263,7 @@ class Base:
     def saveResults(self):
         filePrefix = self.params.fileFolder
         runName = self.params.runName
+        os.makedirs(f"dataStash/{filePrefix}", exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filepath = f"dataStash/{filePrefix}/{runName}_{self.params.nSteps}_Steps_{self.params.freqNum}_groups{timestamp}.h5"
         fullTensorPhiTime = np.squeeze(self.grid.fullTensorPhiTime)[:-1,:,:]
