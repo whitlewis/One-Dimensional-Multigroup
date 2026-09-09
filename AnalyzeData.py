@@ -24,12 +24,12 @@ def loadResults(filepaths=None):
     # If no path is provided, launch a file dialog to select the file visually
 
     if filepaths is None:
-        filepaths = []
-        filepaths.append(fileLoad())
+
+        filepaths = fileLoad()
         msgbox = tk.messagebox.askquestion ('Add files','add extra files',icon = 'warning')
         while msgbox.lower() =='yes':
             loadedFile = fileLoad()
-            filepaths.append(loadedFile)
+            filepaths.extend(loadedFile)
             msgbox = tk.messagebox.askquestion ('Add files','add extra files',icon = 'warning')
 
 
@@ -42,41 +42,41 @@ def loadResults(filepaths=None):
     fileSet = []
     folderSet = []
 
-    for fileSet in filepaths:
-        for filepath in fileSet:
 
-            with h5py.File(filepath, "r") as f:
-                # Load numerical arrays
-                # Load numerical arrays
-                data = {
-                    "fullTensorPhi": f["fullTensorPhi"][:],
-                    "temperatureSet": f["temperatureSet"][:],
-                    "timeSet": f["timeSet"][:],
-                }
+    for filepath in filepaths:
 
-                # Load grid and solver parameters stored in attributes
-                params = {
-                    "spaceGrid": f.attrs["spaceGrid"],
-                    "spaceMid": f.attrs["spaceMid"],
-                    "freqGrid": f.attrs["freqGrid"],
-                    "dt": f.attrs["dt"],
-                    "dx": f.attrs["dx"],
-                    "nBins": f.attrs["nBins"],
-                    "nSteps": f.attrs["nSteps"],
-                    "sn": f.attrs["sn"],
-                    "maxFreq": f.attrs["maxFreq"],
-                    "runLabel" : f.attrs["runLabel"],
-                    "groups" : f.attrs["groups"],
-                    "solveType" : f.attrs["solveType"]
-                }
-                all_data.append(data)
-                all_params.append(params)
-                fileName = os.path.basename(filepath).split("_")[0]
-                folder = os.path.basename(os.path.dirname(filepath))
-                folderSet.append(folder)
-                print(folder)
-                fileSet.append(fileName)
-                print(f"Successfully loaded: {filepath}")
+        with h5py.File(filepath, "r") as f:
+            # Load numerical arrays
+            # Load numerical arrays
+            data = {
+                "fullTensorPhi": f["fullTensorPhi"][:],
+                "temperatureSet": f["temperatureSet"][:],
+                "timeSet": f["timeSet"][:],
+            }
+
+            # Load grid and solver parameters stored in attributes
+            params = {
+                "spaceGrid": f.attrs["spaceGrid"],
+                "spaceMid": f.attrs["spaceMid"],
+                "freqGrid": f.attrs["freqGrid"],
+                "dt": f.attrs["dt"],
+                "dx": f.attrs["dx"],
+                "nBins": f.attrs["nBins"],
+                "nSteps": f.attrs["nSteps"],
+                "sn": f.attrs["sn"],
+                "maxFreq": f.attrs["maxFreq"],
+                "runLabel" : f.attrs["runLabel"],
+                "groups" : f.attrs["groups"],
+                "solveType" : f.attrs["solveType"]
+            }
+            all_data.append(data)
+            all_params.append(params)
+            fileName = os.path.basename(filepath).split("_")[0]
+            folder = os.path.basename(os.path.dirname(filepath))
+            folderSet.append(folder)
+            print(folder)
+            fileSet.append(fileName)
+            print(f"Successfully loaded: {filepath}")
 
     return all_data, all_params, fileSet, folderSet
 

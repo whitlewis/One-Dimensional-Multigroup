@@ -100,33 +100,33 @@ def ExecuteRunSetParallel(runSet):
     return results
 
 
-shortSteps = 800
+shortSteps = 400
 midShort = 3000
 stepSplit = 1.0
 timeSplit = 0.1
 
 
 RunSet = {
-    "ReflectiveShort": {
-        "runLabel": "Reflective",
-        "Steps": shortSteps,
-        "Maximum Time": 0.1,
-        "Max Frequency": 20,
-        "Number of frequencies": 100,
-        "Sn": 8,
-        "Number of Bins": 100,
-        "xMin": -1,
-        "xMax": 1,
-        "RadTemp": 0.5,
-        "MatTemp": 0.4,
-        "leftBC": "Reflective",
-        "rightBC": "Reflective",
-        "leftTemp": 0.8,
-        "rightTemp": 0.8,
-        "TransTime": timeSplit,
-        "stepSplit": stepSplit,  # tells what proportion of time steps are log vs linear
-        "stepType": False, 
-    },
+#     "ReflectiveShort": {
+#         "runLabel": "Reflective",
+#         "Steps": shortSteps,
+#         "Maximum Time": 0.1,
+#         "Max Frequency": 20,
+#         "Number of frequencies": 100,
+#         "Sn": 8,
+#         "Number of Bins": 100,
+#         "xMin": -1,
+#         "xMax": 1,
+#         "RadTemp": 0.5,
+#         "MatTemp": 0.4,
+#         "leftBC": "Reflective",
+#         "rightBC": "Reflective",
+#         "leftTemp": 0.8,
+#         "rightTemp": 0.8,
+#         "TransTime": timeSplit,
+#         "stepSplit": stepSplit,  # tells what proportion of time steps are log vs linear
+#         "stepType": False, 
+#     },
     "VacuumShort": {
         "runLabel": "Vacuum",
         "Steps": shortSteps,

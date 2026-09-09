@@ -59,8 +59,10 @@ class Parameters:
         self.energyCheckFreq = 200 # Check energy conservation every 200 time steps
         self.iterationCheck = False
         self.runName = "Run"
+        self.runLabel = "Run"
         self.fileFolder = "InfiniteVariable"
         self.saveResults = False  # Flag to determine whether to save results after simulation
+        
 
 
 class Material:

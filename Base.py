@@ -134,17 +134,18 @@ class Base:
             if err < self.params.tol:
                 if it > 40: print(f"Converged in {it} iterations")
                 break
-            if it % 10 == 0:
+            if it % 6 == 0:
                 self.errorLag = err
             if abs(self.err - err) < 1e-40 and abs(self.errorLag - err) < 1e-40:
                 self.errorStag += 1
                 if self.errorStag > 4:
                     print(f'Not further trending toward convergence, breaking loop and Moving to next step after {it} iterations, final error: {err}')
-                    if err > 10000.00:
-                        raise ValueError(f'Change Iteration is not converging to reasonable value, try a smaller time step. Final iteration difference: {err}')
-                        self.params.fileFolder = self.params.fileFolder+ "Failed"
+                    if err > 10.00:
+                        self.params.fileFolder = self.params.fileFolder + "Failed"
                         self.params.runName = self.params.runName + "Failed"
                         self.saveResults()
+                        raise ValueError(f'Change Iteration is not converging to reasonable value, try a smaller time step. Final iteration difference: {err}')
+
                     self.errorStag = 0
                     break
             self.err = err
