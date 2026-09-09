@@ -127,17 +127,18 @@ def plotTemperatureLoaded(dataSet, paramsSet, fileSet, folderSet, const):
             methodName = "VCM"
 
         t = data["timeSet"][:-1] # cell centers
+        timeSteps = np.shape(data["timeSet"])[0]
         EradSet = []
         for i, timeStep in enumerate(data["timeSet"]):
             Erad = np.sum(data["fullTensorPhi"][i-1], axis=0)
             EradSet.append(Erad[params["nBins"]//2])  # Store the radiation energy density at the middle spatial bin for each time step
         Trad = (np.array(EradSet)/ const.a / const.c)**0.25
-        labelT = f'{file} using {methodName} for {params["groups"]} groups'
+        labelT = f'{file} using {methodName} for {params["groups"]} groups with {timeSteps} steps'
         shape = data["temperatureSet"].shape
         print(f'Temperature set shape: {shape}')  # Debugging print statement to check the shape of temperatureSet
         T = data["temperatureSet"][params["nBins"]//2][:-1]  # Final temperature distribution at the last time step
         plt.plot(t, T, label=labelT)
-        plt.plot(t, Trad[:-1], label=f"{labelT} from Radiation Energy Density", linestyle='--')
+        plt.plot(t, Trad[:-1], label=f"{labelT} from Radiation Energy Density with {timeSteps} steps", linestyle='--')
     plt.xlabel("t (ns)")
     plt.ylabel("Temperature (keV)")
     plt.minorticks_on()
@@ -387,16 +388,16 @@ def plot_spectra_at_times(dataSet, time_indices, paramsSet, fileSet, folderSet, 
             methodName = "VCM"
         phi_tensor = data["fullTensorPhi"]
         n_steps, freq_num, n_bins = phi_tensor.shape
-
         if not (0 <= bin_idx < n_bins):
             raise ValueError(f"bin_idx {bin_idx} out of bounds for array with {n_bins} bins.")
 
         x_axis = freqs if freqs is not None else np.arange(freq_num)
+        timeSteps = np.shape(data["timeSet"])[0]
 
         for t_idx in time_indices:
             if 0 <= t_idx < n_steps:
                 spectrum = phi_tensor[t_idx, :, bin_idx]
-                plt.plot(x_axis, spectrum, label=f'Time: {t_idx}, {methodName} with {file} init {params["groups"]} groups')
+                plt.plot(x_axis, spectrum, label=f'Time: {t_idx}, {methodName} with {file} init {params["groups"]} groups for {timeSteps} steps')
             else:
                 print(f"Warning: Time step index {t_idx} is out of bounds (max {n_steps - 1}) and skipped.")
 
@@ -454,6 +455,7 @@ def analyzeRank(dataSet, time_set, paramsSet, fileSet, folderSet, time_indices=N
             methodName = "SM"
         else:
             methodName = "VCM"
+
         phi_tensor = data["fullTensorPhi"]
 
 
@@ -527,8 +529,8 @@ def analyzeRank(dataSet, time_set, paramsSet, fileSet, folderSet, time_indices=N
                     ax1.plot(np.take(time_set, time_indices)[:-1], ranks[:-1], label=f'Rank at cutoff of {tol[i]} for {methodName} {params["groups"]} groups')
                 else:
                     ax1.plot(np.take(time_set, time_indices)[:-1], ranks[:-1], label=f'Rank at cutoff of {100 * energy_threshold[i]} % for {methodName} {params["groups"]} groups' )
-            ax1.set_xlabel("Time Step Index")
-            ax1.set_ylabel("Rank")
+        ax1.set_xlabel("Time Step Index")
+        ax1.set_ylabel("Rank")
 
 
             # # Singular Value Decay

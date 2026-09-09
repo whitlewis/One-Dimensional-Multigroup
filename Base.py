@@ -143,6 +143,7 @@ class Base:
                     if err > 10.00:
                         self.params.fileFolder = self.params.fileFolder + "Failed"
                         self.params.runName = self.params.runName + "Failed"
+                        
                         self.saveResults()
                         raise ValueError(f'Change Iteration is not converging to reasonable value, try a smaller time step. Final iteration difference: {err}')
 

@@ -29,7 +29,7 @@ def loadResults(filepaths=None):
         msgbox = tk.messagebox.askquestion ('Add files','add extra files',icon = 'warning')
         while msgbox.lower() =='yes':
             loadedFile = fileLoad()
-            filepaths.extend(loadedFile)
+            filepaths += loadedFile
             msgbox = tk.messagebox.askquestion ('Add files','add extra files',icon = 'warning')
 
 
