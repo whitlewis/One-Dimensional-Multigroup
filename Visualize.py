@@ -400,7 +400,6 @@ def plot_spectra_at_times(dataSet, time_indices, paramsSet, fileSet, folderSet, 
             if 0 <= t_idx < n_steps:
                 if methodName == "VCM":
                     freq = freq * temp[bin_idx, t_idx]  # Scale frequency by temperature for VCM method
-                    print("temperature for scaling frequency:", temp[bin_idx, t_idx])  # Debugging statement to check temperature values
                 spectrum = phi_tensor[t_idx, :, bin_idx]
                 plt.plot(freq, spectrum, label=f'Time: {t_idx}, {methodName} with {file} init {params["groups"]} groups for {timeSteps} steps')
             else:

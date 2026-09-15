@@ -2,7 +2,6 @@ import numpy as np
 np.seterr(divide='raise', invalid='raise', over='raise')
 from numba import njit
 import matplotlib.pyplot as plt
-
 # Non coupled equations
 class Equations:
 
@@ -149,15 +148,36 @@ class CoupledEquations:
         f = (15.0 * self.const.a * self.const.c) / (4.0 * np.pi**5)
         return f * nu**3 / denom
 
+    # Group integrated Planck
+    def planckBar(self, T):
+        # Integrate the Planck function over each frequency group to get group-averaged source
+        # print(T)
+        # print("h =", self.const.h)
+        # print("a =", self.const.a)
+        # print("c =", self.const.c)
+        # print(f'Shape of freqGrid {self.grid.freqGrid.shape}')
+        # print(f'FreqGrid of 20: {self.grid.freqGrid[20, None]}')
+        lo = self.grid.freqGrid[:-1, None]
+        hi = self.grid.freqGrid[1:, None]
+
+        freqGroups = 0.5 * (
+            self.grid.freqGrid[:-1] + self.grid.freqGrid[1:]
+        )
+        integrand = lambda nu: self.planck(nu, T)
+        bbar = self.simpson(integrand, lo, hi)
+        # plt.plot(freqGroups, bbar)
+        # plt.title("SM init")
+        # plt.xlim(0, 12)
+        # plt.ylim(0, 1e-3)
+        # plt.show()
+        # assert 0
+        return bbar
+
+
     # Function for initial Condition as Planckian (helper for initialCondition)  
     def initSpectra(self):
         T0 = self.params.radiationTemperature
         planck = self.planckBar(T0)
-        # plt.plot(self.grid.freqGroups, planck, label='Planck Bar Init')
-        # plt.xlabel('Frequency (keV)')
-        # plt.ylabel('Group-averaged Planck Function')
-        # plt.title(f'Planck Bar sm Init at T={T:.2f}')
-        # plt.show() 
         self.grid.fullTensor[:] = planck[:, None]
         return self.grid.fullTensor.copy()
     
@@ -249,22 +269,6 @@ class CoupledEquations:
         self.timeTerm = self.timeAbsorption()
         self.sigmaStarVar = self.sigmaStar(self.grid.T_next)  # Update sigma* for the time step
 
-
-    # Group integrated Planck
-    def planckBar(self, T):
-        # Integrate the Planck function over each frequency group to get group-averaged source
-        lo = self.grid.freqGrid[:-1, None]
-        hi = self.grid.freqGrid[1:, None]
-        integrand = lambda nu: self.planck(nu, T)
-        bbar = self.simpson(integrand, lo, hi)
-        # plt.plot(self.grid.freqGroups, bbar, label='Planck Bar Init')
-        # plt.xlabel('Frequency (keV)')
-        # plt.ylabel('Group-averaged Planck Function')
-        # plt.xlim(0, self.params.maxFreq/2)
-        # plt.title(f'Planck Bar sm Init at T={T:.2f}')
-        # plt.show()
-        return bbar
-
     def sigmaBar(self, T):     # Placeholder for group-averaged opacity, currently unnecessary since we are using a constant opacity
         lo = self.grid.freqGrid[:-1, None]
         hi = self.grid.freqGrid[1:, None]
@@ -305,7 +309,7 @@ class CoupledEquations:
 
     # Define modified opacity
     def sigmaStar(self, T):
-        return self.material.sigma_a(self.grid.freqGrid, T) + 1/self.const.c*1/self.grid.dt[self.grid.timeStep]  # modified opacity
+        return self.material.sigma_a(self.grid.freqGroups, T) + 1/self.const.c*1/self.grid.dt[self.grid.timeStep]  # modified opacity
 
     def radiationSweep(self):
         # Initialize time set assets
@@ -448,17 +452,27 @@ class MovingMeshEquations:
 
     # Group integrated Planck
     def planckBarInit(self, T):
+        # print(T)
+        # print("h =", self.const.h)
+        # print("a =", self.const.a)
+        # print("c =", self.const.c)
+        # print(f'Shape of freqGrid {self.grid.freqGrid.shape}')
+        # print(f'FreqGrid of 20: {self.grid.freqGrid[20, None]}')
         # Integrate the Planck function over each frequency group to get group-averaged source
         lo = self.grid.freqGrid[:-1, None]
         hi = self.grid.freqGrid[1:, None]
+        freqGroups = 0.5 * (
+            self.grid.freqGrid[:-1] + self.grid.freqGrid[1:]
+        )
         integrand = lambda u: self.planckVCM(u, T)
         bbar = self.simpson(integrand, lo, hi)
-        # plt.plot(self.grid.freqGroups * T, bbar, label='Planck Bar Init')
-        # plt.xlabel('Frequency (keV)')
-        # plt.ylabel('Group-averaged Planck Function')
-        # plt.title(f'Planck Bar VCM Init at T={T:.2f}')
-        # plt.xlim(0, self.params.maxFreq/2)
+
+        # plt.plot(freqGroups * self.params.initialTemperature, bbar)
+        # plt.title("VCM init")
+        # plt.xlim(0,12)
+        # plt.ylim(0, 1e-3)
         # plt.show()
+        # assert 0
         return bbar
     
     def planckBar(self, T):
@@ -479,7 +493,8 @@ class MovingMeshEquations:
     
     def energyInitialCondition(self):
         T0 = self.params.radiationTemperature
-        groupEnergies = self.simpson(lambda nu: self.planckVCM(nu, T0), self.grid.freqGrid[:-1], self.grid.freqGrid[1:])
+        T = self.params.initialTemperature
+        groupEnergies = self.simpson(lambda nu: self.planckVCM(nu * T, T0), self.grid.freqGrid[:-1]*T, self.grid.freqGrid[1:]*T)
         
         # Calculate the exact expected macroscopic density per cell
         EradExpectedPerCell = self.const.a * T0**4
@@ -620,7 +635,7 @@ class MovingMeshEquations:
 
     # Define modified opacity
     def sigmaStar(self, T):
-        return self.material.sigma_a(self.grid.freqGrid, T) + 1/self.const.c*1/self.grid.dt[self.grid.timeStep]  # modified opacity
+        return self.material.sigma_a(self.grid.freqGroups, T) + 1/self.const.c*1/self.grid.dt[self.grid.timeStep]  # modified opacity
     
     # Here begins helper functions for the moving mesh radiation sweep
 
@@ -838,3 +853,4 @@ class Logic:
 
     def simpson(self, integrand, lo, hi):
         return self.equations.simpson(integrand, lo, hi)
+

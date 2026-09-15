@@ -20,11 +20,11 @@ TMin = .2
 TNum = 50
 TSet = np.linspace(TMin, TMax, TNum)
 
-minFreq = 1e-4
-maxFreq = 25
-infFreq = 125
-freqNum = 100
-freqGrid = np.append(np.logspace(np.log10(minFreq), np.log10(maxFreq), freqNum), infFreq)
+# minFreq = 1e-4
+# maxFreq = 25
+# infFreq = 125
+# freqNum = 100
+# freqGrid = np.append(np.logspace(np.log10(minFreq), np.log10(maxFreq), freqNum), infFreq)
 
 def simpson(integrand, lo, hi):
     h = (hi - lo) / 3
@@ -54,11 +54,12 @@ def planck(nu, T):  # Planck function (not group integrated or weighted)
 
 def plotPlanck(T, freqGrid):
     freqs = 0.5 * (freqGrid[:-1] + freqGrid[1:])  # Midpoint of frequency groups for plotting
+    Tmat = 0.4
     bbar = planckBar(T, freqGrid)
     bbarV = planckBarV(T, freqGrid)
     plt.figure(figsize=(10, 6))
     plt.plot(freqs, bbar, label=f'Group Integrated Planck at T={T}', linestyle='--')
-    plt.plot(freqs*T, bbarV, label=f'Variable Basis Planck at T={T}')
+    plt.plot(freqs*Tmat, bbarV, label=f'Variable Basis Planck at T={T}')
     plt.title('Comparison of Group Integrated and Variable Basis Planck Functions')
     plt.xlabel('Frequency (keV)')
     plt.ylabel('Planck Function Value')
@@ -94,18 +95,19 @@ def getRank(array):
     return rank
 
 
-varaiableMatrix, multigroupMatrix = compareRank(TSet, freqGrid)
+# varaiableMatrix, multigroupMatrix = compareRank(TSet, freqGrid)
 
-RVM = getRank(varaiableMatrix)
-RGM = getRank(multigroupMatrix)
+# RVM = getRank(varaiableMatrix)
+# RGM = getRank(multigroupMatrix)
 
-print(f'Rank of Moving coordinate Planckian: {RVM}')
-print(f'Rank of Standard Planckian: {RGM}')
+# print(f'Rank of Moving coordinate Planckian: {RVM}')
+# print(f'Rank of Standard Planckian: {RGM}')
 
-minfreq = 1e-4
-maxfreq = 25
+minFreq = 1e-8
+maxFreq = 18
 freqNum = 100
-infreq = 125
-# freqgrid = np.append(np.logspace(np.log10(minFreq), np.log10(maxFreq), freqNum), infFreq)
-freqgrid = np.append(np.linspace(minFreq, maxFreq, freqNum), infFreq)
-plotPlanck(.4, freqGrid)
+infFreq = 125
+freqgrid = np.append(np.logspace(np.log10(minFreq), np.log10(maxFreq), freqNum), infFreq)
+print(freqgrid[20, None])
+# freqgrid = np.append(np.linspace(minFreq, maxFreq, freqNum), infFreq)
+plotPlanck(.5, freqgrid)

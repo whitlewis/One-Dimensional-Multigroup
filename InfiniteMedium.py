@@ -35,8 +35,8 @@ class Parameters:
         self.groupSpace = 'log' # log or linear
         self.freqNum = 100
         self.minFreq = 1e-4
-        self.maxFreq = 25
-        self.infFreq = 150
+        self.maxFreq = 20
+        self.infFreq = 125
 
         # Time stepping parameters
         self.nSteps = nSteps

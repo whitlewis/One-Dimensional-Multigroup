@@ -20,6 +20,9 @@ import numpy as np
 def setRun(params, runName, config):
     params.runName = runName
     params.runLabel = config["runLabel"]
+    params.groupSpace = config["Group Spacing"] # log or linear
+    params.minFreq = config["Min Frequency"]
+    params.infFreq = config["Infinite Frequency"]
     params.nSteps = config["Steps"]
     params.timeMax = config["Maximum Time"]
     params.logLinTime = config["TransTime"]
@@ -34,7 +37,7 @@ def setRun(params, runName, config):
     params.setRightBoundaryTemp = config["rightTemp"]
     params.nBins = config["Number of Bins"]
     params.xMin = config["xMin"]
-    
+
     params.xMax = config["xMax"]
 
     # Choose to save
@@ -109,18 +112,21 @@ timeSplit = 0.1
 # stepSet = [400, 800, 1200, 1400, 2000]
 # groupSet = [50, 100, 200, 400, 800]
 groupSet = [100]
-stepSet = [1000]
+stepSet = [400]
 
 RunSet = {}
 
 for step in stepSet:
     for group in groupSet:
-        runName = f"OpacityTest"
+        runName = f"GroupTests"
         RunSet[runName] = {
             "runLabel": "Reflective",
             "Steps": step,
-            "Maximum Time": 0.5,
-            "Max Frequency": 35,
+            "Maximum Time": 0.1,
+            "Max Frequency": 18,
+            "Min Frequency": 1e-8,
+            "Infinite Frequency": 125,
+            "Group Spacing": 'log',
             "Number of frequencies": group,
             "Sn": 8,
             "Number of Bins": 400,
