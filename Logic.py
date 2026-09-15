@@ -1,6 +1,7 @@
 import numpy as np
 np.seterr(divide='raise', invalid='raise', over='raise')
 from numba import njit
+import matplotlib.pyplot as plt
 
 # Non coupled equations
 class Equations:
@@ -151,7 +152,12 @@ class CoupledEquations:
     # Function for initial Condition as Planckian (helper for initialCondition)  
     def initSpectra(self):
         T0 = self.params.radiationTemperature
-        planck = self.planckBar(T0) 
+        planck = self.planckBar(T0)
+        # plt.plot(self.grid.freqGroups, planck, label='Planck Bar Init')
+        # plt.xlabel('Frequency (keV)')
+        # plt.ylabel('Group-averaged Planck Function')
+        # plt.title(f'Planck Bar sm Init at T={T:.2f}')
+        # plt.show() 
         self.grid.fullTensor[:] = planck[:, None]
         return self.grid.fullTensor.copy()
     
@@ -251,6 +257,12 @@ class CoupledEquations:
         hi = self.grid.freqGrid[1:, None]
         integrand = lambda nu: self.planck(nu, T)
         bbar = self.simpson(integrand, lo, hi)
+        # plt.plot(self.grid.freqGroups, bbar, label='Planck Bar Init')
+        # plt.xlabel('Frequency (keV)')
+        # plt.ylabel('Group-averaged Planck Function')
+        # plt.xlim(0, self.params.maxFreq/2)
+        # plt.title(f'Planck Bar sm Init at T={T:.2f}')
+        # plt.show()
         return bbar
 
     def sigmaBar(self, T):     # Placeholder for group-averaged opacity, currently unnecessary since we are using a constant opacity
@@ -429,7 +441,7 @@ class MovingMeshEquations:
         return out
 
     # Base Planck definiton
-    def planck(self, u, T):  # Planck function for variable basis (not group integrated or weighted)
+    def planckVCM(self, u, T):  # Planck function for variable basis (not group integrated or weighted)
         denom = np.expm1(self.const.h * u)  # exp(x)-1 safely
         f = (15.0 * self.const.a * self.const.c) / (4.0 * np.pi**5)
         return f * u**3 * T**4 / denom
@@ -439,8 +451,14 @@ class MovingMeshEquations:
         # Integrate the Planck function over each frequency group to get group-averaged source
         lo = self.grid.freqGrid[:-1, None]
         hi = self.grid.freqGrid[1:, None]
-        integrand = lambda u: self.planck(u, T)
+        integrand = lambda u: self.planckVCM(u, T)
         bbar = self.simpson(integrand, lo, hi)
+        # plt.plot(self.grid.freqGroups * T, bbar, label='Planck Bar Init')
+        # plt.xlabel('Frequency (keV)')
+        # plt.ylabel('Group-averaged Planck Function')
+        # plt.title(f'Planck Bar VCM Init at T={T:.2f}')
+        # plt.xlim(0, self.params.maxFreq/2)
+        # plt.show()
         return bbar
     
     def planckBar(self, T):
@@ -461,7 +479,7 @@ class MovingMeshEquations:
     
     def energyInitialCondition(self):
         T0 = self.params.radiationTemperature
-        groupEnergies = self.simpson(lambda nu: self.planck(nu, T0), self.grid.freqGrid[:-1], self.grid.freqGrid[1:])
+        groupEnergies = self.simpson(lambda nu: self.planckVCM(nu, T0), self.grid.freqGrid[:-1], self.grid.freqGrid[1:])
         
         # Calculate the exact expected macroscopic density per cell
         EradExpectedPerCell = self.const.a * T0**4
@@ -541,7 +559,7 @@ class MovingMeshEquations:
     def sigmaBar(self, T):     # Placeholder for group-averaged opacity, currently unnecessary since we are using a constant opacity
         lo = self.grid.freqGrid[:-1, None]
         hi = self.grid.freqGrid[1:, None]
-        integrand = lambda nu: self.planck(nu, T)
+        integrand = lambda nu: self.planckVCM(nu, T)
         sbar = self.simpson(integrand, lo, hi)
         return sbar
     
@@ -643,7 +661,7 @@ class MovingMeshEquations:
             elif side == "right":
                 T0 = self.params.setRightBoundaryTemp
             deltaSet = np.zeros((self.params.freqNum, self.sn))
-            totalFlux = np.sum(self.grid.du * self.simpson(lambda nu: self.planck(nu, T0), self.grid.freqGrid[:-1], self.grid.freqGrid[1:]))
+            totalFlux = np.sum(self.grid.du * self.simpson(lambda nu: self.planckVCM(nu, T0), self.grid.freqGrid[:-1], self.grid.freqGrid[1:]))
             deltaSet[self.params.freqNum//4, :] = totalFlux / self.grid.du[self.params.freqNum//4]      # Delta function at the middle frequency group
             bVal = deltaSet[f, m]
 
@@ -820,4 +838,3 @@ class Logic:
 
     def simpson(self, integrand, lo, hi):
         return self.equations.simpson(integrand, lo, hi)
-

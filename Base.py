@@ -4,6 +4,7 @@ import time as machineTime
 import h5py
 from datetime import datetime
 import os
+import matplotlib.pyplot as plt
 
 class Constants:
     # all physical constants
@@ -17,8 +18,9 @@ class Grid:
         # Space grid
         self.nBins = parameters.nBins
         self.nSteps = parameters.nSteps
-        self.dx = (parameters.xMax - parameters.xMin) / parameters.nBins
+        self.dx = (parameters.xMax - parameters.xMin) / parameters.nBins 
         self.spaceGrid = np.linspace(parameters.xMin, parameters.xMax, parameters.nBins + 1)  # cell edges
+        # self.dx = np.diff(self.spaceGrid)  # cell widths
         self.spaceMid = 0.5 * (self.spaceGrid[:-1] + self.spaceGrid[1:])  # cell centers
 
         # Frequency grid
@@ -273,11 +275,11 @@ class Base:
             f.create_dataset("fullTensorPhi", data=fullTensorPhiTime, compression="gzip")
             f.create_dataset("temperatureSet", data=self.grid.temperatureSet, compression="gzip")
             f.create_dataset("timeSet", data=self.grid.timeSet, compression="gzip")
-            f.attrs["spaceGrid"] = self.grid.spaceGrid
-            f.attrs["spaceMid"] = self.grid.spaceMid
-            f.attrs["freqGrid"] = self.grid.freqGrid
-            f.attrs["dt"] = self.grid.dt
+            f.create_dataset("spaceGrid", data=self.grid.spaceGrid, compression="gzip")
+            f.create_dataset("spaceMid", data=self.grid.spaceMid, compression="gzip")
+            f.create_dataset("dt", data=self.grid.dt, compression="gzip")
             f.attrs["dx"] = self.grid.dx
+            f.attrs["freqGrid"] = self.grid.freqGrid
             f.attrs["nBins"] = self.grid.nBins
             f.attrs["nSteps"] = self.params.nSteps
             f.attrs["sn"] = self.params.sn

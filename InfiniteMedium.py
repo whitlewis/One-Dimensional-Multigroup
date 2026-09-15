@@ -4,7 +4,7 @@ import Logic as Log
 import Base as Base
 
 class Parameters:
-    def __init__(self, maxIters=200, tol=1e-8, nSteps=400, Transient=True):
+    def __init__(self, maxIters=400, tol=1e-8, nSteps=400, Transient=True):
         # Tolerance and iteration parameters
         self.maxIters = maxIters
         self.tol = tol
@@ -28,14 +28,14 @@ class Parameters:
         # Boundary conditions (currently for all frequencies and angles, planckian at specified temperature or reflective)
         self.boundaryLeft = "Reflective"
         self.boundaryRight = "Reflective"
-        self.setLeftBoundaryTemp = 0.8  # Temperature for Planckian or delta boundary condition on the left
-        self.setRightBoundaryTemp = 0.8  # Temperature for Planckian or delta boundary condition on the right
+        self.setLeftBoundaryTemp = 0.5  # Temperature for Planckian or delta boundary condition on the left
+        self.setRightBoundaryTemp = 0.5  # Temperature for Planckian or delta boundary condition on the right
 
         # Group parameters
-        self.groupSpace = 'linear' # log or linear
+        self.groupSpace = 'log' # log or linear
         self.freqNum = 100
-        self.minFreq = 1e-6
-        self.maxFreq = 15
+        self.minFreq = 1e-4
+        self.maxFreq = 25
         self.infFreq = 150
 
         # Time stepping parameters
@@ -84,6 +84,7 @@ class Material:
         denom = np.sqrt(T) * self.planckg()
         num = sigma_aZero * (np.exp(-nu_lo/T)-np.exp(-nu_hi/T))
         out = np.clip(num / denom, a_min=1e-4, a_max=1e8)
+        # out = np.ones(out.shape) * 100  # For testing purposes, set all opacities to a constant value
         return out
     # End of opacity implementation
     

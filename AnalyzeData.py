@@ -55,19 +55,35 @@ def loadResults(filepaths=None):
             }
 
             # Load grid and solver parameters stored in attributes
+            spaceGrid = f.attrs.get("spaceGrid", None)
+            if spaceGrid is None:
+                spaceGrid = f["spaceGrid"][:]
+
+            spaceMid = f.attrs.get("spaceMid", None)
+            if spaceMid is None:
+                spaceMid = f["spaceMid"][:]
+
+            freqGrid = f.attrs.get("freqGrid", None)
+            if freqGrid is None:
+                freqGrid = f["freqGrid"][:]
+
+            dt = f.attrs.get("dt", None)
+            if dt is None:
+                dt = f["dt"][:]
+
             params = {
-                "spaceGrid": f.attrs["spaceGrid"],
-                "spaceMid": f.attrs["spaceMid"],
-                "freqGrid": f.attrs["freqGrid"],
-                "dt": f.attrs["dt"],
-                "dx": f.attrs["dx"],
-                "nBins": f.attrs["nBins"],
-                "nSteps": f.attrs["nSteps"],
-                "sn": f.attrs["sn"],
-                "maxFreq": f.attrs["maxFreq"],
-                "runLabel" : f.attrs["runLabel"],
-                "groups" : f.attrs["groups"],
-                "solveType" : f.attrs["solveType"]
+            "spaceGrid": spaceGrid,
+            "spaceMid": spaceMid,
+            "freqGrid": freqGrid,
+            "dt": dt,
+            "dx": f.attrs.get("dx", None),
+            "nBins": f.attrs.get("nBins", None),
+            "nSteps": f.attrs.get("nSteps", None),
+            "sn": f.attrs.get("sn", None),
+            "maxFreq": f.attrs.get("maxFreq", None),
+            "runLabel": f.attrs.get("runLabel", None),
+            "groups": f.attrs.get("groups", None),
+            "solveType": f.attrs.get("solveType", None)
             }
             all_data.append(data)
             all_params.append(params)
@@ -86,8 +102,8 @@ def plotSet():
     if len(data) < 2:
         Vis.plotTemperatureTimeLoaded(data, params, fileSet, folderSet)
     plotSet = [0, int(params[0]["nSteps"])//4, params[0]["nSteps"]//2, params[0]["nSteps"]-1]
-    freqGroups = 0.5 * (params[0]["freqGrid"][:-1] + params[0]["freqGrid"][1:])
-    Vis.plot_spectra_at_times(data, plotSet, params, fileSet, folderSet, 20, params[0]["maxFreq"], freqs=freqGroups)
+
+    Vis.plot_spectra_at_times(data, plotSet, params, fileSet, folderSet, 20, params[0]["maxFreq"])
     Vis.analyzeRank(data, data[0]["timeSet"], params, fileSet, folderSet, time_indices=None, energy_threshold=[.999, .99, .98 ,.95], tol=None, plot=True)
     # Vis.analyzeRank(data["fullTensorPhi"], data["timeSet"], energy_threshold=None, tol = [1e-8, 1e-14, 1e-16, 1e-18], plot = True)
     # Vis.analyzeRank(data, data[0]["timeSet"], params, fileSet, folderSet, time_indices=None, energy_threshold=None, tol=None, plot=True)

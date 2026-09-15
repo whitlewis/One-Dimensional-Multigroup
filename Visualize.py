@@ -382,6 +382,9 @@ def plot_spectra_at_times(dataSet, time_indices, paramsSet, fileSet, folderSet, 
         params = paramsSet[i]
         file = fileSet[i]
         folder = folderSet[i]
+        temp = data["temperatureSet"]
+        frequencies = params["freqGrid"]
+        freq = 0.5 * (frequencies[:-1] + frequencies[1:])  # Midpoint of frequency groups for plotting
         if folder == "InfiniteMedium":
             methodName = "SM"
         else:
@@ -391,13 +394,15 @@ def plot_spectra_at_times(dataSet, time_indices, paramsSet, fileSet, folderSet, 
         if not (0 <= bin_idx < n_bins):
             raise ValueError(f"bin_idx {bin_idx} out of bounds for array with {n_bins} bins.")
 
-        x_axis = freqs if freqs is not None else np.arange(freq_num)
         timeSteps = np.shape(data["timeSet"])[0]
 
         for t_idx in time_indices:
             if 0 <= t_idx < n_steps:
+                if methodName == "VCM":
+                    freq = freq * temp[bin_idx, t_idx]  # Scale frequency by temperature for VCM method
+                    print("temperature for scaling frequency:", temp[bin_idx, t_idx])  # Debugging statement to check temperature values
                 spectrum = phi_tensor[t_idx, :, bin_idx]
-                plt.plot(x_axis, spectrum, label=f'Time: {t_idx}, {methodName} with {file} init {params["groups"]} groups for {timeSteps} steps')
+                plt.plot(freq, spectrum, label=f'Time: {t_idx}, {methodName} with {file} init {params["groups"]} groups for {timeSteps} steps')
             else:
                 print(f"Warning: Time step index {t_idx} is out of bounds (max {n_steps - 1}) and skipped.")
 

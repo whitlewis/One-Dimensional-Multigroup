@@ -9,6 +9,7 @@ from Reeds import Reeds as ReedsProblem
 import Base as Base
 import numpy as np
 import Visualize as Vis
+import matplotlib.pyplot as plt
 
 c = 29.9792458 # speed of light in cm/ns
 a = 0.0137202
@@ -51,6 +52,20 @@ def planck(nu, T):  # Planck function (not group integrated or weighted)
     f = (15.0 * a * c) / (4.0 * np.pi**5)
     return f * nu**3 / denom
 
+def plotPlanck(T, freqGrid):
+    freqs = 0.5 * (freqGrid[:-1] + freqGrid[1:])  # Midpoint of frequency groups for plotting
+    bbar = planckBar(T, freqGrid)
+    bbarV = planckBarV(T, freqGrid)
+    plt.figure(figsize=(10, 6))
+    plt.plot(freqs, bbar, label=f'Group Integrated Planck at T={T}', linestyle='--')
+    plt.plot(freqs*T, bbarV, label=f'Variable Basis Planck at T={T}')
+    plt.title('Comparison of Group Integrated and Variable Basis Planck Functions')
+    plt.xlabel('Frequency (keV)')
+    plt.ylabel('Planck Function Value')
+    plt.legend()
+    plt.xlim(0, 12)
+    plt.show()
+
 # Group integrated Planck
 def planckBar(T, freqGrid):
     # Integrate the Planck function over each frequency group to get group-averaged source
@@ -87,4 +102,10 @@ RGM = getRank(multigroupMatrix)
 print(f'Rank of Moving coordinate Planckian: {RVM}')
 print(f'Rank of Standard Planckian: {RGM}')
 
-
+minfreq = 1e-4
+maxfreq = 25
+freqNum = 100
+infreq = 125
+# freqgrid = np.append(np.logspace(np.log10(minFreq), np.log10(maxFreq), freqNum), infFreq)
+freqgrid = np.append(np.linspace(minFreq, maxFreq, freqNum), infFreq)
+plotPlanck(.4, freqGrid)

@@ -4,7 +4,7 @@ import Logic as Log
 import Base as Base
 
 class Parameters:
-    def __init__(self, tol=1e-8, maxIters=200, nSteps=400, Transient=True):
+    def __init__(self, tol=1e-8, maxIters=500, nSteps=400, Transient=True):
         # Tolerance and iteration parameters
         self.maxIters = maxIters
         self.tol = tol
@@ -36,7 +36,7 @@ class Parameters:
         # Group parameters
         self.groupSpace = 'log' # log or linear
         self.freqNum = 100
-        self.minFreq = 1e-6
+        self.minFreq = 1e-4
         self.maxFreq = 25
         self.infFreq = 150
     
@@ -82,7 +82,7 @@ class Material:
     def planckg(self):
         # Calculate the Planck function for each frequency group
         T = self.grid.temperatureSet[:, self.grid.timeStep]
-        nu_lo = self.grid.freqGrid[:-1, None]    # No need to divide by T here; we want the actual frequency range for for each group not the u range
+        nu_lo = self.grid.freqGrid[:-1, None]
         nu_hi = self.grid.freqGrid[1:, None]
         integrand = lambda nu: (15.0 * nu**3) / np.pi**4 /  np.expm1(nu)
         bg = self.simpson(integrand, nu_lo, nu_hi)
@@ -97,6 +97,7 @@ class Material:
         num = sigma_aZero * (np.exp(-nu_lo/T)-np.exp(-nu_hi/T))
         out = np.clip(num / denom, a_min = 1.0e-8, a_max=1.0e9)  # Avoid division by zero and ensure non-negative opacities
         # print(f"Calculated opacities with shape: {out.shape}, min: {np.min(out):3e}, max: {np.max(out):3e}")  # Debugging statement
+        # out = np.ones(out.shape) * 100  # For testing purposes, set all opacities to a constant value
         return out
 
     

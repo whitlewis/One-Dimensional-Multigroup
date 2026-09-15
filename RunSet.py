@@ -34,6 +34,7 @@ def setRun(params, runName, config):
     params.setRightBoundaryTemp = config["rightTemp"]
     params.nBins = config["Number of Bins"]
     params.xMin = config["xMin"]
+    
     params.xMax = config["xMax"]
 
     # Choose to save
@@ -105,48 +106,58 @@ midShort = 3000
 stepSplit = .1
 timeSplit = 0.1
 
+# stepSet = [400, 800, 1200, 1400, 2000]
+# groupSet = [50, 100, 200, 400, 800]
+groupSet = [100]
+stepSet = [1000]
 
-RunSet = {
-    "ReflectiveShort": {
-        "runLabel": "Reflective",
-        "Steps": shortSteps,
-        "Maximum Time": 1.0,
-        "Max Frequency": 20,
-        "Number of frequencies": 100,
-        "Sn": 8,
-        "Number of Bins": 100,
-        "xMin": -1,
-        "xMax": 1,
-        "RadTemp": 0.5,
-        "MatTemp": 0.4,
-        "leftBC": "Reflective",
-        "rightBC": "Reflective",
-        "leftTemp": 0.8,
-        "rightTemp": 0.8,
-        "TransTime": timeSplit,
-        "stepSplit": stepSplit,  # tells what proportion of time steps are log vs linear
-        "stepType": False, 
-    },
-    "ReflectiveShort": {
-        "runLabel": "Reflective",
-        "Steps": shortSteps,
-        "Maximum Time": 1.0,
-        "Max Frequency": 20,
-        "Number of frequencies": 400,
-        "Sn": 8,
-        "Number of Bins": 100,
-        "xMin": -1,
-        "xMax": 1,
-        "RadTemp": 0.5,
-        "MatTemp": 0.4,
-        "leftBC": "Reflective",
-        "rightBC": "Reflective",
-        "leftTemp": 0.8,
-        "rightTemp": 0.8,
-        "TransTime": timeSplit,
-        "stepSplit": stepSplit,  # tells what proportion of time steps are log vs linear
-        "stepType": False, 
-    },
+RunSet = {}
+
+for step in stepSet:
+    for group in groupSet:
+        runName = f"OpacityTest"
+        RunSet[runName] = {
+            "runLabel": "Reflective",
+            "Steps": step,
+            "Maximum Time": 0.5,
+            "Max Frequency": 35,
+            "Number of frequencies": group,
+            "Sn": 8,
+            "Number of Bins": 400,
+            "xMin": -1,
+            "xMax": 1,
+            "RadTemp": 0.5,
+            "MatTemp": 0.4,
+            "leftBC": "Reflective",
+            "rightBC": "Reflective",
+            "leftTemp": 0.8,
+            "rightTemp": 0.8,
+            "TransTime": timeSplit,
+            "stepSplit": stepSplit,  # tells what proportion of time steps are log vs linear
+            "stepType": False, 
+        }
+
+# RunSet = {
+#     "ReflectiveShort": {
+#         "runLabel": "Reflective",
+#         "Steps": shortSteps,
+#         "Maximum Time": 1.0,
+#         "Max Frequency": 20,
+#         "Number of frequencies": 100,
+#         "Sn": 8,
+#         "Number of Bins": 100,
+#         "xMin": -1,
+#         "xMax": 1,
+#         "RadTemp": 0.5,
+#         "MatTemp": 0.4,
+#         "leftBC": "Reflective",
+#         "rightBC": "Reflective",
+#         "leftTemp": 0.8,
+#         "rightTemp": 0.8,
+#         "TransTime": timeSplit,
+#         "stepSplit": stepSplit,  # tells what proportion of time steps are log vs linear
+#         "stepType": False, 
+#     },
 
     # "VacuumShort": {
     #     "runLabel": "Vacuum",
@@ -451,7 +462,7 @@ RunSet = {
     # },
 
 
-}
+# }
 
 # Entry point protection required for multiprocessing
 if __name__ == "__main__":
