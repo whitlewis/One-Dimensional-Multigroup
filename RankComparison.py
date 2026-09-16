@@ -32,17 +32,18 @@ def simpson(integrand, lo, hi):
     return out
 
 # Base Planck definiton
-def planckV(u, T):  # Planck function for variable basis (not group integrated or weighted)
-    denom = np.expm1(h * u)  # exp(x)-1 safely
+def planckV(u, T, Tmat):  # Planck function for variable basis (not group integrated or weighted)
+    Tmat = Tmat
+    denom = np.expm1(h * u * Tmat / T)  # exp(x)-1 safely
     f = (15.0 * a * c) / (4.0 * np.pi**5)
-    return f * u**3 * T**4 / denom
+    return f * u**3 * Tmat**4 / denom
 
 # Group integrated Planck
-def planckBarV(T, freqGrid):
+def planckBarV(T, freqGrid, Tmat):
     # Integrate the Planck function over each frequency group to get group-averaged source
     lo = freqGrid[:-1, None]
     hi = freqGrid[1:, None]
-    integrand = lambda u: planckV(u, T)
+    integrand = lambda u: planckV(u, T, Tmat)
     bbar = simpson(integrand, lo, hi)
     return bbar
 
@@ -52,19 +53,25 @@ def planck(nu, T):  # Planck function (not group integrated or weighted)
     f = (15.0 * a * c) / (4.0 * np.pi**5)
     return f * nu**3 / denom
 
-def plotPlanck(T, freqGrid):
+def plotPlanck(T, freqGrid, Tmat, sameGrid=True):
     freqs = 0.5 * (freqGrid[:-1] + freqGrid[1:])  # Midpoint of frequency groups for plotting
-    Tmat = 0.4
+    if sameGrid == True:
+        uFreqGrid = freqGrid / Tmat
+        uFreqs = freqs
+    else:
+        uFreqGrid = freqGrid
+        uFreqs = freqs * Tmat
+    # freqs = freqGrid
     bbar = planckBar(T, freqGrid)
-    bbarV = planckBarV(T, freqGrid)
+    bbarV = planckBarV(T, uFreqGrid, Tmat)
     plt.figure(figsize=(10, 6))
     plt.plot(freqs, bbar, label=f'Group Integrated Planck at T={T}', linestyle='--')
-    plt.plot(freqs*Tmat, bbarV, label=f'Variable Basis Planck at T={T}')
+    plt.plot(uFreqs, bbarV, label=f'Variable Basis Planck at T={T}')
     plt.title('Comparison of Group Integrated and Variable Basis Planck Functions')
     plt.xlabel('Frequency (keV)')
     plt.ylabel('Planck Function Value')
     plt.legend()
-    plt.xlim(0, 12)
+    plt.xlim(0, 20)
     plt.show()
 
 # Group integrated Planck
@@ -103,11 +110,13 @@ def getRank(array):
 # print(f'Rank of Moving coordinate Planckian: {RVM}')
 # print(f'Rank of Standard Planckian: {RGM}')
 
-minFreq = 1e-8
+minFreq = 1e-4
 maxFreq = 18
-freqNum = 100
+freqNum = 1000
 infFreq = 125
+Tmat = 0.4
+Trad = 0.5
 freqgrid = np.append(np.logspace(np.log10(minFreq), np.log10(maxFreq), freqNum), infFreq)
-print(freqgrid[20, None])
 # freqgrid = np.append(np.linspace(minFreq, maxFreq, freqNum), infFreq)
-plotPlanck(.5, freqgrid)
+print(freqgrid[20, None])
+plotPlanck(Trad, freqgrid, Tmat, sameGrid=False)

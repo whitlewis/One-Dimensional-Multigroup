@@ -106,30 +106,30 @@ def ExecuteRunSetParallel(runSet):
 
 shortSteps = 1000
 midShort = 3000
-stepSplit = .1
-timeSplit = 0.1
+stepSplit = 1.0
+timeSplit = 1.0
 
-# stepSet = [400, 800, 1200, 1400, 2000]
-# groupSet = [50, 100, 200, 400, 800]
+stepSet = [1200]
 groupSet = [100]
-stepSet = [400]
+# groupSet = [100]
+# stepSet = [1000]
 
 RunSet = {}
 
 for step in stepSet:
     for group in groupSet:
-        runName = f"GroupTests"
+        runName = f"GroupTestsNew"
         RunSet[runName] = {
             "runLabel": "Reflective",
             "Steps": step,
-            "Maximum Time": 0.1,
+            "Maximum Time": 0.5,
             "Max Frequency": 18,
-            "Min Frequency": 1e-8,
+            "Min Frequency": 1e-4,
             "Infinite Frequency": 125,
             "Group Spacing": 'log',
             "Number of frequencies": group,
             "Sn": 8,
-            "Number of Bins": 400,
+            "Number of Bins": 100,
             "xMin": -1,
             "xMax": 1,
             "RadTemp": 0.5,

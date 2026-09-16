@@ -446,9 +446,10 @@ class MovingMeshEquations:
 
     # Base Planck definiton
     def planckVCM(self, u, T):  # Planck function for variable basis (not group integrated or weighted)
-        denom = np.expm1(self.const.h * u)  # exp(x)-1 safely
+        Tmat = self.params.initialTemperature
+        denom = np.expm1(self.const.h * u * Tmat / T)  # exp(x)-1 safely
         f = (15.0 * self.const.a * self.const.c) / (4.0 * np.pi**5)
-        return f * u**3 * T**4 / denom
+        return f * u**3 * Tmat**4 / denom
 
     # Group integrated Planck
     def planckBarInit(self, T):
@@ -493,36 +494,57 @@ class MovingMeshEquations:
     
     def energyInitialCondition(self):
         T0 = self.params.radiationTemperature
-        T = self.params.initialTemperature
-        groupEnergies = self.simpson(lambda nu: self.planckVCM(nu * T, T0), self.grid.freqGrid[:-1]*T, self.grid.freqGrid[1:]*T)
-        
-        # Calculate the exact expected macroscopic density per cell
+
+        # Integrate the VCM Planck function over the u-frequency groups
+        groupEnergies = self.simpson(
+            lambda u: self.planckVCM(u, T0),
+            self.grid.freqGrid[:-1],
+            self.grid.freqGrid[1:]
+        )
+
+        # Expected radiation energy density per spatial cell
         EradExpectedPerCell = self.const.a * T0**4
         EradExpected = self.params.nBins * EradExpectedPerCell
-        
-        # Calculate what your discrete phi tensor currently reads per cell
-        currentPhiPerCell = np.sum(self.getPhi()) / self.params.nBins
-        planckBarEnergyPerCell = currentPhiPerCell / self.const.c
-        planckBarEnergy = planckBarEnergyPerCell * self.params.nBins
-        
-        # Calculate total energy directly from the analytical group sum per cell
-        totalEnergy = (4.0 * np.pi / self.const.c) * np.sum(groupEnergies) * self.params.nBins
-        
-        if np.abs(totalEnergy - planckBarEnergy) > self.params.energyTol:
-            print(f"⚠️ Initial energy check failed: Total energy density from initial condition ({totalEnergy:.4e}) does not match energy density from group-averaged Planck function ({planckBarEnergy:.4e})")
-            
-        if np.abs(planckBarEnergy - EradExpected) > self.params.energyTol:
-            print(f"⚠️ Initial energy check failed: Energy density from group-averaged Planck function ({planckBarEnergy:.4e}) does not match expected radiation energy density from initial condition ({EradExpected:.4e})")
-            
-        # This force-scales your angular intensity tensor to perfectly match a*T^4 per cell
-        mult = EradExpected / planckBarEnergy
+
+        # Energy represented by the current angular intensity tensor
+        currentEnergy = np.sum(self.getPhi()) / self.const.c
+
+        # Scale the tensor so that its total radiation energy is exactly a*T^4
+        mult = EradExpected / currentEnergy
         self.grid.fullTensor *= mult
-        
-        total_u = np.sum(self.getPhi()) / self.const.c
-        radTemp = (total_u / self.params.nBins / self.const.a)**0.25
-        
-        print(f'Initial radiation temperature after scaling: {radTemp:.4e}')
-        print(f'Planck init scaled by factor {mult:.4e} to ensure correct initial energy density with Radiation Temperature {T0:.4e}')
+
+        # Check the resulting energy
+        totalEnergy = np.sum(self.getPhi()) / self.const.c
+
+        # Analytical energy from the integrated VCM Planck function
+        planckEnergyPerCell = (
+            4.0 * np.pi / self.const.c
+        ) * np.sum(groupEnergies)
+
+        planckEnergy = planckEnergyPerCell * self.params.nBins
+
+        # Radiation temperature after scaling
+        radTemp = (
+            totalEnergy /
+            (self.params.nBins * self.const.a)
+        )**0.25
+
+        print(f"Analytical Planck energy: {planckEnergy:.6e}")
+        print(f"Expected radiation energy: {EradExpected:.6e}")
+        print(f"Actual initial energy: {totalEnergy:.6e}")
+        print(f"Initial radiation temperature after scaling: {radTemp:.4e}")
+        print(
+            f"Planck init scaled by factor {mult:.4e} "
+            f"to ensure radiation energy density corresponds to T = {T0:.4e}"
+        )
+
+        # Check analytical Planck integral
+        if np.abs(planckEnergy - EradExpected) > self.params.energyTol:
+            print(
+                f"⚠️ Analytical VCM Planck energy "
+                f"({planckEnergy:.4e}) does not match expected energy "
+                f"({EradExpected:.4e})"
+            )
     
     # Set initial Conditions here
     def initialCondition(self):
@@ -531,7 +553,7 @@ class MovingMeshEquations:
     # Helper function to define initial conditions
     def applyInitialConditions(self):
         self.grid.fullTensor = self.initialCondition()
-        self.energyInitialCondition()
+        # self.energyInitialCondition()
         self.grid.fullTensorPhi = self.getPhi()
         self.fullTens = self.grid.fullTensor.copy()
         self.psi_old = self.grid.fullTensor.copy()

@@ -384,7 +384,7 @@ def plot_spectra_at_times(dataSet, time_indices, paramsSet, fileSet, folderSet, 
         folder = folderSet[i]
         temp = data["temperatureSet"]
         frequencies = params["freqGrid"]
-        freq = 0.5 * (frequencies[:-1] + frequencies[1:])  # Midpoint of frequency groups for plotting
+        freqBase = 0.5 * (frequencies[:-1] + frequencies[1:])  # Midpoint of frequency groups for plotting
         if folder == "InfiniteMedium":
             methodName = "SM"
         else:
@@ -399,8 +399,11 @@ def plot_spectra_at_times(dataSet, time_indices, paramsSet, fileSet, folderSet, 
         for t_idx in time_indices:
             if 0 <= t_idx < n_steps:
                 if methodName == "VCM":
-                    freq = freq * temp[bin_idx, t_idx]  # Scale frequency by temperature for VCM method
-                spectrum = phi_tensor[t_idx, :, bin_idx]
+                    freq = freqBase * temp[bin_idx, t_idx]  # Scale frequency by temperature for VCM method
+                    spectrum = phi_tensor[t_idx, :, bin_idx]
+                else:
+                    spectrum = phi_tensor[t_idx, :, bin_idx]
+                    freq = freqBase
                 plt.plot(freq, spectrum, label=f'Time: {t_idx}, {methodName} with {file} init {params["groups"]} groups for {timeSteps} steps')
             else:
                 print(f"Warning: Time step index {t_idx} is out of bounds (max {n_steps - 1}) and skipped.")
