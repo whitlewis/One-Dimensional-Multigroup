@@ -387,7 +387,9 @@ def plot_spectra_at_times(dataSet, time_indices, paramsSet, fileSet, folderSet, 
         freqBase = 0.5 * (frequencies[:-1] + frequencies[1:])  # Midpoint of frequency groups for plotting
         if folder == "InfiniteMedium":
             methodName = "SM"
+            style = "-"
         else:
+            style = "--"
             methodName = "VCM"
         phi_tensor = data["fullTensorPhi"]
         n_steps, freq_num, n_bins = phi_tensor.shape
@@ -403,8 +405,9 @@ def plot_spectra_at_times(dataSet, time_indices, paramsSet, fileSet, folderSet, 
                     spectrum = phi_tensor[t_idx, :, bin_idx]
                 else:
                     spectrum = phi_tensor[t_idx, :, bin_idx]
+                    print(f"Time {t_idx} - Min: {np.nanmin(spectrum)}, Max: {np.nanmax(spectrum)}, NaNs: {np.isnan(spectrum).sum()}")
                     freq = freqBase
-                plt.plot(freq, spectrum, label=f'Time: {t_idx}, {methodName} with {file} init {params["groups"]} groups for {timeSteps} steps')
+                plt.plot(freq, spectrum, linestyle=style, label=f'Time: {t_idx}, {methodName} with {file} init {params["groups"]} groups for {timeSteps} steps')
             else:
                 print(f"Warning: Time step index {t_idx} is out of bounds (max {n_steps - 1}) and skipped.")
 

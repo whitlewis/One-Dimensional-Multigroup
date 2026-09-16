@@ -44,7 +44,7 @@ class Parameters:
         # Time stepping parameters
         self.nSteps = nSteps
         self.timeMax = 0.1
-        self.timeScale = "linear"  # "log" or "linear"
+        self.timeScale = "log"  # "log" or "linear"
         self.logLinTime = "log"
         self.stepSplit = .5
         self.splitStepsBool = False

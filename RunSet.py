@@ -109,7 +109,7 @@ midShort = 3000
 stepSplit = 1.0
 timeSplit = 1.0
 
-stepSet = [1200]
+stepSet = [400]
 groupSet = [100]
 # groupSet = [100]
 # stepSet = [1000]
@@ -122,8 +122,8 @@ for step in stepSet:
         RunSet[runName] = {
             "runLabel": "Reflective",
             "Steps": step,
-            "Maximum Time": 0.5,
-            "Max Frequency": 18,
+            "Maximum Time": 0.1,
+            "Max Frequency": 30,
             "Min Frequency": 1e-4,
             "Infinite Frequency": 125,
             "Group Spacing": 'log',
