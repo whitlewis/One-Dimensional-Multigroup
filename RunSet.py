@@ -21,6 +21,7 @@ def setRun(params, runName, config):
     params.runName = runName
     params.runLabel = config["runLabel"]
     params.groupSpace = config["Group Spacing"] # log or linear
+    params.matchNu = config["Match Grid"]
     params.minFreq = config["Min Frequency"]
     params.infFreq = config["Infinite Frequency"]
     params.nSteps = config["Steps"]
@@ -37,6 +38,9 @@ def setRun(params, runName, config):
     params.setRightBoundaryTemp = config["rightTemp"]
     params.nBins = config["Number of Bins"]
     params.xMin = config["xMin"]
+    params.initialTemperature = config["MatTemp"]
+    params.radiationTemperature = config["RadTemp"]
+    params.colorTemperature = config["ColorTemp"]
 
     params.xMax = config["xMax"]
 
@@ -51,7 +55,7 @@ def run_single_standard(item):
     runName, config = item
     constants = Base.Constants()
     params = InfiniteMedium.Parameters()
-    setRun(params, runName, config)
+    params = setRun(params, runName, config)
 
     grid = Base.Grid(params, constants)
     problem = IM(grid, constants, params)
@@ -115,10 +119,14 @@ groupSet = [100]
 # stepSet = [1000]
 
 RunSet = {}
+s = 0
+g = 0
 
 for step in stepSet:
+    s += 1
     for group in groupSet:
-        runName = f"GroupTestsNew"
+        g += 1
+        runName = f"FigMatch{s}_{g}"
         RunSet[runName] = {
             "runLabel": "Reflective",
             "Steps": step,
@@ -127,13 +135,15 @@ for step in stepSet:
             "Min Frequency": 1e-4,
             "Infinite Frequency": 125,
             "Group Spacing": 'log',
+            "Match Grid" : True,
             "Number of frequencies": group,
             "Sn": 8,
-            "Number of Bins": 100,
+            "Number of Bins": 200,
             "xMin": -1,
             "xMax": 1,
             "RadTemp": 0.5,
             "MatTemp": 0.4,
+            "ColorTemp" : 0.5,
             "leftBC": "Reflective",
             "rightBC": "Reflective",
             "leftTemp": 0.8,
@@ -142,49 +152,259 @@ for step in stepSet:
             "stepSplit": stepSplit,  # tells what proportion of time steps are log vs linear
             "stepType": False, 
         }
+        # runName = f"ReflectiveMid{s}_{g}"
+        # RunSet[runName] = {
+        #     "runLabel": "Reflective",
+        #     "Steps": step,
+        #     "Maximum Time": 0.6,
+        #     "Max Frequency": 30,
+        #     "Min Frequency": 1e-4,
+        #     "Infinite Frequency": 125,
+        #     "Group Spacing": 'log',
+        #     "Match Grid" : True,
+        #     "Number of frequencies": group,
+        #     "Sn": 8,
+        #     "Number of Bins": 100,
+        #     "xMin": -1,
+        #     "xMax": 1,
+        #     "RadTemp": 0.5,
+        #     "MatTemp": 0.4,
+        #     "leftBC": "Reflective",
+        #     "rightBC": "Reflective",
+        #     "leftTemp": 0.8,
+        #     "rightTemp": 0.8,
+        #     "TransTime": timeSplit,
+        #     "stepSplit": stepSplit,  # tells what proportion of time steps are log vs linear
+        #     "stepType": False, 
+        # }       
+        # runName = f"ReflectiveLongTest{s}_{g}"
+        # RunSet[runName] = {
+        #     "runLabel": "Reflective",
+        #     "Steps": step,
+        #     "Maximum Time": 1.0,
+        #     "Max Frequency": 45,
+        #     "Min Frequency": 1e-8,
+        #     "Infinite Frequency": 125,
+        #     "Group Spacing": 'log',
+        #     "Match Grid" : False,
+        #     "Number of frequencies": group,
+        #     "Sn": 8,
+        #     "Number of Bins": 100,
+        #     "xMin": -1,
+        #     "xMax": 1,
+        #     "RadTemp": 0.5,
+        #     "MatTemp": 0.4,
+        #     "leftBC": "Reflective",
+        #     "rightBC": "Reflective",
+        #     "leftTemp": 0.8,
+        #     "rightTemp": 0.8,
+        #     "TransTime": timeSplit,
+        #     "stepSplit": stepSplit,  # tells what proportion of time steps are log vs linear
+        #     "stepType": False, 
+        # }
+        # runName = f"ReflectiveLongTestMatchedConverge{s}_{g}"
+        # RunSet[runName] = {
+        #     "runLabel": "Reflective",
+        #     "Steps": step,
+        #     "Maximum Time": 3.0,
+        #     "Max Frequency": 45,
+        #     "Min Frequency": 1e-8,
+        #     "Infinite Frequency": 125,
+        #     "Group Spacing": 'log',
+        #     "Match Grid" : True,
+        #     "Number of frequencies": group,
+        #     "Sn": 8,
+        #     "Number of Bins": 100,
+        #     "xMin": -1,
+        #     "xMax": 1,
+        #     "RadTemp": 0.5,
+        #     "MatTemp": 0.4,
+        #     "leftBC": "Reflective",
+        #     "rightBC": "Reflective",
+        #     "leftTemp": 0.8,
+        #     "rightTemp": 0.8,
+        #     "TransTime": timeSplit,
+        #     "stepSplit": stepSplit,  # tells what proportion of time steps are log vs linear
+        #     "stepType": False, 
+        # }
+        # runName = f"ReflectivexL{s}_{g}"
+        # RunSet[runName] = {
+        #     "runLabel": "Reflective",
+        #     "Steps": step,
+        #     "Maximum Time": 2.0,
+        #     "Max Frequency": 30,
+        #     "Min Frequency": 1e-4,
+        #     "Infinite Frequency": 125,
+        #     "Group Spacing": 'log',
+        #     "Match Grid" : True,
+        #     "Number of frequencies": group,
+        #     "Sn": 8,
+        #     "Number of Bins": 100,
+        #     "xMin": -1,
+        #     "xMax": 1,
+        #     "RadTemp": 0.5,
+        #     "MatTemp": 0.4,
+        #     "leftBC": "Reflective",
+        #     "rightBC": "Reflective",
+        #     "leftTemp": 0.8,
+        #     "rightTemp": 0.8,
+        #     "TransTime": timeSplit,
+        #     "stepSplit": stepSplit,  # tells what proportion of time steps are log vs linear
+        #     "stepType": False, 
+        # }
+        # runName = f'VacShort{s}_{g}'
+        # RunSet[runName] = {
+        #     "runLabel": "Vacuum",
+        #     "Steps": step,
+        #     "Maximum Time": .2,
+        #     "Max Frequency": 30,
+        #     "Min Frequency": 1e-4,
+        #     "Infinite Frequency": 125,
+        #     "Group Spacing": 'log',
+        #     "Match Grid" : True,
+        #     "Number of frequencies": group,
+        #     "Sn": 8,
+        #     "Number of Bins": 100,
+        #     "xMin": -1,
+        #     "xMax": 1,
+        #     "RadTemp": 0.5,
+        #     "MatTemp": 0.4,
+        #     "leftBC": "Vacuum",
+        #     "rightBC": "Vacuum",
+        #     "leftTemp": 0.8,
+        #     "rightTemp": 0.8,
+        #     "TransTime": timeSplit,
+        #     "stepSplit": stepSplit,  # tells what proportion of time steps are log vs linear
+        #     "stepType": False, 
+        # }
+        # runName = f'VacMid{s}_{g}'
+        # RunSet[runName] = {
+        #     "runLabel": "Vacuum",
+        #     "Steps": step,
+        #     "Maximum Time": .5,
+        #     "Max Frequency": 30,
+        #     "Min Frequency": 1e-4,
+        #     "Infinite Frequency": 125,
+        #     "Group Spacing": 'log',
+        #     "Match Grid" : True,
+        #     "Number of frequencies": group,
+        #     "Sn": 8,
+        #     "Number of Bins": 100,
+        #     "xMin": -1,
+        #     "xMax": 1,
+        #     "RadTemp": 0.5,
+        #     "MatTemp": 0.4,
+        #     "leftBC": "Vacuum",
+        #     "rightBC": "Vacuum",
+        #     "leftTemp": 0.8,
+        #     "rightTemp": 0.8,
+        #     "TransTime": timeSplit,
+        #     "stepSplit": stepSplit,  # tells what proportion of time steps are log vs linear
+        #     "stepType": False, 
+        # }
+        # runName = f'VacLong{s}_{g}'
+        # RunSet[runName] = {
+        #     "runLabel": "Vacuum",
+        #     "Steps": step,
+        #     "Maximum Time": 1.0,
+        #     "Max Frequency": 30,
+        #     "Min Frequency": 1e-4,
+        #     "Infinite Frequency": 125,
+        #     "Group Spacing": 'log',
+        #     "Match Grid" : True,
+        #     "Number of frequencies": group,
+        #     "Sn": 8,
+        #     "Number of Bins": 100,
+        #     "xMin": -1,
+        #     "xMax": 1,
+        #     "RadTemp": 0.5,
+        #     "MatTemp": 0.4,
+        #     "leftBC": "Vacuum",
+        #     "rightBC": "Vacuum",
+        #     "leftTemp": 0.8,
+        #     "rightTemp": 0.8,
+        #     "TransTime": timeSplit,
+        #     "stepSplit": stepSplit,  # tells what proportion of time steps are log vs linear
+        #     "stepType": False, 
+        # }
+        # runName = f'PlanckShort{s}_{g}'
+        # RunSet[runName] = {
+        #     "runLabel": "Planck",
+        #     "Steps": step,
+        #     "Maximum Time": .2,
+        #     "Max Frequency": 30,
+        #     "Min Frequency": 1e-4,
+        #     "Infinite Frequency": 125,
+        #     "Group Spacing": 'log',
+        #     "Match Grid" : True,
+        #     "Number of frequencies": group,
+        #     "Sn": 8,
+        #     "Number of Bins": 100,
+        #     "xMin": -1,
+        #     "xMax": 1,
+        #     "RadTemp": 0.5,
+        #     "MatTemp": 0.4,
+        #     "leftBC": "Planckian",
+        #     "rightBC": "Planckian",
+        #     "leftTemp": 0.8,
+        #     "rightTemp": 0.8,
+        #     "TransTime": timeSplit,
+        #     "stepSplit": stepSplit,  # tells what proportion of time steps are log vs linear
+        #     "stepType": False, 
+        # }
+        # runName = f'PlanckMid{s}_{g}'
+        # RunSet[runName] = {
+        #     "runLabel": "Planck",
+        #     "Steps": step,
+        #     "Maximum Time": .5,
+        #     "Max Frequency": 30,
+        #     "Min Frequency": 1e-4,
+        #     "Infinite Frequency": 125,
+        #     "Group Spacing": 'log',
+        #     "Match Grid" : True,
+        #     "Number of frequencies": group,
+        #     "Sn": 8,
+        #     "Number of Bins": 100,
+        #     "xMin": -1,
+        #     "xMax": 1,
+        #     "RadTemp": 0.5,
+        #     "MatTemp": 0.4,
+        #     "leftBC": "Planckian",
+        #     "rightBC": "Planck",
+        #     "leftTemp": 0.8,
+        #     "rightTemp": 0.8,
+        #     "TransTime": timeSplit,
+        #     "stepSplit": stepSplit,  # tells what proportion of time steps are log vs linear
+        #     "stepType": False, 
+        # }
+        # runName = f'PlanckLong{s}_{g}'
+        # RunSet[runName] = {
+        #     "runLabel": "Planck",
+        #     "Steps": step,
+        #     "Maximum Time": 1.0,
+        #     "Max Frequency": 30,
+        #     "Min Frequency": 1e-4,
+        #     "Infinite Frequency": 125,
+        #     "Group Spacing": 'log',
+        #     "Match Grid" : True,
+        #     "Number of frequencies": group,
+        #     "Sn": 8,
+        #     "Number of Bins": 100,
+        #     "xMin": -1,
+        #     "xMax": 1,
+        #     "RadTemp": 0.5,
+        #     "MatTemp": 0.4,
+        #     "leftBC": "Planckian",
+        #     "rightBC": "Planckian",
+        #     "leftTemp": 0.8,
+        #     "rightTemp": 0.8,
+        #     "TransTime": timeSplit,
+        #     "stepSplit": stepSplit,  # tells what proportion of time steps are log vs linear
+        #     "stepType": False, 
+        # }
 
-# RunSet = {
-#     "ReflectiveShort": {
-#         "runLabel": "Reflective",
-#         "Steps": shortSteps,
-#         "Maximum Time": 1.0,
-#         "Max Frequency": 20,
-#         "Number of frequencies": 100,
-#         "Sn": 8,
-#         "Number of Bins": 100,
-#         "xMin": -1,
-#         "xMax": 1,
-#         "RadTemp": 0.5,
-#         "MatTemp": 0.4,
-#         "leftBC": "Reflective",
-#         "rightBC": "Reflective",
-#         "leftTemp": 0.8,
-#         "rightTemp": 0.8,
-#         "TransTime": timeSplit,
-#         "stepSplit": stepSplit,  # tells what proportion of time steps are log vs linear
-#         "stepType": False, 
-#     },
 
-    # "VacuumShort": {
-    #     "runLabel": "Vacuum",
-    #     "Steps": shortSteps,
-    #     "Maximum Time": 0.1,
-    #     "Max Frequency": 20,
-    #     "Number of frequencies": 100,
-    #     "Sn": 8,
-    #     "Number of Bins": 100,
-    #     "xMin": -1,
-    #     "xMax": 1,
-    #     "RadTemp": 0.5,
-    #     "MatTemp": 0.4,
-    #     "leftBC": "Vacuum",
-    #     "rightBC": "Vacuum",
-    #     "leftTemp": 0.8,
-    #     "rightTemp": 0.8,
-    #     "TransTime": timeSplit,
-    #     "stepSplit": stepSplit,  # tells what proportion of time steps are log vs linear
-    #     "stepType": False, 
-    # },
+
     # "PlanckShort": {
     #     "runLabel" : "Planckian",
     #     "Steps": shortSteps,

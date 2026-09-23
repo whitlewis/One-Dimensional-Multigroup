@@ -129,8 +129,8 @@ def plotTemperatureLoaded(dataSet, paramsSet, fileSet, folderSet, const):
         t = data["timeSet"][:-1] # cell centers
         timeSteps = np.shape(data["timeSet"])[0]
         EradSet = []
-        for i, timeStep in enumerate(data["timeSet"]):
-            Erad = np.sum(data["fullTensorPhi"][i-1], axis=0)
+        for i, timeStep in enumerate(t):
+            Erad = np.sum(data["fullTensorPhi"][i], axis=0)
             EradSet.append(Erad[params["nBins"]//2])  # Store the radiation energy density at the middle spatial bin for each time step
         Trad = (np.array(EradSet)/ const.a / const.c)**0.25
         labelT = f'{file} using {methodName} for {params["groups"]} groups with {timeSteps} steps'
@@ -138,7 +138,7 @@ def plotTemperatureLoaded(dataSet, paramsSet, fileSet, folderSet, const):
         print(f'Temperature set shape: {shape}')  # Debugging print statement to check the shape of temperatureSet
         T = data["temperatureSet"][params["nBins"]//2][:-1]  # Final temperature distribution at the last time step
         plt.plot(t, T, label=labelT)
-        plt.plot(t, Trad[:-1], label=f"{labelT} from Radiation Energy Density with {timeSteps} steps", linestyle='--')
+        plt.plot(t, Trad, label=f"{labelT} from Radiation Energy Density with {timeSteps} steps", linestyle='--')
     plt.xlabel("t (ns)")
     plt.ylabel("Temperature (keV)")
     plt.minorticks_on()

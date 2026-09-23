@@ -151,12 +151,7 @@ class CoupledEquations:
     # Group integrated Planck
     def planckBar(self, T):
         # Integrate the Planck function over each frequency group to get group-averaged source
-        # print(T)
-        # print("h =", self.const.h)
-        # print("a =", self.const.a)
-        # print("c =", self.const.c)
-        # print(f'Shape of freqGrid {self.grid.freqGrid.shape}')
-        # print(f'FreqGrid of 20: {self.grid.freqGrid[20, None]}')
+
         lo = self.grid.freqGrid[:-1, None]
         hi = self.grid.freqGrid[1:, None]
 
@@ -165,19 +160,14 @@ class CoupledEquations:
         )
         integrand = lambda nu: self.planck(nu, T)
         bbar = self.simpson(integrand, lo, hi)
-        # plt.plot(freqGroups, bbar)
-        # plt.title("SM init")
-        # plt.xlim(0, 12)
-        # plt.ylim(0, 1e-3)
-        # plt.show()
-        # assert 0
         return bbar
 
 
     # Function for initial Condition as Planckian (helper for initialCondition)  
     def initSpectra(self):
         T0 = self.params.radiationTemperature
-        planck = self.planckBar(T0)
+        Tc = self.params.colorTemperature
+        planck = self.planckBar(Tc)
         self.grid.fullTensor[:] = planck[:, None]
         return self.grid.fullTensor.copy()
     
@@ -488,7 +478,8 @@ class MovingMeshEquations:
     # Function for initial Condition as Planckian (helper for initialCondition)  
     def initSpectra(self):
         T0 = self.params.radiationTemperature
-        planck = self.planckBarInit(T0) 
+        Tc = self.params.colorTemperature
+        planck = self.planckBarInit(Tc) 
         self.grid.fullTensor[:] = planck[:, None]
         return self.grid.fullTensor.copy()
     
@@ -503,22 +494,22 @@ class MovingMeshEquations:
         )
 
         # Expected radiation energy density per spatial cell
-        EradExpectedPerCell = self.const.a * T0**4
+        EradExpectedPerCell = self.const.a * self.const.c * T0**4
         EradExpected = self.params.nBins * EradExpectedPerCell
 
         # Energy represented by the current angular intensity tensor
-        currentEnergy = np.sum(self.getPhi()) / self.const.c
+        currentEnergy = np.sum(self.getPhi())
 
         # Scale the tensor so that its total radiation energy is exactly a*T^4
         mult = EradExpected / currentEnergy
         self.grid.fullTensor *= mult
 
         # Check the resulting energy
-        totalEnergy = np.sum(self.getPhi()) / self.const.c
+        totalEnergy = np.sum(self.getPhi())
 
         # Analytical energy from the integrated VCM Planck function
         planckEnergyPerCell = (
-            4.0 * np.pi / self.const.c
+            4.0 * np.pi
         ) * np.sum(groupEnergies)
 
         planckEnergy = planckEnergyPerCell * self.params.nBins
@@ -526,7 +517,7 @@ class MovingMeshEquations:
         # Radiation temperature after scaling
         radTemp = (
             totalEnergy /
-            (self.params.nBins * self.const.a)
+            (self.params.nBins * self.const.a * self.const.c)
         )**0.25
 
         print(f"Analytical Planck energy: {planckEnergy:.6e}")
@@ -553,7 +544,7 @@ class MovingMeshEquations:
     # Helper function to define initial conditions
     def applyInitialConditions(self):
         self.grid.fullTensor = self.initialCondition()
-        # self.energyInitialCondition()
+        self.energyInitialCondition()
         self.grid.fullTensorPhi = self.getPhi()
         self.fullTens = self.grid.fullTensor.copy()
         self.psi_old = self.grid.fullTensor.copy()

@@ -20,6 +20,7 @@ class Parameters:
         self.initialTemperature = 0.4      # material temperature
         self.radiationTemperature = 0.5     # Radiation temperature
         self.sourceTemp = 0.5
+        self.colorTemperature = 0.5
 
         # Spatial grid parameters
         self.xMin = -1
@@ -37,8 +38,9 @@ class Parameters:
         self.groupSpace = 'log' # log or linear
         self.freqNum = 100
         self.minFreq = 1e-8
-        self.maxFreq = 20
+        self.maxFreq = 35
         self.infFreq = 125
+        self.matchNu = True
     
 
         # Time stepping parameters

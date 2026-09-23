@@ -34,6 +34,11 @@ class Grid:
         else:
             self.freqGrid = np.array([1e-3, parameters.maxFreq])  # single frequency case
 
+
+        if parameters.matchNu and parameters.fileFolder == "InfiniteVariable":
+            T = parameters.initialTemperature
+            self.freqGrid = self.freqGrid / T
+
         # Gives midpoints of frequency groups no matter number
         self.freqGroups = 0.5 * (self.freqGrid[:-1] + self.freqGrid[1:])
         self.du = np.diff(self.freqGrid)  # frequency group widths
@@ -112,7 +117,7 @@ class Base:
             diff = np.abs((self.grid.fullTensor - self.grid.fullTensOld))
             err = np.max(diff)    # directly compare the full values for convergence (Space, angle, and frequency group convergence)
             if self.params.iterationCheck == True:
-                if it % 10 == 0:
+                if it % 2 == 0:
 
                     print(f"Time step {self.index}, Iteration {it}, Error change: {self.err - err:.2e}")
                     print(f'Old error: {self.err}, New error{err}, Mean Error {np.mean(diff)}')
@@ -133,7 +138,7 @@ class Base:
                 print("a =",self.grid.fullTensor)
                 print("b =", self.grid.fullTensOld)
                 print("result =", err)
-            if err < self.params.tol:
+            if err < self.params.tol and it >= 2:
                 if it > 40: print(f"Converged in {it} iterations")
                 break
             if it % 2 == 0:
@@ -153,6 +158,11 @@ class Base:
                     self.errorStag = 0
                     break
             self.err = err
+
+
+        self.grid.fullTensOld = self.grid.fullTensor   # Do I need this?
+
+
         if it == self.params.maxIters - 1:
             print(f"⚠️ WARNING: Did not converge in {self.params.maxIters} iterations, final error: {err:.2e}")
         if self.params.iterationCheck == True:
@@ -289,6 +299,7 @@ class Base:
             f.attrs["runLabel"] = self.params.runLabel
             f.attrs["groups"] = self.params.freqNum
             f.attrs["solveType"] = self.params.fileFolder
+            f.attrs["solveTime"] = self.runTime
 
     
 
