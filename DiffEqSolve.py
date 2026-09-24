@@ -1,6 +1,7 @@
 import numpy as np
 from numba import njit, jit
 import matplotlib.pyplot as plt
+from scipy.integrate import solve_ivp
 
 import Base as Base
 
@@ -35,27 +36,84 @@ def planckBar(T, freqGrid):
     bbar = simpson(integrand, lo, hi)
     return bbar
 
+# Planckian for opacity calculation
+def planckg(T, freqGrid):
+    # Calculate the Planck function for each frequency group
+    # FIX: Broadcast frequency as column (freqNum, 1) against T (nBins,) -> Result is (freqNum, nBins)
+    nu_lo = freqGrid[:-1, None] / T
+    nu_hi = freqGrid[1:, None] / T
+    integrand = lambda nu: (15.0 * nu**3) / np.pi**4 /  np.expm1(nu)
+    bg = simpson(integrand, nu_lo, nu_hi)
+    return bg  # Shape is now (freqNum, nBins)
 
-def IMProblem(y, freqGrid, material):
+def sigma_a(freqGrid, T, inputDict): 
+    nu_lo = freqGrid[:-1, None]
+    nu_hi = freqGrid[1:, None]
+    sigma_aZero = 10 * np.ones((inputDict["freqNum"], inputDict["nBins"]))
+    denom = np.sqrt(T) * planckg()
+    num = sigma_aZero * (np.exp(-nu_lo/T)-np.exp(-nu_hi/T))
+    out = np.clip(num / denom, a_min=1e-4, a_max=1e8)
+    # out = np.ones(out.shape) * 100  # For testing purposes, set all opacities to a constant value
+    return out
+
+
+def IMProblem(y, freqGrid, sigmaFunction):
     const = Base.Constants
 
     T = y[-1]
     phi = y[:-1]
+    C_v = 0.01
 
     planckSet = planckBar(T, freqGrid)
-    sigmaSet = material.sigma_a(freqGrid, T)
+    sigmaSet = sigmaFunction(freqGrid, T)
 
     yOut = np.zeros(len(phi))
     yOut[:-1] = const.c * sigmaSet * (4 * np.pi * planckSet - phi)
-    yOut[-1] = const.c * (np.sum(sigmaSet * phi) - np.sum(sigmaSet * planckBar)) / material.C_v(T)
+    yOut[-1] = const.c * (np.sum(sigmaSet * phi) - np.sum(sigmaSet * planckBar)) / C_v
     return yOut
 
 
 
 
-def IMSolve(params, grid, material):
+def IMSolve(sigmaFunction, inputDict):
     const = Base.Constants
-    T = params.initialTemperature
-    Trad = params.radiationTemperature
-    freqGrid = grid.freqGrid
+    T = inputDict["initialTemperature"]
+    Trad = inputDict["radiationTemperature"]
+    freqGrid = inputDict["freqGrid"]
+    t_span = (0, inputDict["timeMax"])
+    t_eval = inputDict["timeSet"]
+    y0 = planckBar(Trad, freqGrid)
 
+    solve_Clark = lambda y: IMProblem(y, freqGrid, sigmaFunction)
+    solution = solve_ivp(solve_Clark, t_span, y0, method='BDF', t_eval=t_eval)
+
+
+minFreq = 1e-4
+maxFreq = 30
+infFreq = 125
+freqNum = 100
+
+inputDictTest = {
+    'initialTemperature': 0.4,
+    "radiationTemperature": 0.5,
+    "freqGrid": np.append(np.linspace(minFreq, maxFreq, freqNum), infFreq),
+    'minFreq' : 1e-4,
+    'maxFreq' : 30,
+    'infFreq' : 125,
+    'freqNum' : 100
+}
+const = Base.constants
+solution = IMSolve(sigma_a, inputDictTest)
+t = solution.t
+T = solution.y[-1]
+Tr = (np.sum(solution.y[0:100],axis=0)/ const.a)**.25
+# Plot the results
+plt.figure(figsize=(10, 6))
+plt.plot(t, T, label='T(t)', color='blue')
+plt.plot(t, Tr, label='Tr(t)', color='red')
+plt.title("100 group problem", fontsize=16)
+plt.xlabel("Time t (sh)", fontsize=14)
+plt.ylabel("T (keV)", fontsize=14)
+plt.legend(fontsize=12)
+plt.grid()
+plt.show()
