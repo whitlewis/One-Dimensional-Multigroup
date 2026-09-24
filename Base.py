@@ -102,62 +102,64 @@ class Base:
     
     def converge(self):
         for it in range(self.params.maxIters):
+            if it >= 1:
 
-            # update Temperature and get Q* if material coupled
-            if self.params.materialCoupled:
-                self.rhs = self.grid.rhs.copy()
-                self.problem.equations.rhsUpdate()
-            # Perform the radiation sweep to get the new solution
-            self.problem.equations.radiationSweep()
-            if self.params.checkEnergy and self.index % self.params.energyCheckFreq == 0 and it==0:  # Check energy conservation every 50 time steps
-                self.checkEnergyConservation()
-            if self.params.materialCoupled:
-                self.T_next = self.grid.T_next.copy()
-                self.problem.equations.materialEquation() # update material temperature after radiation sweep
-            diff = np.abs((self.grid.fullTensor - self.grid.fullTensOld))
-            err = np.max(diff)    # directly compare the full values for convergence (Space, angle, and frequency group convergence)
-            if self.params.iterationCheck == True:
-                if it % 2 == 0:
+                # update Temperature and get Q* if material coupled
+                if self.params.materialCoupled:
+                    self.rhs = self.grid.rhs.copy()
+                    self.problem.equations.rhsUpdate()
+                # Perform the radiation sweep to get the new solution
+                self.problem.equations.radiationSweep()
+                if self.params.checkEnergy and self.index % self.params.energyCheckFreq == 0 and it==0:  # Check energy conservation every 50 time steps
+                    self.checkEnergyConservation()
+                if self.params.materialCoupled:
+                    self.T_next = self.grid.T_next.copy()
+                    self.problem.equations.materialEquation() # update material temperature after radiation sweep
+                diff = np.abs((self.grid.fullTensor - self.grid.fullTensOld))
+                err = np.max(diff)    # directly compare the full values for convergence (Space, angle, and frequency group convergence)
+                if self.params.iterationCheck == True:
+                    if it % 2 == 0:
 
-                    print(f"Time step {self.index}, Iteration {it}, Error change: {self.err - err:.2e}")
-                    print(f'Old error: {self.err}, New error{err}, Mean Error {np.mean(diff)}')
-                    self.err = err  # Store the error for external access if needed
-                    max_idx = np.unravel_index(np.argmax(diff), diff.shape)
+                        print(f"Time step {self.index}, Iteration {it}, Error change: {self.err - err:.2e}")
+                        print(f'Old error: {self.err}, New error{err}, Mean Error {np.mean(diff)}')
+                        self.err = err  # Store the error for external access if needed
+                        max_idx = np.unravel_index(np.argmax(diff), diff.shape)
 
-                    val_new = self.grid.fullTensor[max_idx]
-                    val_old = self.grid.fullTensOld[max_idx]
+                        val_new = self.grid.fullTensor[max_idx]
+                        val_old = self.grid.fullTensOld[max_idx]
 
-                    print(f"Max Error: {err:.6e}")
-                    print(f"Occurred at Index: {max_idx}")
-                    print(f"  fullTensor: {val_new}")
-                    print(f"  fullTensOld: {val_old}")
-            if np.isnan(err).any() or np.isinf(err).any():
-                name = "Convergence Check"
-                print("\n⚠️ INVALID RESULT DETECTED")
-                print("Operation:", name)
-                print("a =",self.grid.fullTensor)
-                print("b =", self.grid.fullTensOld)
-                print("result =", err)
-            if err < self.params.tol and it >= 2:
-                if it > 40: print(f"Converged in {it} iterations")
-                break
-            if it % 2 == 0:
-                self.errorLag = err
-            if abs(self.err - err) < 1e-40 and abs(self.errorLag - err) < 1e-40:
-                self.errorStag += 1
-                if self.errorStag > 4:
-                    if it % 100 == 0:
-                        print(f'Not further trending toward convergence, breaking loop and Moving to next step after {it} iterations, final error: {err}')
-                    if err > 10.00:
-                        self.params.fileFolder = self.params.fileFolder + "Failed"
-                        self.params.runName = self.params.runName + "Failed"
-                        
-                        self.saveResults()
-                        raise ValueError(f'Change Iteration is not converging to reasonable value, try a smaller time step. Final iteration difference: {err}')
-
-                    self.errorStag = 0
+                        print(f"Max Error: {err:.6e}")
+                        print(f"Occurred at Index: {max_idx}")
+                        print(f"  fullTensor: {val_new}")
+                        print(f"  fullTensOld: {val_old}")
+                if np.isnan(err).any() or np.isinf(err).any():
+                    name = "Convergence Check"
+                    print("\n⚠️ INVALID RESULT DETECTED")
+                    print("Operation:", name)
+                    print("a =",self.grid.fullTensor)
+                    print("b =", self.grid.fullTensOld)
+                    print("result =", err)
+                if err < self.params.tol and it >= 2:
+                    if it > 40: print(f"Converged in {it} iterations")
                     break
-            self.err = err
+                if it % 2 == 0:
+                    self.errorLag = err
+                if abs(self.err - err) < 1e-40 and abs(self.errorLag - err) < 1e-40:
+                    self.errorStag += 1
+                    if self.errorStag > 4:
+                        if it % 100 == 0:
+                            print(f'Not further trending toward convergence, breaking loop and Moving to next step after {it} iterations, final error: {err}')
+                        if err > 10.00:
+                            self.params.fileFolder = self.params.fileFolder + "Failed"
+                            self.params.runName = self.params.runName + "Failed"
+                            print("Solve Failed")
+                            self.runTime = 1.0
+                            self.saveResults()
+                            raise ValueError(f'Change Iteration is not converging to reasonable value, try a smaller time step. Final iteration difference: {err}')
+
+                        self.errorStag = 0
+                        break
+                self.err = err
 
 
         self.grid.fullTensOld = self.grid.fullTensor   # Do I need this?

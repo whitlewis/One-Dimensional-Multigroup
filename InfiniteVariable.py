@@ -94,7 +94,7 @@ class Material:
         T = self.grid.temperatureSet[:, self.grid.timeStep]   # Get the nu from u grid
         nu_lo = self.grid.freqGrid[:-1, None] * T
         nu_hi = self.grid.freqGrid[1:, None] * T
-        sigma_aZero = np.ones((self.params.freqNum, self.params.nBins))
+        sigma_aZero = 10 * np.ones((self.params.freqNum, self.params.nBins))
         denom = np.sqrt(T) * self.planckg()
         num = sigma_aZero * (np.exp(-nu_lo/T)-np.exp(-nu_hi/T))
         out = np.clip(num / denom, a_min = 1.0e-8, a_max=1.0e9)  # Avoid division by zero and ensure non-negative opacities
