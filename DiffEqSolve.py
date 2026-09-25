@@ -85,24 +85,33 @@ def IMSolve(sigmaFunction, inputDict):
     y0 = planckBar(Trad, freqGrid)
 
     solve_Clark = lambda y: IMProblem(y, freqGrid, sigmaFunction)
+    print("Starting Solve")
     solution = solve_ivp(solve_Clark, t_span, y0, method='BDF', t_eval=t_eval)
+    return solution
 
 
 minFreq = 1e-4
 maxFreq = 30
 infFreq = 125
 freqNum = 100
+timeMax = 1.0
+timeNum = 1000
+
+
 
 inputDictTest = {
     'initialTemperature': 0.4,
     "radiationTemperature": 0.5,
     "freqGrid": np.append(np.linspace(minFreq, maxFreq, freqNum), infFreq),
-    'minFreq' : 1e-4,
-    'maxFreq' : 30,
-    'infFreq' : 125,
-    'freqNum' : 100
+    'minFreq' : minFreq,
+    'maxFreq' : maxFreq,
+    'infFreq' : infFreq,
+    'freqNum' : freqNum,
+    'timeMax': timeMax,
+    'timeNum': timeNum,
+    'timeSet': np.linspace(0, timeMax, timeNum)
 }
-const = Base.constants
+const = Base.Constants
 solution = IMSolve(sigma_a, inputDictTest)
 t = solution.t
 T = solution.y[-1]
