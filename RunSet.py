@@ -108,12 +108,11 @@ def ExecuteRunSetParallel(runSet):
     return results
 
 
-shortSteps = 1000
-midShort = 3000
+
 stepSplit = 1.0
 timeSplit = 1.0
 
-stepSet = [3000]
+stepSet = [2000]
 groupSet = [100]
 # groupSet = [100]
 # stepSet = [1000]
@@ -126,7 +125,7 @@ for step in stepSet:
     s += 1
     for group in groupSet:
         g += 1
-        runName = f"FigMatch{s}_{g}"
+        runName = f"SetOpacity{s}_{g}"
         RunSet[runName] = {
             "runLabel": "Reflective",
             "Steps": step,

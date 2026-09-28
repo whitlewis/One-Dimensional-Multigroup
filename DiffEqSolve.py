@@ -26,8 +26,8 @@ def planck(nu, T):  # Planck function (not group integrated or weighted)
 def planckBar(T, freqGrid):
     # Integrate the Planck function over each frequency group to get group-averaged source
 
-    lo = freqGrid[:-1, None]
-    hi = freqGrid[1:, None]
+    lo = freqGrid[:-1]
+    hi = freqGrid[1:]
 
     freqGroups = 0.5 * (
         freqGrid[:-1] + freqGrid[1:]
@@ -40,89 +40,122 @@ def planckBar(T, freqGrid):
 def planckg(T, freqGrid):
     # Calculate the Planck function for each frequency group
     # FIX: Broadcast frequency as column (freqNum, 1) against T (nBins,) -> Result is (freqNum, nBins)
-    nu_lo = freqGrid[:-1, None] / T
-    nu_hi = freqGrid[1:, None] / T
+    nu_lo = freqGrid[:-1] / T
+    nu_hi = freqGrid[1:] / T
     integrand = lambda nu: (15.0 * nu**3) / np.pi**4 /  np.expm1(nu)
     bg = simpson(integrand, nu_lo, nu_hi)
     return bg  # Shape is now (freqNum, nBins)
 
 def sigma_a(freqGrid, T, inputDict): 
-    nu_lo = freqGrid[:-1, None]
-    nu_hi = freqGrid[1:, None]
-    sigma_aZero = 10 * np.ones((inputDict["freqNum"], inputDict["nBins"]))
-    denom = np.sqrt(T) * planckg()
-    num = sigma_aZero * (np.exp(-nu_lo/T)-np.exp(-nu_hi/T))
-    out = np.clip(num / denom, a_min=1e-4, a_max=1e8)
-    # out = np.ones(out.shape) * 100  # For testing purposes, set all opacities to a constant value
+    # nu_lo = freqGrid[:-1]
+    # nu_hi = freqGrid[1:]
+    # sigma_aZero = 10 * np.ones(inputDict["freqNum"])
+    # denom = np.sqrt(T) * planckg(T, freqGrid)
+    # num = sigma_aZero * (np.exp(-nu_lo/T)-np.exp(-nu_hi/T))
+    # out = np.clip(num / denom, a_min=1e-4, a_max=1e8)
+    out = np.ones(inputDict["freqNum"]) * 1  # For testing purposes, set all opacities to a constant value
     return out
 
 
-def IMProblem(y, freqGrid, sigmaFunction):
+def IMProblem(t, y, freqGrid, sigmaFunction, inputDict):
     const = Base.Constants
 
     T = y[-1]
     phi = y[:-1]
-    C_v = 0.01
+    C_v = .01
 
     planckSet = planckBar(T, freqGrid)
-    sigmaSet = sigmaFunction(freqGrid, T)
+    sigmaSet = sigmaFunction(freqGrid, T, inputDict)
 
-    yOut = np.zeros(len(phi))
+    yOut = np.zeros(len(phi) + 1)
     yOut[:-1] = const.c * sigmaSet * (4 * np.pi * planckSet - phi)
-    yOut[-1] = const.c * (np.sum(sigmaSet * phi) - np.sum(sigmaSet * planckBar)) / C_v
+    yOut[-1] = (np.sum(sigmaSet * phi) - 4* np.pi *np.sum(sigmaSet * planckSet)) / C_v
     return yOut
 
 
 
 
-def IMSolve(sigmaFunction, inputDict):
+def IMSolve(inputDict):
     const = Base.Constants
     T = inputDict["initialTemperature"]
     Trad = inputDict["radiationTemperature"]
+    Tc = inputDict["colorTemperature"]
     freqGrid = inputDict["freqGrid"]
     t_span = (0, inputDict["timeMax"])
     t_eval = inputDict["timeSet"]
-    y0 = planckBar(Trad, freqGrid)
+    y0 = np.zeros(inputDict["freqNum"] + 1)
+    Erad = const.a * const.c * T**4
+    planckInit = 4 * np.pi * planckBar(Trad, freqGrid).flatten()
+    colorInit = 4 * np.pi * planckBar(Tc, freqGrid).flatten()
+    colorInit *= np.sum(planckInit) / np.sum(colorInit)
+    freqGroups = .5* (freqGrid[1:] + freqGrid[:-1])
+    # plt.plot(freqGroups, colorInit, label = "color", linestyle="--")
+    # plt.plot(freqGroups, planckInit, label = "PlanckBar")
+    # plt.xlim(0,15)
+    # plt.legend()
+    # plt.show()
 
-    solve_Clark = lambda y: IMProblem(y, freqGrid, sigmaFunction)
+    y0[:-1] = colorInit
+    y0[-1] = T
+    solve_Clark = lambda t, y: IMProblem(t, y, freqGrid, sigma_a, inputDict)
     print("Starting Solve")
-    solution = solve_ivp(solve_Clark, t_span, y0, method='BDF', t_eval=t_eval)
+    solution = solve_ivp(solve_Clark, t_span, y0, method='BDF', t_eval=t_eval, rtol=1e-6,
+    atol=1e-10)
     return solution
 
 
-minFreq = 1e-4
-maxFreq = 30
-infFreq = 125
-freqNum = 100
-timeMax = 1.0
-timeNum = 1000
+def plotEnergy(inputDict, solution):
+    const = Base.Constants
+    Erad = np.sum(solution.y[:-1], axis=0) / const.c
+    Emat = 0.01 * solution.y[-1]
+    Etot = Erad + Emat
+
+    plt.figure()
+    plt.plot(inputDict['timeSet'], Erad, label="Radiation")
+    plt.plot(inputDict['timeSet'], Emat, label="Material")
+    plt.plot(inputDict['timeSet'], Etot, label="Total")
+    plt.legend()
+    plt.show()
+
+def plotRad():
+    minFreq = 1e-4
+    maxFreq = 25
+    infFreq = 125
+    freqNum = 100
+    timeMax = 1.0
+    timeNum = 100000
 
 
 
-inputDictTest = {
-    'initialTemperature': 0.4,
-    "radiationTemperature": 0.5,
-    "freqGrid": np.append(np.linspace(minFreq, maxFreq, freqNum), infFreq),
-    'minFreq' : minFreq,
-    'maxFreq' : maxFreq,
-    'infFreq' : infFreq,
-    'freqNum' : freqNum,
-    'timeMax': timeMax,
-    'timeNum': timeNum,
-    'timeSet': np.linspace(0, timeMax, timeNum)
-}
-const = Base.Constants
-solution = IMSolve(sigma_a, inputDictTest)
-t = solution.t
-T = solution.y[-1]
-Tr = (np.sum(solution.y[0:100],axis=0)/ const.a)**.25
-# Plot the results
-plt.figure(figsize=(10, 6))
-plt.plot(t, T, label='T(t)', color='blue')
-plt.plot(t, Tr, label='Tr(t)', color='red')
-plt.title("100 group problem", fontsize=16)
-plt.xlabel("Time t (sh)", fontsize=14)
-plt.ylabel("T (keV)", fontsize=14)
-plt.legend(fontsize=12)
-plt.grid()
-plt.show()
+    inputDictTest = {
+        'colorTemperature' : 1.0,
+        'initialTemperature': 0.4,
+        "radiationTemperature": 0.5,
+        "freqGrid": np.append(np.linspace(minFreq, maxFreq, freqNum), infFreq),
+        'minFreq' : minFreq,
+        'maxFreq' : maxFreq,
+        'infFreq' : infFreq,
+        'freqNum' : freqNum,
+        'timeMax': timeMax,
+        'timeNum': timeNum,
+        'timeSet': np.geomspace(1e-14, timeMax, timeNum)
+    }
+
+    const = Base.Constants
+    solution = IMSolve(inputDictTest)
+
+    t = solution.t
+    T = solution.y[-1]
+    Tr = (np.sum(solution.y[:-1],axis=0)/ const.a / const.c)**.25
+    # Plot the results
+    plt.figure(figsize=(10, 6))
+    plt.plot(t, T, label='T(t)', color='blue')
+    plt.plot(t, Tr, label='Tr(t)', color='red')
+    plt.title("100 group problem", fontsize=16)
+    plt.xlabel("Time t (ns)", fontsize=14)
+    plt.ylabel("T (keV)", fontsize=14)
+    plt.legend(fontsize=12)
+    plt.grid()
+    plt.show()
+
+# plotRad()

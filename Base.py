@@ -102,7 +102,7 @@ class Base:
     
     def converge(self):
         for it in range(self.params.maxIters):
-            if it >= 1:
+            if it >= 2:
 
                 # update Temperature and get Q* if material coupled
                 if self.params.materialCoupled:

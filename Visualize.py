@@ -4,6 +4,7 @@ from matplotlib.ticker import ScalarFormatter
 from datetime import datetime
 from matplotlib.animation import FuncAnimation
 from Base import Constants as const
+import DiffEqSolve as diffEq
 
 # Plot Stuff
 import os
@@ -116,6 +117,37 @@ def plotTemperature(grid):
     plt.savefig(filename)
     plt.show()
 
+def getDiffeq(const, tmax):
+    minFreq = 1e-4
+    maxFreq = 25
+    infFreq = 125
+    freqNum = 100
+    timeMax = tmax
+    timeNum = 100000
+
+
+
+    inputDictTest = {
+        'colorTemperature' : 1.0,
+        'initialTemperature': 0.4,
+        "radiationTemperature": 0.5,
+        "freqGrid": np.append(np.linspace(minFreq, maxFreq, freqNum), infFreq),
+        'minFreq' : minFreq,
+        'maxFreq' : maxFreq,
+        'infFreq' : infFreq,
+        'freqNum' : freqNum,
+        'timeMax': timeMax,
+        'timeNum': timeNum,
+        'timeSet': np.geomspace(1e-14, timeMax, timeNum)
+    }
+
+
+    solution = diffEq.IMSolve(inputDictTest)
+    t = solution.t
+    T = solution.y[-1]
+    Tr = (np.sum(solution.y[:-1],axis=0)/ const.a / const.c)**.25
+    return t, T, Tr
+
 def plotTemperatureLoaded(dataSet, paramsSet, fileSet, folderSet, const):
     for i, data in enumerate(dataSet):
         params = paramsSet[i]
@@ -139,6 +171,13 @@ def plotTemperatureLoaded(dataSet, paramsSet, fileSet, folderSet, const):
         T = data["temperatureSet"][params["nBins"]//2][:-1]  # Final temperature distribution at the last time step
         plt.plot(t, T, label=labelT)
         plt.plot(t, Trad, label=f"{labelT} from Radiation Energy Density with {timeSteps} steps", linestyle='--')
+
+    # Diff Eq solve Plot
+    t, T, Tr = getDiffeq(const, np.max(t))
+    plt.plot(t, T, label="0-D Solve")
+    plt.plot(t, Tr, label="O-D Rad Temperature")
+
+
     plt.xlabel("t (ns)")
     plt.ylabel("Temperature (keV)")
     plt.minorticks_on()
