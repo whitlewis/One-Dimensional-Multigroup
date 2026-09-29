@@ -47,13 +47,13 @@ def planckg(T, freqGrid):
     return bg  # Shape is now (freqNum, nBins)
 
 def sigma_a(freqGrid, T, inputDict): 
-    # nu_lo = freqGrid[:-1]
-    # nu_hi = freqGrid[1:]
-    # sigma_aZero = 10 * np.ones(inputDict["freqNum"])
-    # denom = np.sqrt(T) * planckg(T, freqGrid)
-    # num = sigma_aZero * (np.exp(-nu_lo/T)-np.exp(-nu_hi/T))
-    # out = np.clip(num / denom, a_min=1e-4, a_max=1e8)
-    out = np.ones(inputDict["freqNum"]) * 1  # For testing purposes, set all opacities to a constant value
+    nu_lo = freqGrid[:-1]
+    nu_hi = freqGrid[1:]
+    sigma_aZero = 10 * np.ones(inputDict["freqNum"])
+    denom = np.sqrt(T) * planckg(T, freqGrid)
+    num = sigma_aZero * (np.exp(-nu_lo/T)-np.exp(-nu_hi/T))
+    out = np.clip(num / denom, a_min=1e-4, a_max=1e8)
+    # out = np.ones(inputDict["freqNum"]) * 1  # For testing purposes, set all opacities to a constant value
     return out
 
 
@@ -158,4 +158,3 @@ def plotRad():
     plt.grid()
     plt.show()
 
-# plotRad()

@@ -154,9 +154,9 @@ def plotTemperatureLoaded(dataSet, paramsSet, fileSet, folderSet, const):
         file = fileSet[i]
         folder = folderSet[i]
         if folder == "InfiniteMedium":
-            methodName = "SM"
+            methodName = "MG"
         else:
-            methodName = "VCM"
+            methodName = "VMG"
 
         t = data["timeSet"][:-1] # cell centers
         timeSteps = np.shape(data["timeSet"])[0]
@@ -174,8 +174,8 @@ def plotTemperatureLoaded(dataSet, paramsSet, fileSet, folderSet, const):
 
     # Diff Eq solve Plot
     t, T, Tr = getDiffeq(const, np.max(t))
-    plt.plot(t, T, label="0-D Solve")
-    plt.plot(t, Tr, label="O-D Rad Temperature")
+    plt.plot(t, T, label="0-D Solve", linestyle="--")
+    plt.plot(t, Tr, label="0-D Rad Temperature")
 
 
     plt.xlabel("t (ns)")

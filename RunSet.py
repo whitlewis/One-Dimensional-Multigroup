@@ -113,7 +113,7 @@ stepSplit = 1.0
 timeSplit = 1.0
 
 stepSet = [2000]
-groupSet = [100]
+groupSet = [10, 25, 50, 100]
 # groupSet = [100]
 # stepSet = [1000]
 
@@ -125,7 +125,7 @@ for step in stepSet:
     s += 1
     for group in groupSet:
         g += 1
-        runName = f"SetOpacity{s}_{g}"
+        runName = f"GroupCompare{s}_{g}"
         RunSet[runName] = {
             "runLabel": "Reflective",
             "Steps": step,
