@@ -58,7 +58,53 @@ def sigma_a(freqGrid, T, inputDict):
 
 def MMSBase(tSet, T0, freqGrid):
     const = Base.Constants
-    tau = 0
+    tau = 2
     Trad = T0*(1 + np.exp((-tau * tSet)/2))
     Tmat = T0*(1 - np.exp((-tau * tSet)/2))
-    psi = const.c / 4 /np.pi * (planckBar(Tmat, freqGrid)) * Tmat
+    return tSet, Trad, Tmat
+
+def MMSSource(T0, T, TM1, t, dt , w, sigmaG, Cv, freqGrid):
+
+    const = Base.Constants
+    tau = 1
+    c = np.exp((-tau * t)/2)
+    Bg = planckBar(T, freqGrid)
+    BgM1 = planckBar(TM1, freqGrid)
+
+    # Constituent Parts
+    dtBg = (Bg - BgM1) / dt
+    dtT = tau * T0 / 2 * c
+    dtPsi = const.c / 4 / np.pi * (Bg - dtBg * c + Bg * tau / 2 * c)
+    phig = getPhi(w, freqGrid)
+    psig = const.c / 4 /np.pi * (Bg) * (1 - c)
+
+    # Sources
+    S = 1 / const.c * dtPsi  - 4 * np.pi * sigmaG * Bg + sigmaG * psig
+    Q = Cv * dtT - np.sum(sigmaG * phig - 4 * np.pi * sigmaG * Bg)
+
+    return S, Q
+
+def MMSPlot():
+    tSet, tMin, tMax = 0, 1.0
+    tNum = 1000
+    T0 = 0.5
+    tSet = np.linspace(tMin, tMax, tNum)
+    Trad, Tmat = MMSBase(tSet, T0, 0)
+    plt.plot(tSet, Tmat, label="MMS Material")
+    plt.plot(tSet, Trad, label="MMS Radiation Temperature")
+    plt.xlabel("t (ns)")
+    plt.ylabel("Temperature (keV)")
+    plt.minorticks_on()
+
+    plt.tick_params(
+        which="both",
+        direction="in",
+        top=True,
+        right=True
+    )
+
+    plt.legend(
+        frameon=False,
+        loc="best"
+    )
+    plt.show()

@@ -177,7 +177,7 @@ def plotTemperatureLoaded(dataSet, paramsSet, fileSet, folderSet, const):
     plt.plot(t, T, label="0-D Solve", linestyle="--")
     plt.plot(t, Tr, label="0-D Rad Temperature")
 
-
+    plt.ylim(.35, 0.55)
     plt.xlabel("t (ns)")
     plt.ylabel("Temperature (keV)")
     plt.minorticks_on()

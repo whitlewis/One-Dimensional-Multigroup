@@ -112,7 +112,7 @@ def ExecuteRunSetParallel(runSet):
 stepSplit = 1.0
 timeSplit = 1.0
 
-stepSet = [2000]
+stepSet = [2500]
 groupSet = [10, 25, 50, 100]
 # groupSet = [100]
 # stepSet = [1000]
@@ -125,7 +125,7 @@ for step in stepSet:
     s += 1
     for group in groupSet:
         g += 1
-        runName = f"GroupCompare{s}_{g}"
+        runName = f"GroupCompareSmoothOpacity{s}_{g}"
         RunSet[runName] = {
             "runLabel": "Reflective",
             "Steps": step,
