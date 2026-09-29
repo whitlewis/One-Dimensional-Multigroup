@@ -111,7 +111,7 @@ def getRank(array):
 # print(f'Rank of Standard Planckian: {RGM}')
 
 minFreq = 1e-4
-maxFreq = 18
+maxFreq = 10
 freqNum = 1000
 infFreq = 125
 Tmat = 0.4

@@ -26,7 +26,7 @@ def setRun(params, runName, config):
     params.infFreq = config["Infinite Frequency"]
     params.nSteps = config["Steps"]
     params.timeMax = config["Maximum Time"]
-    params.logLinTime = config["TransTime"]
+    params.timeSplit = config["TransTime"]
     params.stepSplit = config["stepSplit"]  # tells what proportion of time steps are log vs linear
     params.splitStepsBool = config["stepType"]  # tells whether to split time stepping
     params.maxFreq = config["Max Frequency"]
@@ -38,11 +38,16 @@ def setRun(params, runName, config):
     params.setRightBoundaryTemp = config["rightTemp"]
     params.nBins = config["Number of Bins"]
     params.xMin = config["xMin"]
+    params.xMax = config["xMax"]
     params.initialTemperature = config["MatTemp"]
     params.radiationTemperature = config["RadTemp"]
     params.colorTemperature = config["ColorTemp"]
 
-    params.xMax = config["xMax"]
+    # Debug params
+    params.constantScale = config["constantScale"]
+    params.scaleTemp = config["scaleTemp"]
+    params.MMSCompare = config["MMSCompare"]
+
 
     # Choose to save
     params.saveResults = True
@@ -109,8 +114,8 @@ def ExecuteRunSetParallel(runSet):
 
 
 
-stepSplit = 1.0
-timeSplit = 1.0
+stepSplit = 0.8
+timeSplit = 0.5
 
 stepSet = [2500]
 groupSet = [10, 25, 50, 100]
@@ -130,11 +135,11 @@ for step in stepSet:
             "runLabel": "Reflective",
             "Steps": step,
             "Maximum Time": 1.0,
-            "Max Frequency": 30,
+            "Max Frequency": 35,
             "Min Frequency": 1e-4,
-            "Infinite Frequency": 125,
+            "Infinite Frequency": 85,
             "Group Spacing": 'log',
-            "Match Grid" : True,
+            "Match Grid" : False,
             "Number of frequencies": group,
             "Sn": 8,
             "Number of Bins": 200,
@@ -150,6 +155,9 @@ for step in stepSet:
             "TransTime": timeSplit,
             "stepSplit": stepSplit,  # tells what proportion of time steps are log vs linear
             "stepType": False, 
+            "constantScale": True,
+            "scaleTemp": 0.45,
+            "MMSCompare": False
         }
         # runName = f"ReflectiveMid{s}_{g}"
         # RunSet[runName] = {

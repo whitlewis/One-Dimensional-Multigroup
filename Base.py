@@ -49,14 +49,14 @@ class Grid:
         self.w /= 2.0  # Normalize weights to sum to 1
 
         # Time discretization (log or linear spaced)
-        if parameters.logLinTime == "Split":
+        if parameters.splitStepsBool == "True":
             if parameters.stepSplit > 1:
                 stepsLog = parameters.stepSplit
             else:
                 stepsLog = round(self.nsteps * parameters.stepSplit)
             stepsLin = self.nSteps - stepsLog
-            logSet = np.logspace(-12, parameters.timeSplit, stepsLog, endpoint=False)
-            linSet = np.linspace(parameters.timeSplit, parameters.timeMax, stepsLin + 1)
+            logSet = np.logspace(-12, parameters.timeSplit * parameters.timeMax, stepsLog, endpoint=False)
+            linSet = np.linspace(parameters.timeSplit * parameters.timeMax, parameters.timeMax, stepsLin + 1)
             self.timeSet = np.concatenate(logSet, linSet, axis=0)
         else:
             if parameters.timeScale == "log":
