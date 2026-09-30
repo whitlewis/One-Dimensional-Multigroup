@@ -160,6 +160,7 @@ def plotTemperatureLoaded(dataSet, paramsSet, fileSet, folderSet, const):
 
         t = data["timeSet"][:-1] # cell centers
         timeSteps = np.shape(data["timeSet"])[0]
+        dt = data["timeSet"][1:] - data["timeSet"][:-1]
         EradSet = []
         for i, timeStep in enumerate(t):
             Erad = np.sum(data["fullTensorPhi"][i], axis=0)
@@ -197,6 +198,9 @@ def plotTemperatureLoaded(dataSet, paramsSet, fileSet, folderSet, const):
     filename = f"figures/TempPlot_{timestamp}.pdf"
     plt.savefig(filename)
     plt.show()
+
+    # plt.plot(np.linspace(0, 1, timeSteps-1), dt)
+    # plt.show
   
 
 def plotTemperatureTime(grid):

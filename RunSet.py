@@ -114,13 +114,12 @@ def ExecuteRunSetParallel(runSet):
 
 
 
-stepSplit = 0.8
-timeSplit = 0.5
+stepSplit = 0.2
+timeSplit = 0.15
 
-stepSet = [2500]
-groupSet = [10, 25, 50, 100]
+groupSet = [100]
 # groupSet = [100]
-# stepSet = [1000]
+stepSet = [2500, 3500, 4500]
 
 RunSet = {}
 s = 0
@@ -130,7 +129,7 @@ for step in stepSet:
     s += 1
     for group in groupSet:
         g += 1
-        runName = f"GroupCompareSmoothOpacity{s}_{g}"
+        runName = f"GroupCompareSmoothOpacityShortLog{s}_{g}"
         RunSet[runName] = {
             "runLabel": "Reflective",
             "Steps": step,
@@ -152,9 +151,10 @@ for step in stepSet:
             "rightBC": "Reflective",
             "leftTemp": 0.8,
             "rightTemp": 0.8,
+            "timeScale": "Linear",
             "TransTime": timeSplit,
             "stepSplit": stepSplit,  # tells what proportion of time steps are log vs linear
-            "stepType": False, 
+            "stepType": True, 
             "constantScale": True,
             "scaleTemp": 0.45,
             "MMSCompare": False
