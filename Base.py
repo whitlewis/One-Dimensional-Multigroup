@@ -139,16 +139,15 @@ class Base:
                     print("a =",self.grid.fullTensor)
                     print("b =", self.grid.fullTensOld)
                     print("result =", err)
-                if err < self.params.tol and it >= 2:
+                if err < self.params.tol:
                     if it > 40: print(f"Converged in {it} iterations")
                     break
                 if it % 2 == 0:
                     self.errorLag = err
                 if abs(self.err - err) < 1e-40 and abs(self.errorLag - err) < 1e-40:
                     self.errorStag += 1
-                    if self.errorStag > 4:
-                        if it % 100 == 0:
-                            print(f'Not further trending toward convergence, breaking loop and Moving to next step after {it} iterations, final error: {err}')
+                    if self.errorStag >=2:
+                        print(f'Not further trending toward convergence, breaking loop and Moving to next step after {it} iterations, final error: {err}')
                         if err > 10.00:
                             self.params.fileFolder = self.params.fileFolder + "Failed"
                             self.params.runName = self.params.runName + "Failed"

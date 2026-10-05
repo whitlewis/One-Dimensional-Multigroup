@@ -111,9 +111,9 @@ def getRank(array):
 # print(f'Rank of Standard Planckian: {RGM}')
 
 minFreq = 1e-4
-maxFreq = 10
-freqNum = 1000
-infFreq = 125
+maxFreq = 25
+freqNum = 500
+infFreq = 80
 Tmat = 0.4
 Trad = 0.5
 freqgrid = np.append(np.logspace(np.log10(minFreq), np.log10(maxFreq), freqNum), infFreq)
