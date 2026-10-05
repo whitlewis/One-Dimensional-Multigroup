@@ -81,21 +81,22 @@ class Material:
 
 
     # Planckian for opacity calculation
-    def planckg(self):
+    def planckg(self, nu_lo, nu_hi):
         # Calculate the Planck function for each frequency group
         T = self.grid.temperatureSet[:, self.grid.timeStep]
-        nu_lo = self.grid.freqGrid[:-1, None]
-        nu_hi = self.grid.freqGrid[1:, None]
+        # FIX: Broadcast frequency as column (freqNum, 1) against T (nBins,) -> Result is (freqNum, nBins)
+        nu_lo = nu_lo / T
+        nu_hi = nu_hi / T
         integrand = lambda nu: (15.0 * nu**3) / np.pi**4 /  np.expm1(nu)
         bg = self.simpson(integrand, nu_lo, nu_hi)
-        return bg * T # Shape is now (freqNum, nBins)
+        return bg  # Shape is now (freqNum, nBins)
     
     def sigma_a(self, freq, T): 
         T = self.grid.temperatureSet[:, self.grid.timeStep]   # Get the nu from u grid
         nu_lo = self.grid.freqGrid[:-1, None] * T
         nu_hi = self.grid.freqGrid[1:, None] * T
         sigma_aZero = 10 * np.ones((self.params.freqNum, self.params.nBins))
-        denom = np.sqrt(T) * self.planckg()
+        denom = np.sqrt(T) * self.planckg(nu_lo, nu_hi)
         num = sigma_aZero * (np.exp(-nu_lo/T)-np.exp(-nu_hi/T))
         out = np.clip(num / denom, a_min = 1.0e-4, a_max=1.0e8)  # Avoid division by zero and ensure non-negative opacities
         # print(f"Calculated opacities with shape: {out.shape}, min: {np.min(out):3e}, max: {np.max(out):3e}")  # Debugging statement

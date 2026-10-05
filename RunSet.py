@@ -119,7 +119,7 @@ timeSplit = 0.15
 
 groupSet = [100]
 # groupSet = [100]
-stepSet = [1000]
+stepSet = [800]
 
 RunSet = {}
 s = 0
@@ -151,7 +151,7 @@ for step in stepSet:
             "rightBC": "Reflective",
             "leftTemp": 0.8,
             "rightTemp": 0.8,
-            "timeScale": "Linear",
+            "timeScale": "Log",
             "TransTime": timeSplit,
             "stepSplit": stepSplit,  # tells what proportion of time steps are log vs linear
             "stepType": True, 
