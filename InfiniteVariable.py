@@ -79,6 +79,18 @@ class Material:
         out = 3/8 *h* (integrand(lo) + 3*integrand(lo + h) + 3*integrand(lo +2*h) +integrand(hi))
         return out
 
+    # Base Planck definiton
+    def planckVCM(self, u, T):  # Planck function for variable basis (not group integrated or weighted)
+        Tmat = self.params.initialTemperature
+        denom = np.expm1(self.const.h * u * Tmat / T)  # exp(x)-1 safely
+        f = (15.0 * self.const.a * self.const.c) / (4.0 * np.pi**5)
+        return f * u**3 * Tmat**4 / denom
+
+    def sigmaAP(self, u, T):
+        sa0 = 10
+        num = 1 - np.exp(-u)
+        denom = u**3 * T**(5/2)
+        return sa0 * num / denom 
 
     # Planckian for opacity calculation
     def planckg(self, nu_lo, nu_hi):
@@ -93,16 +105,16 @@ class Material:
     
     def sigma_a(self, freq, T): 
         T = self.grid.temperatureSet[:, self.grid.timeStep]   # Get the nu from u grid
-        # nu_lo = self.grid.freqGrid[:-1, None] * T
-        # nu_hi = self.grid.freqGrid[1:, None] * T
-        # sigma_aZero = 10 * np.ones((self.params.freqNum, self.params.nBins))
-        # denom = np.sqrt(T) * self.planckg(nu_lo, nu_hi)
-        # num = sigma_aZero * (np.exp(-nu_lo/T)-np.exp(-nu_hi/T))
-        # out = np.clip(num / denom, a_min = 1.0e-8, a_max=1.0e10)  # Avoid division by zero and ensure non-negative opacities
+        nu_lo = self.grid.freqGrid[:-1, None] * T
+        nu_hi = self.grid.freqGrid[1:, None] * T
+        sigma_aZero = 10 * np.ones((self.params.freqNum, self.params.nBins))
+        denom = np.sqrt(T) * self.planckg(nu_lo, nu_hi)
+        num = sigma_aZero * (np.exp(-nu_lo/T)-np.exp(-nu_hi/T))
+        out = np.clip(num / denom, a_min = 1.0e-8, a_max=1.0e10)  # Avoid division by zero and ensure non-negative opacities
         # print(f"Calculated opacities with shape: {out.shape}, min: {np.min(out):3e}, max: {np.max(out):3e}")  # Debugging statement
-        out = np.ones((self.params.freqNum, self.params.nBins)) * 1 / 2 / T  # For testing purposes, set all opacities to a constant value
+        # out = np.ones((self.params.freqNum, self.params.nBins)) * 1 / 2 / T  # For testing purposes, set all opacities to a constant value
 
-        return out
+        return out / T
 
     
     def C_v(self, T):  # Placeholder constant heat capacity

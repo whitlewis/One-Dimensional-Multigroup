@@ -70,6 +70,16 @@ class Material:
         out = 3/8 *h* (integrand(lo) + 3*integrand(lo + h) + 3*integrand(lo +2*h) +integrand(hi))
         return out
 
+    def planck(self, nu, T):  # Planck function (not group integrated or weighted)
+        denom = np.expm1(self.const.h * nu/T)  # exp(x)-1 safely
+        f = (15.0 * self.const.a * self.const.c) / (4.0 * np.pi**5)
+        return f * nu**3 / denom
+
+    def sigmaAP(self, nu, T):
+        sa0 = 10
+        num = 1 - np.exp(-nu / T)
+        denom = nu**3 * T*(1/2)
+        return sa0 * num / denom
 
     # Planckian for opacity calculation
     def planckg(self, nu_lo, nu_hi):

@@ -2,6 +2,7 @@ import numpy as np
 np.seterr(divide='raise', invalid='raise', over='raise')
 from numba import njit
 import matplotlib.pyplot as plt
+import MMS
 # Non coupled equations
 class Equations:
 
@@ -310,6 +311,8 @@ class CoupledEquations:
         phibl = self.boundaryCondition("left", time)
         phibr = self.boundaryCondition("right", time)
 
+        # if self.params.mms == True:
+        #     S, Q = 
         # Initialize the next tensor
         newFull = np.zeros_like(self.fullTens)
 
@@ -692,12 +695,6 @@ class MovingMeshEquations:
             totalFlux = np.sum(self.grid.du * self.simpson(lambda nu: self.planckVCM(nu, T0), self.grid.freqGrid[:-1], self.grid.freqGrid[1:]))
             deltaSet[self.params.freqNum//4, :] = totalFlux / self.grid.du[self.params.freqNum//4]      # Delta function at the middle frequency group
             bVal = deltaSet[f, m]
-
-
-        # # 3. Handle Prescribed Source / Inflow Boundary Condition
-        # elif bc_type in ["Inflow", "Prescribed"]:
-        #     # Spatial flux comes from the external profile
-        #     bVal = phi_source[f, m]
                 
         return bVal
     

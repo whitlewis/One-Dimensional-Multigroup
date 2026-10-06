@@ -85,11 +85,11 @@ def MMSSource(T0, T, TM1, t, dt , w, sigmaG, Cv, freqGrid):
     return S, Q
 
 def MMSPlot():
-    tSet, tMin, tMax = 0, 1.0
+    tMin, tMax = 0, 1.0
     tNum = 1000
-    T0 = 0.5
+    T0 = 0.25
     tSet = np.linspace(tMin, tMax, tNum)
-    Trad, Tmat = MMSBase(tSet, T0, 0)
+    tSet, Trad, Tmat = MMSBase(tSet, T0, 0)
     plt.plot(tSet, Tmat, label="MMS Material")
     plt.plot(tSet, Trad, label="MMS Radiation Temperature")
     plt.xlabel("t (ns)")
@@ -108,3 +108,5 @@ def MMSPlot():
         loc="best"
     )
     plt.show()
+
+MMSPlot()

@@ -129,11 +129,11 @@ for step in stepSet:
     s += 1
     for group in groupSet:
         g += 1
-        runName = f"GroupCompareFixedOpacityPlanck{s}_{g}"
+        runName = f"GroupCompareFullDist{s}_{g}"
         RunSet[runName] = {
             "runLabel": "Reflective",
             "Steps": step,
-            "Maximum Time": 0.8,
+            "Maximum Time": 0.5,
             "Max Frequency": 35,
             "Min Frequency": 1e-4,
             "Infinite Frequency": 85,
