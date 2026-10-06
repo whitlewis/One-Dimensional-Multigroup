@@ -105,7 +105,7 @@ def plotSet():
     # plotSet = [0, int(params[0]["nSteps"])//4, params[0]["nSteps"]//2, params[0]["nSteps"]-1]
     plotSet = np.floor(np.geomspace(1, params[0]["nSteps"]-1, 4)).astype(int)
     Vis.plot_spectra_at_times(data, plotSet, params, fileSet, folderSet, 20, params[0]["maxFreq"])
-    Vis.analyzeRank(data, data[0]["timeSet"], params, fileSet, folderSet, time_indices=None, energy_threshold=[.999, .99, .98 ,.95], tol=None, plot=True)
+    # Vis.analyzeRank(data, data[0]["timeSet"], params, fileSet, folderSet, time_indices=None, energy_threshold=[.999, .99, .98 ,.95], tol=None, plot=True)
     # Vis.analyzeRank(data["fullTensorPhi"], data["timeSet"], energy_threshold=None, tol = [1e-8, 1e-14, 1e-16, 1e-18], plot = True)
     # Vis.analyzeRank(data, data[0]["timeSet"], params, fileSet, folderSet, time_indices=None, energy_threshold=None, tol=None, plot=True)
 

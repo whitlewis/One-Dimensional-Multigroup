@@ -88,7 +88,7 @@ class Material:
         sigma_aZero = 10 * np.ones((self.params.freqNum, self.params.nBins))
         denom = np.sqrt(T) * self.planckg(nu_lo, nu_hi)
         num = sigma_aZero * (np.exp(-nu_lo/T)-np.exp(-nu_hi/T))
-        out = np.clip(num / denom, a_min=1e-4, a_max=1e8)
+        out = np.clip(num / denom, a_min=1e-8, a_max=1e10)
         # out = np.ones((self.params.freqNum, self.params.nBins))  # For testing purposes, set all opacities to a constant value
         return out
     # End of opacity implementation

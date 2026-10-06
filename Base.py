@@ -49,15 +49,15 @@ class Grid:
         self.w /= 2.0  # Normalize weights to sum to 1
 
         # Time discretization (log or linear spaced)
-        if parameters.splitStepsBool == "True":
+        if parameters.splitStepsBool == True:
             if parameters.stepSplit > 1:
                 stepsLog = parameters.stepSplit
             else:
-                stepsLog = round(self.nsteps * parameters.stepSplit)
+                stepsLog = round(self.nSteps * parameters.stepSplit)
             stepsLin = self.nSteps - stepsLog
-            logSet = np.logspace(-12, parameters.timeSplit * parameters.timeMax, stepsLog, endpoint=False)
+            logSet = np.logspace(-12, np.log10(parameters.timeSplit * parameters.timeMax), stepsLog, endpoint=False)
             linSet = np.linspace(parameters.timeSplit * parameters.timeMax, parameters.timeMax, stepsLin + 1)
-            self.timeSet = np.concatenate(logSet, linSet, axis=0)
+            self.timeSet = np.concatenate((logSet, linSet), axis=0)
         else:
             if parameters.timeScale == "log":
                 self.timeSet = np.logspace(-12, np.log10(parameters.timeMax), parameters.nSteps+1)  # logarithmic time steps (could be linear)
@@ -66,7 +66,11 @@ class Grid:
         self.dt = np.diff(self.timeSet)  # time step sizes
         if np.max(self.dt) > 1e-3:
             print(f'Max time step exceeds recommended for {parameters.fileFolder} solve of {parameters.runName}. Max time step of: {np.max(self.dt)}')
-
+        stepSet = np.linspace(0, 1, np.shape(self.dt)[0])
+        # plt.plot(.5 * (self.timeSet[:-1] + self.timeSet[1:]), self.dt)
+        # plt.show(
+        # )
+        # assert 0
         # Individual time step frameworks
         self.fullTensor = np.zeros((parameters.freqNum, parameters.sn, parameters.nBins))  # (nfreq, nMu, nBins)
         self.fullTensOld = np.zeros((parameters.freqNum, parameters.sn, parameters.nBins))  # (nfreq, nMu, nBins)
@@ -147,7 +151,8 @@ class Base:
                 if abs(self.err - err) < 1e-40 and abs(self.errorLag - err) < 1e-40:
                     self.errorStag += 1
                     if self.errorStag >=2:
-                        print(f'Not further trending toward convergence, breaking loop and Moving to next step after {it} iterations, final error: {err}')
+                        if it % 40 == 0:
+                            print(f'Not further trending toward convergence, breaking loop and Moving to next step after {it} iterations, final error: {err}')
                         if err > 10.00:
                             self.params.fileFolder = self.params.fileFolder + "Failed"
                             self.params.runName = self.params.runName + "Failed"

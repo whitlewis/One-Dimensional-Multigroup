@@ -29,6 +29,7 @@ def setRun(params, runName, config):
     params.timeSplit = config["TransTime"]
     params.stepSplit = config["stepSplit"]  # tells what proportion of time steps are log vs linear
     params.splitStepsBool = config["stepType"]  # tells whether to split time stepping
+    params.timeScale = config["timeScale"]
     params.maxFreq = config["Max Frequency"]
     params.freqNum = config["Number of frequencies"]
     params.sn = config["Sn"]
@@ -67,7 +68,7 @@ def run_single_standard(item):
     solver = Base.Base(grid, problem, params, constants)
 
     fullTensor, grid = solver.solve()
-    return f"{runName}_IM", fullTensor, grid
+    return f"{runName}_IM"
 
 
 def run_single_variable(item):
@@ -80,7 +81,7 @@ def run_single_variable(item):
     problem = IVM(grid, constants, params)
     solver = Base.Base(grid, problem, params, constants)
     fullTensor, grid = solver.solve()
-    return f"{runName}_IVM", fullTensor, grid
+    return f"{runName}_IVM"
 
 
 def ExecuteRunSetParallel(runSet):
@@ -104,8 +105,7 @@ def ExecuteRunSetParallel(runSet):
         for future in concurrent.futures.as_completed(future_to_task):
             task_name = future_to_task[future]
             try:
-                run_id, fullTensor, grid = future.result()
-                results[run_id] = {"tensor": fullTensor, "grid": grid}
+                run_id= future.result()
                 print(f"Completed: {run_id}")
             except Exception as exc:
                 print(f"Task '{task_name}' generated an exception: {exc}")
@@ -114,12 +114,12 @@ def ExecuteRunSetParallel(runSet):
 
 
 
-stepSplit = 0.2
+stepSplit = 0.88
 timeSplit = 0.15
 
 groupSet = [100]
 # groupSet = [100]
-stepSet = [800]
+stepSet = [1600]
 
 RunSet = {}
 s = 0
@@ -129,16 +129,16 @@ for step in stepSet:
     s += 1
     for group in groupSet:
         g += 1
-        runName = f"GroupCompareSmoothOpacityShortLog{s}_{g}"
+        runName = f"GroupCompareFixedOpacityPlanck{s}_{g}"
         RunSet[runName] = {
             "runLabel": "Reflective",
             "Steps": step,
-            "Maximum Time": 0.5,
-            "Max Frequency": 25,
+            "Maximum Time": 0.8,
+            "Max Frequency": 35,
             "Min Frequency": 1e-4,
             "Infinite Frequency": 85,
             "Group Spacing": 'log',
-            "Match Grid" : False,
+            "Match Grid" : True,
             "Number of frequencies": group,
             "Sn": 8,
             "Number of Bins": 400,
@@ -151,7 +151,7 @@ for step in stepSet:
             "rightBC": "Reflective",
             "leftTemp": 0.8,
             "rightTemp": 0.8,
-            "timeScale": "Log",
+            "timeScale": "log",
             "TransTime": timeSplit,
             "stepSplit": stepSplit,  # tells what proportion of time steps are log vs linear
             "stepType": True, 

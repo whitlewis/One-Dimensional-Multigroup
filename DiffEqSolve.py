@@ -52,8 +52,9 @@ def sigma_a(freqGrid, T, inputDict):
     sigma_aZero = 10 * np.ones(inputDict["freqNum"])
     denom = np.sqrt(T) * planckg(T, freqGrid)
     num = sigma_aZero * (np.exp(-nu_lo/T)-np.exp(-nu_hi/T))
-    out = np.clip(num / denom, a_min=1e-4, a_max=1e8)
+    out = np.clip(num / denom, a_min=1e-8, a_max=1e10)
     # out = np.ones(inputDict["freqNum"]) * 1  # For testing purposes, set all opacities to a constant value
+    # out = np.ones(inputDict["freqNum"]) * 1 / 2 / T
     return out
 
 
