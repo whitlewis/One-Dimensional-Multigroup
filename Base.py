@@ -35,8 +35,9 @@ class Grid:
             self.freqGrid = np.array([1e-3, parameters.maxFreq])  # single frequency case
 
 
-        if parameters.matchNu and parameters.fileFolder == "InfiniteVariable":
+        if parameters.matchNu and parameters.fileFolder != "InfiniteMedium":
             T = parameters.initialTemperature
+            print("Grid Matched")
             self.freqGrid = self.freqGrid / T
 
         # Gives midpoints of frequency groups no matter number

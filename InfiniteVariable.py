@@ -88,13 +88,12 @@ class Material:
     def sigmaAP(self, u, T):
         sa0 = 10
         num = 1 - np.exp(-u)
-        denom = u**3 * T**(5/2)
+        denom = u**3 * T**(7/2)
         return sa0 * num / denom 
 
     # Planckian for opacity calculation
-    def planckg(self, nu_lo, nu_hi):
+    def planckg(self, nu_lo, nu_hi, T):
         # Calculate the Planck function for each frequency group
-        T = self.grid.temperatureSet[:, self.grid.timeStep]
         # FIX: Broadcast frequency as column (freqNum, 1) against T (nBins,) -> Result is (freqNum, nBins)
         nu_lo = nu_lo / T
         nu_hi = nu_hi / T
@@ -102,28 +101,28 @@ class Material:
         bg = self.simpson(integrand, nu_lo, nu_hi)
         return bg # Shape is now (freqNum, nBins)
     
-    # def sigma_a(self, freq, T):
-    #     nu_lo = self.grid.freqGrid[:-1, None] * T
-    #     nu_hi = self.grid.freqGrid[1:, None] * T
-    #     sigma_aZero = 10 * np.ones((self.params.freqNum, self.params.nBins))
-    #     denom = np.sqrt(T) * self.planckg(nu_lo, nu_hi)
-    #     num = sigma_aZero * (np.exp(-nu_lo/T)-np.exp(-nu_hi/T))
-    #     out = np.clip(num / denom, a_min = 1.0e-8, a_max=1.0e10)  # Avoid division by zero and ensure non-negative opacities
-    #     # print(f"Calculated opacities with shape: {out.shape}, min: {np.min(out):3e}, max: {np.max(out):3e}")  # Debugging statement
-    #     # out = np.ones((self.params.freqNum, self.params.nBins)) * 1 / 2 / T  # For testing purposes, set all opacities to a constant value
-
-    #     return out
-
     def sigma_a(self, freq, T):
-        u_lo = self.grid.freqGrid[:-1, None]
-        u_hi = self.grid.freqGrid[1:, None]
-        num = lambda u: self.planckVCM(u, T) * self.sigmaAP(u, T)
-        denom = lambda u: self.planckVCM(u, T)
-        numG = self.simpson(num, u_lo, u_hi)
-        denomG = self.simpson(denom, u_lo, u_hi)
-        out = numG / denomG
+        nu_lo = self.grid.freqGrid[:-1, None] * T
+        nu_hi = self.grid.freqGrid[1:, None] * T
+        sigma_aZero = 10 * np.ones((self.params.freqNum, self.params.nBins))
+        denom = np.sqrt(T) * self.planckg(nu_lo, nu_hi, T)
+        num = sigma_aZero * (np.exp(-nu_lo/T)-np.exp(-nu_hi/T))
+        out = np.clip(num / denom, a_min = 1.0e-8, a_max=1.0e10)  # Avoid division by zero and ensure non-negative opacities
+        # print(f"Calculated opacities with shape: {out.shape}, min: {np.min(out):3e}, max: {np.max(out):3e}")  # Debugging statement
         # out = np.ones((self.params.freqNum, self.params.nBins)) * 1 / 2 / T  # For testing purposes, set all opacities to a constant value
+
         return out
+
+    # def sigma_a(self, freq, T):
+    #     u_lo = self.grid.freqGrid[:-1, None]
+    #     u_hi = self.grid.freqGrid[1:, None]
+    #     num = lambda u: self.planckVCM(u, T) * self.sigmaAP(u, T)
+    #     denom = lambda u: self.planckVCM(u, T)
+    #     numG = self.simpson(num, u_lo, u_hi)
+    #     denomG = self.simpson(denom, u_lo, u_hi)
+    #     out = numG / denomG
+    #     # out = np.ones((self.params.freqNum, self.params.nBins)) * 1 / 2 / T  # For testing purposes, set all opacities to a constant value
+    #     return out
 
     
     def C_v(self, T):  # Placeholder constant heat capacity
