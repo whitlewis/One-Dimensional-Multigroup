@@ -103,14 +103,13 @@ class Material:
     #     return out
 
     def sigma_a(self, freq, T):
-        T = self.grid.temperatureSet[:, self.grid.timeStep]
         nu_lo = self.grid.freqGrid[:-1, None]
         nu_hi = self.grid.freqGrid[1:, None]
         num = lambda nu: self.planck(nu, T) * self.sigmaAP(nu, T)
         denom = lambda nu: self.planck(nu, T)
         numG = self.simpson(num, nu_lo, nu_hi)
-        denomG = self.simpson(num, nu_lo, nu_hi)
-        out = num / denom
+        denomG = self.simpson(denom, nu_lo, nu_hi)
+        out = numG / denomG
         return out
     # End of opacity implementation
     

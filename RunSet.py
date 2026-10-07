@@ -119,7 +119,7 @@ timeSplit = 0.15
 
 groupSet = [100]
 # groupSet = [100]
-stepSet = [800]
+stepSet = [1200]
 
 RunSet = {}
 s = 0

@@ -81,10 +81,9 @@ class Material:
 
     # Base Planck definiton
     def planckVCM(self, u, T):  # Planck function for variable basis (not group integrated or weighted)
-        Tmat = self.params.initialTemperature
-        denom = np.expm1(self.const.h * u * Tmat / T)  # exp(x)-1 safely
+        denom = np.expm1(self.const.h * u)  # exp(x)-1 safely
         f = (15.0 * self.const.a * self.const.c) / (4.0 * np.pi**5)
-        return f * u**3 * Tmat**4 / denom
+        return f * u**3 * T**4 / denom
 
     def sigmaAP(self, u, T):
         sa0 = 10
@@ -103,8 +102,7 @@ class Material:
         bg = self.simpson(integrand, nu_lo, nu_hi)
         return bg # Shape is now (freqNum, nBins)
     
-    # def sigma_a(self, freq, T): 
-    #     T = self.grid.temperatureSet[:, self.grid.timeStep]   # Get the nu from u grid
+    # def sigma_a(self, freq, T):
     #     nu_lo = self.grid.freqGrid[:-1, None] * T
     #     nu_hi = self.grid.freqGrid[1:, None] * T
     #     sigma_aZero = 10 * np.ones((self.params.freqNum, self.params.nBins))
@@ -117,14 +115,14 @@ class Material:
     #     return out
 
     def sigma_a(self, freq, T):
-        T = self.grid.temperatureSet[:, self.grid.timeStep]
         u_lo = self.grid.freqGrid[:-1, None]
         u_hi = self.grid.freqGrid[1:, None]
         num = lambda u: self.planckVCM(u, T) * self.sigmaAP(u, T)
         denom = lambda u: self.planckVCM(u, T)
         numG = self.simpson(num, u_lo, u_hi)
-        denomG = self.simpson(num, u_lo, u_hi)
-        out = num / denom
+        denomG = self.simpson(denom, u_lo, u_hi)
+        out = numG / denomG
+        # out = np.ones((self.params.freqNum, self.params.nBins)) * 1 / 2 / T  # For testing purposes, set all opacities to a constant value
         return out
 
     

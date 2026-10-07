@@ -36,25 +36,74 @@ def planckBar(T, freqGrid):
     bbar = simpson(integrand, lo, hi)
     return bbar
 
-# Planckian for opacity calculation
-def planckg(T, freqGrid):
-    # Calculate the Planck function for each frequency group
-    # FIX: Broadcast frequency as column (freqNum, 1) against T (nBins,) -> Result is (freqNum, nBins)
-    nu_lo = freqGrid[:-1] / T
-    nu_hi = freqGrid[1:] / T
-    integrand = lambda nu: (15.0 * nu**3) / np.pi**4 /  np.expm1(nu)
-    bg = simpson(integrand, nu_lo, nu_hi)
-    return bg  # Shape is now (freqNum, nBins)
+# # Planckian for opacity calculation
+# def planckg(T, freqGrid):
+#     # Calculate the Planck function for each frequency group
+#     # FIX: Broadcast frequency as column (freqNum, 1) against T (nBins,) -> Result is (freqNum, nBins)
+#     nu_lo = freqGrid[:-1] / T
+#     nu_hi = freqGrid[1:] / T
+#     integrand = lambda nu: (15.0 * nu**3) / np.pi**4 /  np.expm1(nu)
+#     bg = simpson(integrand, nu_lo, nu_hi)
+#     return bg  # Shape is now (freqNum, nBins)
 
-def sigma_a(freqGrid, T, inputDict): 
+# def sigma_a(freqGrid, T, inputDict): 
+#     nu_lo = freqGrid[:-1]
+#     nu_hi = freqGrid[1:]
+#     sigma_aZero = 10 * np.ones(inputDict["freqNum"])
+#     denom = np.sqrt(T) * planckg(T, freqGrid)
+#     num = sigma_aZero * (np.exp(-nu_lo/T)-np.exp(-nu_hi/T))
+#     out = np.clip(num / denom, a_min=1e-8, a_max=1e10)
+#     # out = np.ones(inputDict["freqNum"]) * 1  # For testing purposes, set all opacities to a constant value
+#     # out = np.ones(inputDict["freqNum"]) * 1 / 2 / T
+#     return out
+
+
+def sigmaAP(nu, T):
+    sa0 = 10
+    num = 1 - np.exp(-nu / T)
+    denom = nu**3 * T*(1/2)
+    return sa0 * num / denom
+
+def planck(nu, T):  # Planck function (not group integrated or weighted)
+    const = Base.Constants
+    denom = np.expm1(const.h * nu/T)  # exp(x)-1 safely
+    f = (15.0 * const.a * const.c) / (4.0 * np.pi**5)
+    return f * nu**3 / denom
+
+def sigma_a(freqGrid, T, inputDict):
     nu_lo = freqGrid[:-1]
     nu_hi = freqGrid[1:]
-    sigma_aZero = 10 * np.ones(inputDict["freqNum"])
-    denom = np.sqrt(T) * planckg(T, freqGrid)
-    num = sigma_aZero * (np.exp(-nu_lo/T)-np.exp(-nu_hi/T))
-    out = np.clip(num / denom, a_min=1e-8, a_max=1e10)
-    # out = np.ones(inputDict["freqNum"]) * 1  # For testing purposes, set all opacities to a constant value
+    num = lambda nu: planck(nu, T) * sigmaAP(nu, T)
+    denom = lambda nu: planck(nu, T)
+    numG = simpson(num, nu_lo, nu_hi)
+    denomG = simpson(denom, nu_lo, nu_hi)
+    out = numG / denomG
     # out = np.ones(inputDict["freqNum"]) * 1 / 2 / T
+    return out
+# End of opacity implementation
+
+def planckVCM(u, T):  # Planck function for variable basis (not group integrated or weighted)
+    const = Base.Constants
+    denom = np.expm1(const.h * u)  # exp(x)-1 safely
+    f = (15.0 * const.a * const.c) / (4.0 * np.pi**5)
+    return f * u**3 * T**4 / denom
+
+def sigmaAPV(u, T):
+    sa0 = 10
+    num = 1 - np.exp(-u)
+    denom = u**3 * T**(5/2)
+    return sa0 * num / denom 
+
+
+def sigma_aVCM(freqGrid, T):
+    u_lo = freqGrid[:-1, None]
+    u_hi = freqGrid[1:, None]
+    num = lambda u: planckVCM(u, T) * sigmaAPV(u, T)
+    denom = lambda u: planckVCM(u, T)
+    numG = simpson(num, u_lo, u_hi)
+    denomG = simpson(denom, u_lo, u_hi)
+    out = numG / denomG
+    # out = np.ones((self.params.freqNum, self.params.nBins)) * 1 / 2 / T  # For testing purposes, set all opacities to a constant value
     return out
 
 
@@ -158,4 +207,23 @@ def plotRad():
     plt.legend(fontsize=12)
     plt.grid()
     plt.show()
+    minFreq = 1e-4
+    maxFreq = 25
+    infFreq = 125
+    freqNum = 100
+    timeMax = 1.0
+    timeNum = 100000
 
+
+
+inputDict = {}
+freqGrid = np.linspace(0, 25, 100)
+freqPlot = .5 * (freqGrid[:-1] + freqGrid[1:])
+T = .5
+VCM = sigma_aVCM(freqGrid, T)
+MG = sigma_a(freqGrid, T, inputDict)
+plt.plot(freqPlot, MG, label="MG")
+plt.plot(freqPlot, VCM, label="VMG", linestyle="--")
+plt.legend(fontsize=12)
+plt.grid()
+plt.show()

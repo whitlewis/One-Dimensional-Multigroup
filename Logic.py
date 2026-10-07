@@ -446,13 +446,6 @@ class MovingMeshEquations:
 
     # Group integrated Planck
     def planckBarInit(self, T):
-        # print(T)
-        # print("h =", self.const.h)
-        # print("a =", self.const.a)
-        # print("c =", self.const.c)
-        # print(f'Shape of freqGrid {self.grid.freqGrid.shape}')
-        # print(f'FreqGrid of 20: {self.grid.freqGrid[20, None]}')
-        # Integrate the Planck function over each frequency group to get group-averaged source
         lo = self.grid.freqGrid[:-1, None]
         hi = self.grid.freqGrid[1:, None]
         freqGroups = 0.5 * (
@@ -460,13 +453,6 @@ class MovingMeshEquations:
         )
         integrand = lambda u: self.planckVCM(u, T)
         bbar = self.simpson(integrand, lo, hi)
-
-        # plt.plot(freqGroups * self.params.initialTemperature, bbar)
-        # plt.title("VCM init")
-        # plt.xlim(0,12)
-        # plt.ylim(0, 1e-3)
-        # plt.show()
-        # assert 0
         return bbar
     
     def planckBar(self, T):
@@ -587,16 +573,6 @@ class MovingMeshEquations:
         self.sigmaStarVar = self.sigmaStar(self.grid.T_next)  # Update sigma* for the time step
         self.movingMeshConst = self.movingMeshConstant()  # Update moving mesh constant for the time step
 
-    def sigmaBar(self, T):     # Placeholder for group-averaged opacity, currently unnecessary since we are using a constant opacity
-        lo = self.grid.freqGrid[:-1, None]
-        hi = self.grid.freqGrid[1:, None]
-        integrand = lambda nu: self.planckVCM(nu, T)
-        sbar = self.simpson(integrand, lo, hi)
-        return sbar
-    
-    def psiBar(self):       # placeholder, currently unnecessary due to init
-        return
-
     def polyPredict(self):
         t2 = self.grid.temperatureSet[:, self.grid.timeStep - 2]
         t1 = self.grid.temperatureSet[:, self.grid.timeStep - 1]
@@ -623,7 +599,7 @@ class MovingMeshEquations:
             
             # Calculation of next temperature
             T_offset = self.params.temperatureLearningRate*f * np.sum((sa * phi - 4*np.pi*sa * bbar), axis=0)  # Limit the temperature change to avoid instability
-            T_next = np.clip(T + T_offset, a_min=1e-4, a_max=1)  # Update temperature using the material energy equation)
+            T_next = T + T_offset # Update temperature using the material energy equation)
             self.T_next = T_next.copy()
             self.grid.T_next = T_next.copy()
 
