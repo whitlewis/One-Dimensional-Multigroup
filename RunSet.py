@@ -119,7 +119,7 @@ timeSplit = 0.15
 
 groupSet = [100]
 # groupSet = [100]
-stepSet = [1600]
+stepSet = [800]
 
 RunSet = {}
 s = 0
@@ -134,14 +134,14 @@ for step in stepSet:
             "runLabel": "Reflective",
             "Steps": step,
             "Maximum Time": 0.5,
-            "Max Frequency": 35,
+            "Max Frequency": 55,
             "Min Frequency": 1e-4,
             "Infinite Frequency": 85,
             "Group Spacing": 'log',
             "Match Grid" : True,
             "Number of frequencies": group,
             "Sn": 8,
-            "Number of Bins": 400,
+            "Number of Bins": 100,
             "xMin": -1,
             "xMax": 1,
             "RadTemp": 0.5,

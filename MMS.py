@@ -108,5 +108,3 @@ def MMSPlot():
         loc="best"
     )
     plt.show()
-
-MMSPlot()
