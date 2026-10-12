@@ -94,11 +94,24 @@ class Material:
     def sigma_a(self, freq, T): 
         nu_lo = self.grid.freqGrid[:-1, None]
         nu_hi = self.grid.freqGrid[1:, None]
-        sigma_aZero = 10 * np.ones((self.params.freqNum, self.params.nBins))
-        denom = np.sqrt(T) * self.planckg(nu_lo, nu_hi, T)
-        num = sigma_aZero * (np.exp(-nu_lo/T)-np.exp(-nu_hi/T))
-        out = np.clip(num / denom, a_min=1e-8, a_max=1e10)
-        # out = np.ones((self.params.freqNum, self.params.nBins))  # For testing purposes, set all opacities to a constant value
+
+        # # Pure Brehmstralung
+        # sigma_aZero = 10 * np.ones((self.params.freqNum, self.params.nBins))
+        # denom = np.sqrt(T) * self.planckg(nu_lo, nu_hi, T)
+        # num = sigma_aZero * (np.exp(-nu_lo/T)-np.exp(-nu_hi/T))
+        # out = np.clip(num / denom, a_min=1e-8, a_max=1e10)
+
+        # Gaussian Test case
+        nu0 = 4.0   # Peak frequency
+        w = 2.0      # Gaussian width
+        nu = 0.5 * (nu_lo + nu_hi)  # Group-center frequencies
+        out = (1 / (2 * T)) * np.exp(
+            -(nu - nu0)**2 / (2 * w**2)
+        )
+        out = np.clip(out, a_min=1e-8, a_max=1e10)
+
+
+        out = np.ones((self.params.freqNum, self.params.nBins)) * 1 / 2 / T  # For testing purposes, set all opacities to a constant value
         return out
 
     # def sigma_a(self, freq, T):

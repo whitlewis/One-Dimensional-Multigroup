@@ -53,8 +53,18 @@ def sigma_a(freqGrid, T, inputDict):
     denom = np.sqrt(T) * planckg(T, freqGrid)
     num = sigma_aZero * (np.exp(-nu_lo/T)-np.exp(-nu_hi/T))
     out = np.clip(num / denom, a_min=1e-8, a_max=1e10)
+
+    # Gaussian Test case
+    nu0 = 4.0   # Peak frequency
+    w = 2.0      # Gaussian width
+    nu = 0.5 * (nu_lo + nu_hi)  # Group-center frequencies
+    out = (1 / (2 * T)) * np.exp(
+        -(nu - nu0)**2 / (2 * w**2)
+    )
+    out = np.clip(out, a_min=1e-8, a_max=1e10)
+
     # out = np.ones(inputDict["freqNum"]) * 1  # For testing purposes, set all opacities to a constant value
-    # out = np.ones(inputDict["freqNum"]) * 1 / 2 / T
+    out = np.ones(inputDict["freqNum"]) * 1 / 2 / T
     # freqMid = .5 * (nu_lo + nu_hi)
     # plt.plot(freqMid, out)
     # plt.show
@@ -69,17 +79,17 @@ def planckgV(nu_lo, nu_hi, T):
     bg = simpson(integrand, nu_lo, nu_hi)
     return bg # Shape is now (freqNum, nBins)
 
-def sigma_a(freqGrid, T, inputDict):
-    nu_lo = freqGrid[:-1] * T
-    nu_hi = freqGrid[1:] * T
-    sigma_aZero = 10 * np.ones(inputDict["freqNum"])
-    denom = np.sqrt(T) * planckg(T, freqGrid)
-    num = sigma_aZero * (np.exp(-nu_lo/T)-np.exp(-nu_hi/T))
-    out = np.clip(num / denom, a_min=1e-8, a_max=1e10) # Avoid division by zero and ensure non-negative opacities
-    # print(f"Calculated opacities with shape: {out.shape}, min: {np.min(out):3e}, max: {np.max(out):3e}")  # Debugging statement
-    # out = np.ones((self.params.freqNum, self.params.nBins)) * 1 / 2 / T  # For testing purposes, set all opacities to a constant value
+# def sigma_a(freqGrid, T, inputDict):
+#     nu_lo = freqGrid[:-1] * T
+#     nu_hi = freqGrid[1:] * T
+#     sigma_aZero = 10 * np.ones(inputDict["freqNum"] - 1)
+#     denom = np.sqrt(T) * planckg(T, freqGrid)
+#     num = sigma_aZero * (np.exp(-nu_lo/T)-np.exp(-nu_hi/T))
+#     out = np.clip(num / denom, a_min=1e-8, a_max=1e10) # Avoid division by zero and ensure non-negative opacities
+#     # print(f"Calculated opacities with shape: {out.shape}, min: {np.min(out):3e}, max: {np.max(out):3e}")  # Debugging statement
+#     # out = np.ones((self.params.freqNum, self.params.nBins)) * 1 / 2 / T  # For testing purposes, set all opacities to a constant value
 
-    return out
+#     return out
 
 
 def sigmaAP(nu, T):
@@ -193,7 +203,7 @@ def plotEnergy(inputDict, solution):
 
 def plotRad():
     minFreq = .4
-    maxFreq = 25
+    maxFreq = 55
     infFreq = 125
     freqNum = 100
     timeMax = 1.0
@@ -238,8 +248,8 @@ def plotRad():
     timeMax = 1.0
     timeNum = 100000
 
-# inputDict = {}
-# freqGrid = np.linspace(.1, 35, 10000)
+# inputDict = {"freqNum" : 10000}
+# freqGrid = np.linspace(.1, 35, inputDict["freqNum"])
 # freqPlot = .5 * (freqGrid[:-1] + freqGrid[1:])
 # T = .5
 # uGrid = freqGrid
