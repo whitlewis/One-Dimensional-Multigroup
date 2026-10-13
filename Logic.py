@@ -564,6 +564,9 @@ class MovingMeshEquations:
     # Start the step
     def startTimeStep(self):
         if self.time_step == self.grid.timeStep:
+            self.sigmaStarVar = self.sigmaStar(self.grid.T_next)  # Update sigma* for the iteration
+            self.movingMeshConst = self.movingMeshConstant()  # Update moving mesh constant for the iteration
+            self.grid.fullTensOld = self.grid.fullTensor
             return
 
         self.time_step = self.grid.timeStep
@@ -572,6 +575,7 @@ class MovingMeshEquations:
         self.timeTerm = self.timeAbsorption()
         self.sigmaStarVar = self.sigmaStar(self.grid.T_next)  # Update sigma* for the time step
         self.movingMeshConst = self.movingMeshConstant()  # Update moving mesh constant for the time step
+
 
     def polyPredict(self):
         t2 = self.grid.temperatureSet[:, self.grid.timeStep - 2]
@@ -610,6 +614,7 @@ class MovingMeshEquations:
         bbarNext = np.broadcast_to(bbarNext[:, None,:], (self.params.freqNum, self.sn, self.params.nBins))  # shape: (freqNum, sn, nBins)
         sa = np.broadcast_to(self.material.sigma_a(self.grid.freqGroups, T)[:,None,:], (self.params.freqNum, self.sn, self.params.nBins))  # shape: (freqNum, sn, nBins)
         rhs = sa * bbarNext + self.timeTerm * self.psi_old
+        self.sigmaStarVar = self.sigmaStar(T)
         self.grid.rhs = rhs.copy()
 
     def movingMeshConstant(self):   # This function calculates the C hat constant for the moving mesh equations

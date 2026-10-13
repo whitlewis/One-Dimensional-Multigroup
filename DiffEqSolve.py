@@ -64,7 +64,7 @@ def sigma_a(freqGrid, T, inputDict):
     out = np.clip(out, a_min=1e-8, a_max=1e10)
 
     # out = np.ones(inputDict["freqNum"]) * 1  # For testing purposes, set all opacities to a constant value
-    out = np.ones(inputDict["freqNum"]) * 1 / 2 / T
+    # out = np.ones(inputDict["freqNum"]) * 1 / 2 / T
     # freqMid = .5 * (nu_lo + nu_hi)
     # plt.plot(freqMid, out)
     # plt.show

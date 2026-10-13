@@ -117,13 +117,14 @@ def ExecuteRunSetParallel(runSet):
 stepSplit = 0.88
 timeSplit = 0.15
 
-groupSet = [400]
+groupSet = [100]
 # groupSet = [100]
 stepSet = [1200]
 
 RunSet = {}
 s = 0
 g = 0
+
 
 for step in stepSet:
     s += 1
@@ -137,11 +138,11 @@ for step in stepSet:
             "Max Frequency": 25,
             "Min Frequency": 1e-4,
             "Infinite Frequency": 125,
-            "Group Spacing": 'log',
+            "Group Spacing": 'linear',
             "Match Grid" : True,
             "Number of frequencies": group,
             "Sn": 8,
-            "Number of Bins": 40,
+            "Number of Bins": 50,
             "xMin": -1,
             "xMax": 1,
             "RadTemp": 0.5,

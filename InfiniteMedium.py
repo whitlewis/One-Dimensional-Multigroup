@@ -108,10 +108,9 @@ class Material:
         out = (1 / (2 * T)) * np.exp(
             -(nu - nu0)**2 / (2 * w**2)
         )
-        out = np.clip(out, a_min=1e-8, a_max=1e10)
 
 
-        out = np.ones((self.params.freqNum, self.params.nBins)) * 1 / 2 / T  # For testing purposes, set all opacities to a constant value
+        # out = np.ones((self.params.freqNum, self.params.nBins)) * 1 / 2 / T  # For testing purposes, set all opacities to a constant value
         return out
 
     # def sigma_a(self, freq, T):

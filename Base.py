@@ -67,11 +67,7 @@ class Grid:
         self.dt = np.diff(self.timeSet)  # time step sizes
         if np.max(self.dt) > 1e-3:
             print(f'Max time step exceeds recommended for {parameters.fileFolder} solve of {parameters.runName}. Max time step of: {np.max(self.dt)}')
-        stepSet = np.linspace(0, 1, np.shape(self.dt)[0])
-        # plt.plot(.5 * (self.timeSet[:-1] + self.timeSet[1:]), self.dt)
-        # plt.show(
-        # )
-        # assert 0
+
         # Individual time step frameworks
         self.fullTensor = np.zeros((parameters.freqNum, parameters.sn, parameters.nBins))  # (nfreq, nMu, nBins)
         self.fullTensOld = np.zeros((parameters.freqNum, parameters.sn, parameters.nBins))  # (nfreq, nMu, nBins)
