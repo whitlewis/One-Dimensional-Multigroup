@@ -117,7 +117,7 @@ def ExecuteRunSetParallel(runSet):
 stepSplit = 0.88
 timeSplit = 0.15
 
-groupSet = [100]
+groupSet = [10, 40, 100, 200, 400]
 # groupSet = [100]
 stepSet = [1200]
 
@@ -130,7 +130,7 @@ for step in stepSet:
     s += 1
     for group in groupSet:
         g += 1
-        runName = f"GroupCompareGaussian{s}_{g}"
+        runName = f"GroupCompareBremstralung{s}_{g}"
         RunSet[runName] = {
             "runLabel": "Reflective",
             "Steps": step,
@@ -138,11 +138,11 @@ for step in stepSet:
             "Max Frequency": 25,
             "Min Frequency": 1e-4,
             "Infinite Frequency": 125,
-            "Group Spacing": 'linear',
+            "Group Spacing": 'log',
             "Match Grid" : True,
             "Number of frequencies": group,
             "Sn": 8,
-            "Number of Bins": 50,
+            "Number of Bins": 80,
             "xMin": -1,
             "xMax": 1,
             "RadTemp": 0.5,

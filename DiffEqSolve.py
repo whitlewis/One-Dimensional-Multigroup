@@ -55,13 +55,13 @@ def sigma_a(freqGrid, T, inputDict):
     out = np.clip(num / denom, a_min=1e-8, a_max=1e10)
 
     # Gaussian Test case
-    nu0 = 4.0   # Peak frequency
-    w = 2.0      # Gaussian width
-    nu = 0.5 * (nu_lo + nu_hi)  # Group-center frequencies
-    out = (1 / (2 * T)) * np.exp(
-        -(nu - nu0)**2 / (2 * w**2)
-    )
-    out = np.clip(out, a_min=1e-8, a_max=1e10)
+    # nu0 = 4.0   # Peak frequency
+    # w = 2.0      # Gaussian width
+    # nu = 0.5 * (nu_lo + nu_hi)  # Group-center frequencies
+    # out = (1 / (2 * T)) * np.exp(
+    #     -(nu - nu0)**2 / (2 * w**2)
+    # )
+    # out = np.clip(out, a_min=1e-8, a_max=1e10)
 
     # out = np.ones(inputDict["freqNum"]) * 1  # For testing purposes, set all opacities to a constant value
     # out = np.ones(inputDict["freqNum"]) * 1 / 2 / T
