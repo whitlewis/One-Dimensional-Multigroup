@@ -227,7 +227,6 @@ def main():
 
 def equilibrium_plot(G=128, t_max=50.0, dt_max=0.1):
     """Material and radiation temperatures relaxing to equilibrium for MG and VMG vs. the reference."""
-    # Unlinearized material iteration diverges for dt >~ 0.2 ns in this problem, so cap the step
     time_set = np.concatenate([[0.0], np.geomspace(1e-5, 1.0, 200), np.arange(1.0 + dt_max, t_max + 1e-9, dt_max)])
     _, ref = reference_solution(t_max)
     E0 = CV * T_MAT0 + np.sum(ref.y[:-1, 0]) / const.c

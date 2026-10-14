@@ -1,6 +1,6 @@
 # Solver Bug Report: One-Dimensional Multigroup / Variable-Basis Code
 
-This report covers the code on branch `solver-bugfixes`. Bugs 1–4 are fixed on this branch. Items 5–11 are documented but **not** fixed.
+This report covers the code on branch `solver-bugfixes`. Bugs 1–6 are fixed on this branch. Items 7–12 are documented but **not** fixed; item 12 is a limitation of the VMG discretization found with the 1-D test (Test C).
 
 Throughout, **MG** is the standard multigroup solver (`CoupledEquations` in `Logic.py`) and **VMG** is the variable-basis (moving-coordinate) solver (`MovingMeshEquations` in `Logic.py`).
 
@@ -50,26 +50,67 @@ Several errors in the write-up (*Multigroup First Crack*) do **not** appear in t
 
 > **Data in `dataStash/` was produced before these fixes.** Its radiation history is shifted by one step and it may contain unconverged steps. Comparisons built from it should be regenerated.
 
+### 5. Material update was an unlinearized fixed-point iteration (MG and VMG)
+
+**Where:** `materialEquation()` updated $T$ with $\sigma$ and $B$ evaluated at the previous iterate. The linearization $T^4_{n+1}\approx T^4_n + 4T^3_n(T^{n+1}-T^n)$ from the write-up was never used. This is probably why the learning rate, polynomial extrapolation, and stagnation workarounds exist.
+
+**Effect:** The iteration fails for large time steps. In the infinite-medium equilibrium problem ($C_v = 0.01$):
+
+- MG overflowed (`FloatingPointError`) once $\Delta t \gtrsim 0.2$–$0.3$ ns.
+- VMG kept running at $\Delta t\approx 0.3$ ns but finished at $T = 0.147$ keV instead of $0.436$ keV, **with no warning**.
+
+**Fix:** Each material update is now a Newton step with emission linearized about the current iterate $T_k$:
+
+$$T_{k+1} = T_k + \frac{T^n - T_k + \frac{\Delta t}{C_v}\sum_g \sigma_g\left(\phi_g - 4\pi \bar B_g(T_k)\right)}{1 + \frac{\Delta t}{C_v}\,4\pi\sum_g \sigma_g\, \bar B_g'(T_k)}.$$
+
+MG uses a new `planckBarDeriv()` (Simpson integral of $\partial B/\partial T$). VMG uses $\partial \hat B_g/\partial T = 4\hat B_g/T$, since $\hat B_g\propto T^4$ at fixed $u$. Each iteration is now a contraction for any $\Delta t$. The fixed point, and therefore the converged answer, is unchanged.
+
+**Verified:** With time steps up to $\Delta t = 1.27$ ns, both methods now reach $T_{eq}=0.4361$ keV. Energy drift at those very large steps is still $3$–$7\times10^{-5}$. The outer radiation–material iteration converges slowly when $\Delta t$ is large, and the convergence check only compares successive iterates, so it can stop early. A Fleck-type effective-scattering formulation, or a check on the temperature residual, would tighten this.
+
+### 6. VMG Planckians were built in the initial temperature's $u$-coordinate
+
+**Where:** `MovingMeshEquations.planckVCM()` assumed $u = \nu/T_{\text{initial}}$ (a single scalar), both for the initial condition and for Planckian boundaries. Each cell's coordinate is actually $u=\nu/T_{\text{cell}}(t)$.
+
+**Effect:**
+- The incoming boundary spectrum was wrong as soon as the boundary cell's temperature changed.
+- A spatially varying initial temperature could not be represented.
+- On a 20-cell slab with a 0.6 keV Planckian left boundary (64 groups), VMG went unstable, with cell temperatures of −0.31 and 1.05 keV, where MG gives about 0.56 keV.
+
+**Fix:** `planckVCM(u, T, Tcoord)` and `planckBarInit(T, Tcoord)` take the coordinate temperature explicitly. A Planckian at $T$ in the coordinate $u=\nu/T_{\text{coord}}$ is
+
+$$\hat B(u) = T_{\text{coord}}\,B(uT_{\text{coord}}, T) = \frac{15ac}{4\pi^5}\,\frac{u^3T_{\text{coord}}^4}{e^{uT_{\text{coord}}/T}-1}.$$
+
+- The initial condition uses each cell's initial temperature.
+- Boundaries use the boundary cell's current temperature iterate.
+- Boundary spectra are cached once per iteration in `startTimeStep()`. They were previously recomputed for every group and angle.
+
+**Verified:** On the same slab, VMG now agrees with MG to $6\times10^{-3}$ keV, consistent with the group error at 64 groups seen in Test C.
+
 ## Outstanding issues (not fixed)
 
-### 5. Material update is an unlinearized fixed-point iteration (important)
+### 12. VMG leaks energy through the top of the $u$-grid and converges only at first order in 1-D (important)
 
-`materialEquation()` updates $T$ with $\sigma$ and $B$ evaluated at the previous iterate. The linearization $T^4_{n+1}\approx T^4_n + 4T^3_n(T^{n+1}-T^n)$ from the write-up is never used. This is probably why the learning rate, polynomial extrapolation, and stagnation workarounds exist.
+Found with Test C below.
 
-The iteration fails for large time steps. In the equilibrium test below ($C_v = 0.01$):
+**Mechanism:**
+- In 1-D the coefficient of the grid-motion term, $c_m = \frac{1}{T}\left(\frac{1}{c}\partial_t T + \mu_m\partial_x T\right)$, is dominated by $\mu_m\partial_x T/T$. In Test C it is about $\pm0.07$, comparable to the opacity of the high-frequency groups.
+- It is negative for roughly half the angles, which pushes photons toward higher $u$.
+- The transfer between $u$-groups is first-order upwind on wide log-spaced groups, so it is very diffusive. At 16 groups, 5% of the radiation energy ends up in the top group, where the true spectrum is essentially zero.
+- That energy then leaves through $u_{\max}$. The outflow uses the group-average density $\Psi_G/\Delta u_G$ as the face value.
 
-- MG overflows (`FloatingPointError`) once $\Delta t \gtrsim 0.2$–$0.3$ ns.
-- VMG keeps running at $\Delta t\approx 0.3$ ns but finishes at $T = 0.147$ keV instead of $0.436$ keV, **with no warning**.
+**Confirmed:** The computed outflow through $u_{\max}$ matches the observed energy loss rate exactly. The bottom face contributes nothing.
 
-**Recommended fix:** a linearized (Fleck–Cummings / effective-scattering) material update, or a Newton iteration on $T$.
+**Consequences (Test C):**
+- Energy drift falls from $8\times10^{-3}$ at 8 groups to $1.3\times10^{-5}$ at 128 groups. MG conserves energy to about $10^{-8}$.
+- VMG temperature errors converge at about first order in the number of groups, versus second order for MG. VMG is more accurate than MG at 32 groups or fewer, but about 4× less accurate at 128 groups.
+- In the infinite medium only $\partial_t T$ contributes, $|c_m|$ is about 100× smaller, and none of this is visible.
 
-### 6. VMG Planckian boundary uses the initial temperature's $u$-coordinate
+**Possible remedies:**
+1. Set the $u$-face flux to zero at $u_{\min}$ and $u_{\max}$. The physical $u\hat\psi$ vanishes at both ends, and this restores exact energy conservation.
+2. Use a limited second-order reconstruction (e.g. minmod or van Leer) of $\hat\psi$ at the $u$-faces, to recover second-order convergence in groups.
+3. Extend $u_{\max}$ and/or use narrower top groups so spurious upward transport has room to decay.
 
-`MovingMeshEquations.boundaryPlanck()` → `planckVCM()` builds the incoming spectrum assuming $u = \nu/T_{\text{initial}}$. The boundary cell's coordinate is actually $u=\nu/T_{\text{cell}}(t)$. The incoming spectrum in the cell's coordinate should be
-
-$$\hat B_{\text{inc}}(u) = T_{\text{cell}}\,B(uT_{\text{cell}}, T_b),$$
-
-integrated over each $u$-group. This is correct only until the boundary cell's temperature changes, so it affects Marshak-wave runs.
+Whether VMG beats MG per group in spatially varying problems depends on resolving this.
 
 ### 7. "Delta" boundary condition has inconsistent units (MG and VMG)
 
@@ -95,7 +136,7 @@ integrated over each $u$-group. This is correct only until the boundary cell's t
 - VMG computes $\partial_x T$ with a central difference (`np.gradient`) while the spatial sweep is upwinded, so a spectrum that is uniform in $\nu$ is not preserved exactly. This is a first-order error.
 - `Base.converge()` skips its first two iterations (`if it >= 2`), so the `checkEnergy` block (`it == 0`) can never run.
 
-## Verification test: `GroupConvergenceTest.py`
+## Verification test 1: `GroupConvergenceTest.py` (infinite medium)
 
 **Problem**
 - Infinite homogeneous medium: 2 cells, reflective on both sides, S2.
@@ -126,6 +167,8 @@ VMG stopped converging beyond 64 groups (bug 1). MG had spatial non-uniformity a
 
 ### Results after the fixes
 
+These are the results after fixes 1–4. Re-running after fixes 5–6 gives the same temperature and spectrum errors, with energy drift ≤ 3e-8 at every G.
+
 | G | MG max\|ΔT\| | VMG max\|ΔT\| | max\|T_MG − T_VMG\| | MG spectrum err | VMG spectrum err | energy drift |
 |---|---|---|---|---|---|---|
 | 8 | 1.5e-2 | 1.5e-2 | 4.4e-4 | 8.6e-2 | 1.1e-1 | ≤ 1e-9 |
@@ -142,7 +185,7 @@ VMG stopped converging beyond 64 groups (bug 1). MG had spatial non-uniformity a
 
 ### Relaxation to equilibrium (128 groups)
 
-`equilibrium_plot()` runs both methods to 50 ns: log-spaced steps up to 1 ns, then $\Delta t = 0.1$ ns. The step size is capped because of issue 5.
+`equilibrium_plot()` runs both methods to 50 ns: log-spaced steps up to 1 ns, then $\Delta t = 0.1$ ns. The plot was made before fix 5, when larger steps diverged; with fix 5, steps up to 1.27 ns also reach $T_{eq}$.
 
 - Both methods match the reference for material and radiation temperature throughout.
 - The material first cools slightly, while absorbing the dilute but spectrally hot radiation, then heats.
@@ -150,3 +193,32 @@ VMG stopped converging beyond 64 groups (bug 1). MG had spatial non-uniformity a
 - Full equilibration takes about 50 ns because the high-frequency tail is only weakly absorbed ($\sigma\sim10^{-3}$ cm$^{-1}$).
 
 ![Equilibrium, 128 groups](figures/Equilibrium_128groups.png)
+
+## Verification test 2 (Test C): `GradientRelaxationTest.py` (1-D slab with a temperature gradient)
+
+This test exercises what the infinite medium cannot: VMG's $\mu\,\partial_x T$ term, and neighbouring cells whose $u$-groups map to different frequency ranges.
+
+**Problem**
+- Closed slab on $x\in[-1,1]$ cm with reflective walls, 40 cells, S4.
+- Material starts at $T_0(x) = 0.4 + 0.1\sin(\pi x/2)$ keV, so it is asymmetric and has a nonzero gradient at both walls.
+- Radiation starts as the same spatially uniform dilute Planckian as test 1. Same opacity and $C_v$.
+- 200 log-spaced steps to 0.5 ns.
+
+**Method**
+- The reference is MG with 512 groups on the same mesh, angular quadrature, and time steps. It is cached in `dataStash/`. Differences from it are therefore due to the treatment of frequency, plus VMG's different spatial and time discretization of the grid-motion terms.
+- Run with `python GradientRelaxationTest.py` (about 4.5 minutes including the reference).
+
+**Results** (after fixes 1–6)
+
+| G | MG max\|ΔT_m\| | VMG max\|ΔT_m\| | MG max\|ΔT_r\| | VMG max\|ΔT_r\| | max\|T_MG − T_VMG\| | MG energy drift | VMG energy drift |
+|---|---|---|---|---|---|---|---|
+| 8 | 2.1e-2 | 1.5e-2 | 3.8e-2 | 3.9e-2 | 1.5e-2 | 6e-9 | 8.2e-3 |
+| 16 | 1.3e-2 | 1.1e-2 | 2.1e-2 | 1.8e-2 | 7.8e-3 | 8e-9 | 1.9e-3 |
+| 32 | 4.8e-3 | 3.9e-3 | 6.4e-3 | 5.3e-3 | 5.2e-3 | 2e-8 | 5.1e-4 |
+| 64 | 1.4e-3 | 2.2e-3 | 1.8e-3 | 3.9e-3 | 2.8e-3 | 3e-8 | 9.5e-5 |
+| 128 | 3.6e-4 | 1.4e-3 | 4.3e-4 | 2.6e-3 | 1.6e-3 | 5e-8 | 1.3e-5 |
+
+- MG converges at second order and conserves energy.
+- VMG is more accurate than MG for $G\le 32$. Beyond that it converges at only about first order, and it loses energy through the top of the $u$-grid (issue 12).
+
+![Gradient relaxation](figures/GradientRelaxation.png)
