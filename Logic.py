@@ -53,6 +53,7 @@ class Equations:
     # Start the step
     def startTimeStep(self):
         if self.time_step == self.grid.timeStep:
+            self.grid.fullTensOld = self.grid.fullTensor.copy()
             return
 
         self.time_step = self.grid.timeStep
@@ -252,6 +253,9 @@ class CoupledEquations:
     # Start the step
     def startTimeStep(self):
         if self.time_step == self.grid.timeStep:
+            # Latest iterate: used for the convergence check and the right reflective boundary
+            self.grid.fullTensOld = self.grid.fullTensor.copy()
+            self.fullTens = self.grid.fullTensor.copy()
             return
 
         self.time_step = self.grid.timeStep
@@ -289,6 +293,7 @@ class CoupledEquations:
         self.grid.T_next = T_next.copy()
 
     def rhsUpdate(self):
+        self.startTimeStep()  # psi_old and timeTerm must belong to this step before building Q*
         T = self.grid.T_next
         bbarNext = self.planckBar(T)  # Get the group-averaged Planckian for the next temperature
         bbarNext = np.broadcast_to(bbarNext[:, None,:], (self.params.freqNum, self.sn, self.params.nBins))  # shape: (freqNum, sn, nBins)
@@ -609,6 +614,7 @@ class MovingMeshEquations:
 
     # This function updates Q*
     def rhsUpdate(self):
+        self.startTimeStep()  # psi_old and timeTerm must belong to this step before building Q*
         T = self.grid.T_next
         bbarNext = self.planckBar(T)  # Get the group-averaged Planckian for the next temperature
         bbarNext = np.broadcast_to(bbarNext[:, None,:], (self.params.freqNum, self.sn, self.params.nBins))  # shape: (freqNum, sn, nBins)

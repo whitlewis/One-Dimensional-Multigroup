@@ -175,8 +175,9 @@ class Base:
     def updateAll(self, index):
         # Updates grid object with new solutions each step
         self.grid.fullTensOld = self.grid.fullTensor.copy()  # Update old solution for time-stepping
-        self.grid.fullTensorTime[index] = self.grid.fullTensor.copy()  # Store the solution for this time step
-        self.grid.fullTensorPhiTime[index] = self.getPhi().copy()  # Store scalar flux for this time step
+        # Solution of step `index` lives at timeSet[index + 1], matching temperatureSet
+        self.grid.fullTensorTime[index + 1] = self.grid.fullTensor.copy()
+        self.grid.fullTensorPhiTime[index + 1] = self.getPhi().copy()
         self.grid.timeStep += 1  # Increment time step counter
         if self.params.materialCoupled:                      # update temperature for next step
             self.grid.temperatureSet[:, self.grid.timeStep] = self.problem.equations.equations.T_next
@@ -202,7 +203,7 @@ class Base:
         
     def checkEnergyConservation(self):
         if not self.params.materialCoupled and self.grid.timeStep > 0:
-            Erad = np.sum(self.grid.fullTensorPhiTime[self.grid.timeStep-1], axis=0) / self.constants.c  
+            Erad = np.sum(self.grid.fullTensorPhiTime[self.grid.timeStep], axis=0) / self.constants.c  
             totalEnergy = np.sum(Erad * self.grid.dx)  
             time = self.grid.timeSet[self.grid.timeStep]
             dt = self.grid.dt[self.grid.timeStep]
@@ -220,7 +221,7 @@ class Base:
         elif self.params.materialCoupled and self.grid.timeStep > 0:
             Tmat = self.grid.temperatureSet[:, self.grid.timeStep]  
             Emat = self.problem.material.C_v(Tmat) * Tmat  
-            Erad = np.sum(self.grid.fullTensorPhiTime[self.grid.timeStep-1], axis=0) / self.constants.c  
+            Erad = np.sum(self.grid.fullTensorPhiTime[self.grid.timeStep], axis=0) / self.constants.c  
             Trad = (Erad / self.constants.a)**0.25  
             totalEnergy = np.sum((Emat + Erad) * self.grid.dx)  
             diffEnergy = np.abs(totalEnergy - self.params.totalEnergy)  
