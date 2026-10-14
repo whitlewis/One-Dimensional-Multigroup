@@ -119,7 +119,7 @@ timeSplit = 0.15
 
 groupSet = [10, 40, 100, 200, 400]
 # groupSet = [100]
-stepSet = [1200]
+stepSet = [2500]
 
 RunSet = {}
 s = 0
@@ -135,7 +135,7 @@ for step in stepSet:
             "runLabel": "Reflective",
             "Steps": step,
             "Maximum Time": 0.5,
-            "Max Frequency": 25,
+            "Max Frequency": 45,
             "Min Frequency": 1e-4,
             "Infinite Frequency": 125,
             "Group Spacing": 'log',
@@ -155,7 +155,7 @@ for step in stepSet:
             "timeScale": "log",
             "TransTime": timeSplit,
             "stepSplit": stepSplit,  # tells what proportion of time steps are log vs linear
-            "stepType": True, 
+            "stepType": False, 
             "constantScale": True,
             "scaleTemp": 0.45,
             "MMSCompare": False
