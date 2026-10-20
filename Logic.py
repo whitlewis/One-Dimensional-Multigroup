@@ -53,6 +53,7 @@ class Equations:
     # Start the step
     def startTimeStep(self):
         if self.time_step == self.grid.timeStep:
+            self.grid.fullTensOld = self.grid.fullTensor.copy()
             return
 
         self.time_step = self.grid.timeStep
@@ -163,6 +164,13 @@ class CoupledEquations:
         bbar = self.simpson(integrand, lo, hi)
         return bbar
 
+    # Group-integrated dB/dT
+    def planckBarDeriv(self, T):
+        lo = self.grid.freqGrid[:-1, None]
+        hi = self.grid.freqGrid[1:, None]
+        integrand = lambda nu: self.planck(nu, T) * (nu / T) / (T * -np.expm1(-nu / T))
+        return self.simpson(integrand, lo, hi)
+
 
     # Function for initial Condition as Planckian (helper for initialCondition)  
     def initSpectra(self):
@@ -252,6 +260,9 @@ class CoupledEquations:
     # Start the step
     def startTimeStep(self):
         if self.time_step == self.grid.timeStep:
+            # Latest iterate: used for the convergence check and the right reflective boundary
+            self.grid.fullTensOld = self.grid.fullTensor.copy()
+            self.fullTens = self.grid.fullTensor.copy()
             return
 
         self.time_step = self.grid.timeStep
@@ -281,14 +292,17 @@ class CoupledEquations:
         T_iterative = self.grid.T_next
         phi = self.getPhi()  # Compute scalar flux by integrating over angles
         bbar = self.planckBar(T_iterative)  # Get the group-averaged Planckian for the material 
+        dbbar = self.planckBarDeriv(T_iterative)
+        sa = self.material.sigma_a(self.grid.freqGroups, T_iterative)
         
-        # Calculation of next temperature
-        T_offset = f * np.sum((self.material.sigma_a(self.grid.freqGroups, T_iterative) * phi - 4*np.pi*self.material.sigma_a(self.grid.freqGroups, T_iterative) * bbar), axis=0)
-        T_next = T + T_offset  # Update temperature using the material energy equation)
+        # Newton step on the material equation with emission linearized about T_iterative
+        residual = T - T_iterative + f * np.sum(sa * phi - 4*np.pi*sa * bbar, axis=0)
+        T_next = T_iterative + residual / (1.0 + f * 4*np.pi * np.sum(sa * dbbar, axis=0))
         self.T_next = T_next.copy()
         self.grid.T_next = T_next.copy()
 
     def rhsUpdate(self):
+        self.startTimeStep()  # psi_old and timeTerm must belong to this step before building Q*
         T = self.grid.T_next
         bbarNext = self.planckBar(T)  # Get the group-averaged Planckian for the next temperature
         bbarNext = np.broadcast_to(bbarNext[:, None,:], (self.params.freqNum, self.sn, self.params.nBins))  # shape: (freqNum, sn, nBins)
@@ -438,20 +452,17 @@ class MovingMeshEquations:
         return out
 
     # Base Planck definiton
-    def planckVCM(self, u, T):  # Planck function for variable basis (not group integrated or weighted)
-        Tmat = self.params.initialTemperature
-        denom = np.expm1(self.const.h * u * Tmat / T)  # exp(x)-1 safely
+    def planckVCM(self, u, T, Tcoord):  # Planck function for variable basis (not group integrated or weighted)
+        # u = nu/Tcoord, so a Planckian at temperature T in this coordinate is Tcoord * B(u*Tcoord, T)
+        denom = np.expm1(self.const.h * u * Tcoord / T)  # exp(x)-1 safely
         f = (15.0 * self.const.a * self.const.c) / (4.0 * np.pi**5)
-        return f * u**3 * Tmat**4 / denom
+        return f * u**3 * Tcoord**4 / denom
 
-    # Group integrated Planck
-    def planckBarInit(self, T):
+    # Group integrated Planck at temperature T in the coordinate u = nu/Tcoord
+    def planckBarInit(self, T, Tcoord):
         lo = self.grid.freqGrid[:-1, None]
         hi = self.grid.freqGrid[1:, None]
-        freqGroups = 0.5 * (
-            self.grid.freqGrid[:-1] + self.grid.freqGrid[1:]
-        )
-        integrand = lambda u: self.planckVCM(u, T)
+        integrand = lambda u: self.planckVCM(u, T, Tcoord)
         bbar = self.simpson(integrand, lo, hi)
         return bbar
     
@@ -468,8 +479,8 @@ class MovingMeshEquations:
     def initSpectra(self):
         T0 = self.params.radiationTemperature
         Tc = self.params.colorTemperature
-        planck = self.planckBarInit(Tc) 
-        self.grid.fullTensor[:] = planck[:, None]
+        planck = self.planckBarInit(Tc, self.grid.temperatureSet[:, 0])  # shape: (freqNum, nBins)
+        self.grid.fullTensor[:] = planck[:, None, :]
         return self.grid.fullTensor.copy()
     
     def energyInitialCondition(self):
@@ -477,7 +488,7 @@ class MovingMeshEquations:
 
         # Integrate the VCM Planck function over the u-frequency groups
         groupEnergies = self.simpson(
-            lambda u: self.planckVCM(u, T0),
+            lambda u: self.planckVCM(u, T0, T0),
             self.grid.freqGrid[:-1],
             self.grid.freqGrid[1:]
         )
@@ -539,21 +550,19 @@ class MovingMeshEquations:
         self.psi_old = self.grid.fullTensor.copy()
 
 
-    # Helper for boundary
+    # Incoming Planckians expressed in the boundary cells' current coordinates u = nu/T_cell
     def boundaryPlanck(self):
-        T0 = self.params.setLeftBoundaryTemp if self.params.boundaryLeft in ["Planckian", "Infinite", "Reflective"] else self.params.boundaryLeft
-        T1 = self.params.setRightBoundaryTemp if self.params.boundaryRight in ["Planckian", "Infinite", "Reflective"] else self.params.boundaryRight
-        planckLeft = np.broadcast_to(self.planckBarInit(T0), (self.params.freqNum, self.sn))  # shape: (freqNum, sn)
-        planckRight = np.broadcast_to(self.planckBarInit(T1), (self.params.freqNum, self.sn))  # shape: (freqNum, sn)
+        shape = (self.params.freqNum, self.sn)
+        planckLeft = np.broadcast_to(self.planckBarInit(self.params.setLeftBoundaryTemp, self.grid.T_next[0]), shape)
+        planckRight = np.broadcast_to(self.planckBarInit(self.params.setRightBoundaryTemp, self.grid.T_next[-1]), shape)
         return planckLeft, planckRight
 
     # Possible time varying Boundary condition
     def boundaryCondition(self, side, time):
-        left, right = self.boundaryPlanck()
         if side == "left":
-            return left
+            return self.bcLeft
         elif side == "right":
-            return right
+            return self.bcRight
 
     # Time term from discretization
     def timeAbsorption(self):
@@ -566,6 +575,7 @@ class MovingMeshEquations:
         if self.time_step == self.grid.timeStep:
             self.sigmaStarVar = self.sigmaStar(self.grid.T_next)  # Update sigma* for the iteration
             self.movingMeshConst = self.movingMeshConstant()  # Update moving mesh constant for the iteration
+            self.bcLeft, self.bcRight = self.boundaryPlanck()
             self.grid.fullTensOld = self.grid.fullTensor
             self.fullTens = self.grid.fullTensor.copy()
             return
@@ -575,6 +585,7 @@ class MovingMeshEquations:
         self.timeTerm = self.timeAbsorption()
         self.sigmaStarVar = self.sigmaStar(self.grid.T_next)  # Update sigma* for the time step
         self.movingMeshConst = self.movingMeshConstant()  # Update moving mesh constant for the time step
+        self.bcLeft, self.bcRight = self.boundaryPlanck()
 
 
     def polyPredict(self):
@@ -599,16 +610,18 @@ class MovingMeshEquations:
             T = self.grid.temperatureSet[:, self.grid.timeStep]
             phi = self.getPhi()  # Compute scalar flux by integrating over angles
             bbar = self.planckBar(T_iterative)  # Get the group-averaged Planckian for the material 
+            dbbar = 4.0 * bbar / T_iterative  # B-hat_g scales as T^4 at fixed u
             sa = self.material.sigma_a(self.grid.freqGroups, T_iterative)
             
-            # Calculation of next temperature
-            T_offset = self.params.temperatureLearningRate*f * np.sum((sa * phi - 4*np.pi*sa * bbar), axis=0)  # Limit the temperature change to avoid instability
-            T_next = T + T_offset # Update temperature using the material energy equation)
+            # Newton step on the material equation with emission linearized about T_iterative
+            residual = T - T_iterative + f * np.sum(sa * phi - 4*np.pi*sa * bbar, axis=0)
+            T_next = T_iterative + self.params.temperatureLearningRate * residual / (1.0 + f * 4*np.pi * np.sum(sa * dbbar, axis=0))
             self.T_next = T_next.copy()
             self.grid.T_next = T_next.copy()
 
     # This function updates Q*
     def rhsUpdate(self):
+        self.startTimeStep()  # psi_old and timeTerm must belong to this step before building Q*
         T = self.grid.T_next
         bbarNext = self.planckBar(T)  # Get the group-averaged Planckian for the next temperature
         bbarNext = np.broadcast_to(bbarNext[:, None,:], (self.params.freqNum, self.sn, self.params.nBins))  # shape: (freqNum, sn, nBins)
@@ -664,8 +677,7 @@ class MovingMeshEquations:
             bVal = 0.0
 
         if bc_type == "Planckian":
-            phi_source = self.boundaryCondition(side, time)
-            bVal = phi_source[f, m]
+            bVal = self.boundaryCondition(side, time)[f, m]
 
         if bc_type == "Delta":
             if side == "left":
@@ -673,7 +685,7 @@ class MovingMeshEquations:
             elif side == "right":
                 T0 = self.params.setRightBoundaryTemp
             deltaSet = np.zeros((self.params.freqNum, self.sn))
-            totalFlux = np.sum(self.grid.du * self.simpson(lambda nu: self.planckVCM(nu, T0), self.grid.freqGrid[:-1], self.grid.freqGrid[1:]))
+            totalFlux = np.sum(self.grid.du * self.simpson(lambda nu: self.planckVCM(nu, T0, self.grid.T_next[spatial_idx]), self.grid.freqGrid[:-1], self.grid.freqGrid[1:]))
             deltaSet[self.params.freqNum//4, :] = totalFlux / self.grid.du[self.params.freqNum//4]      # Delta function at the middle frequency group
             bVal = deltaSet[f, m]
                 

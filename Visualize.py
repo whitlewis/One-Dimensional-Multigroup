@@ -272,7 +272,7 @@ def plotTemperatureTimeLoaded(dataSet, paramsSet, fileSet, folderSet):
 
 def plotFinalFlux(grid, label="Final Scalar Flux"):
     x = grid.spaceMid
-    phi_by_group = grid.fullTensorPhiTime[-2]  # shape: (nFreq, nBins)
+    phi_by_group = grid.fullTensorPhiTime[-1]  # shape: (nFreq, nBins)
 
     plt.figure()
     for group, phi in enumerate(phi_by_group):
