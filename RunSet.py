@@ -7,6 +7,7 @@ from InfiniteMedium import InfiniteMedium as IM
 import Reeds
 from Reeds import Reeds as ReedsProblem
 import Base as Base
+import Visualize as Vis
 
 # Variable Coordinate Imports
 import InfiniteVariable
@@ -47,7 +48,10 @@ def setRun(params, runName, config):
     # Debug params
     params.constantScale = config["constantScale"]
     params.scaleTemp = config["scaleTemp"]
-    params.MMSCompare = config["MMSCompare"]
+    params.MMSCompare = config.get("MMSCompare", False)
+    params.mmsT0 = config.get("MMS T0", params.radiationTemperature)
+    params.mmsSigmaX = config.get("MMS Sigma X", 0.5)
+    params.mmsTau = config.get("MMS Tau", 2.0)
 
 
     # Choose to save
@@ -68,6 +72,8 @@ def run_single_standard(item):
     solver = Base.Base(grid, problem, params, constants)
 
     fullTensor, grid = solver.solve()
+    if params.MMSCompare:
+        Vis.plotMMSComparison(grid, params)
     return f"{runName}_IM"
 
 
@@ -81,6 +87,8 @@ def run_single_variable(item):
     problem = IVM(grid, constants, params)
     solver = Base.Base(grid, problem, params, constants)
     fullTensor, grid = solver.solve()
+    if params.MMSCompare:
+        Vis.plotMMSComparison(grid, params)
     return f"{runName}_IVM"
 
 
@@ -105,7 +113,7 @@ def ExecuteRunSetParallel(runSet):
         for future in concurrent.futures.as_completed(future_to_task):
             task_name = future_to_task[future]
             try:
-                run_id= future.result()
+                run_id = future.result()
                 print(f"Completed: {run_id}")
             except Exception as exc:
                 print(f"Task '{task_name}' generated an exception: {exc}")
@@ -117,7 +125,7 @@ def ExecuteRunSetParallel(runSet):
 stepSplit = 0.88
 timeSplit = 0.15
 
-groupSet = [10, 40, 100, 200, 400]
+groupSet = [10, 200]
 # groupSet = [100]
 stepSet = [2500]
 
@@ -130,7 +138,7 @@ for step in stepSet:
     s += 1
     for group in groupSet:
         g += 1
-        runName = f"GroupCompareBremstralung{s}_{g}"
+        runName = f"MMSCompare{s}_{g}"
         RunSet[runName] = {
             "runLabel": "Reflective",
             "Steps": step,
@@ -158,7 +166,10 @@ for step in stepSet:
             "stepType": False, 
             "constantScale": True,
             "scaleTemp": 0.45,
-            "MMSCompare": False
+            "MMSCompare": True,  # Set True to add MMS S and Q in both methods.
+            "MMS T0": 0.25,
+            "MMS Sigma X": 0.5,
+            "MMS Tau": 2.0,
         }
         # runName = f"ReflectiveMid{s}_{g}"
         # RunSet[runName] = {

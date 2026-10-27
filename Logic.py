@@ -3,6 +3,191 @@ np.seterr(divide='raise', invalid='raise', over='raise')
 from numba import njit
 import matplotlib.pyplot as plt
 import MMS
+
+
+def manufacturedSpatialProfile(params, x):
+    sigmaX = getattr(params, "mmsSigmaX", 0.5)
+    return np.exp(-(x**2) / (2 * sigmaX**2)) / (
+        sigmaX * np.sqrt(2 * np.pi)
+    )
+
+
+def manufacturedTemperatureProfile(params, grid, time):
+    T0 = getattr(params, "mmsT0", params.radiationTemperature)
+    tau = getattr(params, "mmsTau", 2.0)
+    return T0 * (
+        (1 - np.exp(-tau * time / 2))
+        * manufacturedSpatialProfile(params, grid.spaceMid)
+    ) ** 0.25
+
+
+def discreteManufacturedRadiationSource(
+    params, grid, mu, opacity, bbar, previousIntensity,
+    frequencyScale=None, frequencyVelocity=None,
+):
+    """Build the source that makes the analytic intensity satisfy the discrete sweep."""
+    timeIndex = grid.timeStep
+    time = grid.timeSet[timeIndex + 1]
+    T0 = getattr(params, "mmsT0", params.radiationTemperature)
+    tau = getattr(params, "mmsTau", 2.0)
+    decay = np.exp(-tau * time / 2)
+    spatial = manufacturedSpatialProfile(params, grid.spaceMid)
+    if frequencyScale is None:
+        edges = grid.freqGrid
+    else:
+        edges = grid.freqGrid[:, None] * frequencyScale[None, :]
+    if np.ndim(edges) == 1:
+        lo, hi = edges[:-1, None], edges[1:, None]
+    else:
+        lo, hi = edges[:-1], edges[1:]
+    groupPlanck = MMS.simpson(lambda nu: MMS.planck(nu, T0), lo, hi)
+    targetIntensity = (
+        grid.constants.c / (4 * np.pi)
+        * (1 + decay)
+        * spatial[None, :]
+        * groupPlanck
+    )
+    targetIntensity = np.broadcast_to(
+        targetIntensity[:, None, :],
+        (params.freqNum, params.sn, params.nBins),
+    )
+
+    leftScale = (
+        None if frequencyScale is None else frequencyScale[0]
+    )
+    rightScale = (
+        None if frequencyScale is None else frequencyScale[-1]
+    )
+    spatialLeft = manufacturedSpatialProfile(params, grid.spaceGrid[0])
+    spatialRight = manufacturedSpatialProfile(params, grid.spaceGrid[-1])
+
+    def boundaryIntensity(xProfile, scale):
+        boundaryEdges = (
+            grid.freqGrid
+            if scale is None
+            else grid.freqGrid * scale
+        )
+        boundaryPlanck = MMS.simpson(
+            lambda nu: MMS.planck(nu, T0),
+            boundaryEdges[:-1],
+            boundaryEdges[1:],
+        )
+        return (
+            grid.constants.c / (4 * np.pi)
+            * (1 + decay)
+            * xProfile
+            * boundaryPlanck
+        )
+
+    leftBoundary = boundaryIntensity(spatialLeft, leftScale)
+    rightBoundary = boundaryIntensity(spatialRight, rightScale)
+    opacity = np.asarray(opacity)
+    if opacity.ndim == 2:
+        opacity = opacity[:, None, :]
+    timeTerm = (
+        1 / (grid.constants.c * grid.dt[timeIndex])
+        if params.transient else 0.0
+    )
+    result = (opacity + timeTerm) * targetIntensity
+    result -= timeTerm * previousIntensity
+
+    for angle, direction in enumerate(mu):
+        spatialSpeed = abs(direction) / grid.dx
+        if direction > 0 or (
+            frequencyVelocity is not None and direction == 0
+        ):
+            upstream = np.empty_like(targetIntensity[:, angle, :])
+            upstream[:, 0] = leftBoundary
+            upstream[:, 1:] = targetIntensity[:, angle, :-1]
+        else:
+            upstream = np.empty_like(targetIntensity[:, angle, :])
+            upstream[:, -1] = rightBoundary
+            upstream[:, :-1] = targetIntensity[:, angle, 1:]
+        result[:, angle, :] += spatialSpeed * (
+            targetIntensity[:, angle, :] - upstream
+        )
+
+    if frequencyVelocity is not None:
+        frequencyEdges = grid.freqGrid
+        widths = np.diff(frequencyEdges)
+        for group in range(len(widths)):
+            velocity = frequencyVelocity
+            positive = velocity > 0
+            negative = velocity < 0
+            groupSource = np.where(
+                positive,
+                velocity * frequencyEdges[group] / widths[group]
+                * targetIntensity[group],
+                0.0,
+            )
+            groupSource += np.where(
+                negative,
+                -velocity * frequencyEdges[group + 1] / widths[group]
+                * targetIntensity[group],
+                0.0,
+            )
+            if group + 1 < len(widths):
+                groupSource -= np.where(
+                    positive,
+                    velocity * frequencyEdges[group + 1]
+                    / widths[group + 1] * targetIntensity[group + 1],
+                    0.0,
+                )
+            if group > 0:
+                groupSource -= np.where(
+                    negative,
+                    -velocity * frequencyEdges[group] / widths[group - 1]
+                    * targetIntensity[group - 1],
+                    0.0,
+                )
+            result[group] += groupSource
+
+    result -= 4 * np.pi * opacity * bbar
+    return result
+
+
+def manufacturedSourceTerms(params, grid, material, mu, w, frequencyScale=None):
+    """Build MMS sources for the current time step when MMS comparison is enabled."""
+    if not getattr(params, "MMSCompare", False):
+        return None
+
+    timeIndex = grid.timeStep
+    time = grid.timeSet[timeIndex + 1]
+    previousTime = grid.timeSet[timeIndex]
+    T0 = getattr(params, "mmsT0", params.radiationTemperature)
+    tau = getattr(params, "mmsTau", 2.0)
+    x = grid.spaceMid
+    spatial = manufacturedSpatialProfile(params, x)
+    temperature = manufacturedTemperatureProfile(params, grid, time)
+    previousTemperature = manufacturedTemperatureProfile(
+        params, grid, previousTime
+    )
+    sigmaX = getattr(params, "mmsSigmaX", 0.5)
+    sigmaG = material.sigma_a(grid.freqGroups, temperature)
+    freqGrid = grid.freqGrid
+    if frequencyScale is not None:
+        freqGrid = freqGrid[:, None] * frequencyScale[None, :]
+
+    baseTemperature = np.full(grid.nBins, T0)
+    return MMS.MMSSource1D(
+        T0,
+        baseTemperature,
+        baseTemperature,
+        time,
+        grid.dt[timeIndex],
+        x,
+        mu,
+        w,
+        sigmaG,
+        material.C_v(temperature),
+        freqGrid,
+        sigmaX,
+        tau=tau,
+        materialT=temperature,
+        materialTPrevious=previousTemperature,
+    )
+
+
 # Non coupled equations
 class Equations:
 
@@ -132,6 +317,7 @@ class CoupledEquations:
         self.mu = self.grid.muSet
         self.rhs = np.zeros((self.freq, self.params.nBins))
         self.T_next = np.ones(self.params.nBins)*self.params.initialTemperature
+        self.manufacturedQ = np.zeros(self.params.nBins)
     
     def getPhi(self):
         # Integrate over angles to get scalar flux
@@ -146,9 +332,19 @@ class CoupledEquations:
 
     # Base Planck definiton
     def planck(self, nu, T):  # Planck function (not group integrated or weighted)
-        denom = np.expm1(self.const.h * nu/T)  # exp(x)-1 safely
+        nu, T = np.broadcast_arrays(np.asarray(nu), np.asarray(T))
+        positiveTemperature = T > 0
+        safeTemperature = np.where(positiveTemperature, T, 1.0)
+        scaledFrequency = self.const.h * nu / safeTemperature
+        expNegative = np.exp(-scaledFrequency)
+        inverseDenominator = np.divide(
+            expNegative,
+            -np.expm1(-scaledFrequency),
+            out=np.zeros_like(expNegative),
+            where=scaledFrequency > 0,
+        )
         f = (15.0 * self.const.a * self.const.c) / (4.0 * np.pi**5)
-        return f * nu**3 / denom
+        return np.where(positiveTemperature, f * nu**3 * inverseDenominator, 0.0)
 
     # Group integrated Planck
     def planckBar(self, T):
@@ -214,12 +410,42 @@ class CoupledEquations:
     
     # Set initial Conditions here
     def initialCondition(self):
+        if getattr(self.params, "MMSCompare", False):
+            time = self.grid.timeSet[0]
+            T0 = getattr(
+                self.params, "mmsT0", self.params.radiationTemperature
+            )
+            temperature = np.maximum(
+                manufacturedTemperatureProfile(self.params, self.grid, time),
+                1e-12,
+            )
+            self.T_next = temperature.copy()
+            self.grid.T_next = temperature.copy()
+            self.grid.temperatureSet[:, 0] = temperature
+            spatial = manufacturedSpatialProfile(
+                self.params, self.grid.spaceMid
+            )
+            decay = np.exp(
+                -getattr(self.params, "mmsTau", 2.0) * time / 2
+            )
+            bbar = self.planckBar(np.full(self.params.nBins, T0))
+            intensity = (
+                self.const.c / (4 * np.pi)
+                * (1 + decay)
+                * spatial[None, :]
+                * bbar
+            )
+            return np.broadcast_to(
+                intensity[:, None, :],
+                (self.params.freqNum, self.sn, self.params.nBins),
+            ).copy()
         return self.initSpectra()
     
     # Helper function to define initial conditions
     def applyInitialConditions(self):
         self.grid.fullTensor = self.initialCondition()
-        self.energyInitialCondition()
+        if not getattr(self.params, "MMSCompare", False):
+            self.energyInitialCondition()
         self.grid.fullTensorPhi = self.getPhi()
         self.fullTens = self.grid.fullTensor.copy()
         self.psi_old = self.grid.fullTensor.copy()
@@ -245,6 +471,20 @@ class CoupledEquations:
 
     # Possible time varying Boundary condition
     def boundaryCondition(self, side, time):
+        if getattr(self.params, "MMSCompare", False):
+            x = self.grid.spaceGrid[0 if side == "left" else -1]
+            spatial = manufacturedSpatialProfile(self.params, x)
+            T0 = getattr(
+                self.params, "mmsT0", self.params.radiationTemperature
+            )
+            decay = np.exp(-getattr(self.params, "mmsTau", 2.0) * time / 2)
+            return np.broadcast_to(
+                self.const.c / (4 * np.pi)
+                * (1 + decay)
+                * spatial
+                * self.planckBar(T0),
+                (self.params.freqNum, self.sn),
+            ).copy()
         left, right = self.boundaryPlanck()
         if side == "left":
             return left
@@ -297,7 +537,11 @@ class CoupledEquations:
         
         # Newton step on the material equation with emission linearized about T_iterative
         residual = T - T_iterative + f * np.sum(sa * phi - 4*np.pi*sa * bbar, axis=0)
+        if getattr(self.params, "MMSCompare", False):
+            residual += f * self.manufacturedQ
         T_next = T_iterative + residual / (1.0 + f * 4*np.pi * np.sum(sa * dbbar, axis=0))
+        if getattr(self.params, "MMSCompare", False):
+            T_next = np.maximum(T_next, 1e-12)
         self.T_next = T_next.copy()
         self.grid.T_next = T_next.copy()
 
@@ -307,7 +551,27 @@ class CoupledEquations:
         bbarNext = self.planckBar(T)  # Get the group-averaged Planckian for the next temperature
         bbarNext = np.broadcast_to(bbarNext[:, None,:], (self.params.freqNum, self.sn, self.params.nBins))  # shape: (freqNum, sn, nBins)
         sa = np.broadcast_to(self.material.sigma_a(self.grid.freqGroups, T)[:,None,:], (self.params.freqNum, self.sn, self.params.nBins))  # shape: (freqNum, sn, nBins)
-        rhs = sa * bbarNext + self.timeTerm * self.psi_old
+        sourceTerms = manufacturedSourceTerms(
+            self.params, self.grid, self.material, self.mu, self.grid.w
+        )
+        if sourceTerms is None:
+            rhs = sa * bbarNext + self.timeTerm * self.psi_old
+            self.manufacturedQ.fill(0.0)
+        else:
+            _, self.manufacturedQ = sourceTerms
+            sourceS = discreteManufacturedRadiationSource(
+                self.params,
+                self.grid,
+                self.mu,
+                sa,
+                bbarNext,
+                self.psi_old,
+            )
+            rhs = (
+                4 * np.pi * sa * bbarNext
+                + self.timeTerm * self.psi_old
+                + sourceS
+            )
         self.grid.rhs = rhs.copy()
         self.sigmaStarVar = self.sigmaStar(self.grid.T_next)
 
@@ -321,7 +585,10 @@ class CoupledEquations:
         self.startTimeStep()
 
         # Set up Boundary conditions at the time step (allows for variable boundary conditions)
-        time = self.grid.timeSet[self.grid.timeStep]
+        boundaryTimeIndex = self.grid.timeStep + int(
+            getattr(self.params, "MMSCompare", False)
+        )
+        time = self.grid.timeSet[boundaryTimeIndex]
         phibl = self.boundaryCondition("left", time)
         phibr = self.boundaryCondition("right", time)
 
@@ -344,7 +611,9 @@ class CoupledEquations:
                 # Upwind 
                 if self.mu[m] > 0:
                     # Forward sweep
-                    if self.params.boundaryLeft == "Reflective":
+                    if getattr(self.params, "MMSCompare", False):
+                        bVal = phibl[f, m]
+                    elif self.params.boundaryLeft == "Reflective":
                         # Reflective BC: use the reflected angle's outgoing flux as the incoming flux
                         reflected_m = self.reflMatrix[m]
                         bVal = new_phi[reflected_m, 0]  # Use the reflected angle's flux at the boundary
@@ -362,7 +631,9 @@ class CoupledEquations:
                 else:
                     # Backward sweep
 
-                    if self.params.boundaryRight == "Reflective":
+                    if getattr(self.params, "MMSCompare", False):
+                        bVal = phibr[f, m]
+                    elif self.params.boundaryRight == "Reflective":
                         # Reflective BC: use the reflected angle's outgoing flux as the incoming flux
                         reflected_m = self.reflMatrix[m]
                         bVal = self.fullTens[f, reflected_m, -1]  # Use the reflected angle's flux at the boundary
@@ -439,6 +710,7 @@ class MovingMeshEquations:
         self.mu = self.grid.muSet
         self.rhs = np.zeros((self.freq, self.params.nBins))
         self.T_next = np.ones(self.params.nBins)*self.params.initialTemperature
+        self.manufacturedQ = np.zeros(self.params.nBins)
 
     def getPhi(self):
         # Integrate over angles to get scalar flux
@@ -539,12 +811,42 @@ class MovingMeshEquations:
     
     # Set initial Conditions here
     def initialCondition(self):
+        if getattr(self.params, "MMSCompare", False):
+            time = self.grid.timeSet[0]
+            T0 = getattr(
+                self.params, "mmsT0", self.params.radiationTemperature
+            )
+            temperature = np.maximum(
+                manufacturedTemperatureProfile(self.params, self.grid, time),
+                1e-12,
+            )
+            self.T_next = temperature.copy()
+            self.grid.T_next = temperature.copy()
+            self.grid.temperatureSet[:, 0] = temperature
+            spatial = manufacturedSpatialProfile(
+                self.params, self.grid.spaceMid
+            )
+            decay = np.exp(
+                -getattr(self.params, "mmsTau", 2.0) * time / 2
+            )
+            bbar = self.planckBarInit(T0, temperature)
+            intensity = (
+                self.const.c / (4 * np.pi)
+                * (1 + decay)
+                * spatial[None, :]
+                * bbar
+            )
+            return np.broadcast_to(
+                intensity[:, None, :],
+                (self.params.freqNum, self.sn, self.params.nBins),
+            ).copy()
         return self.initSpectra()
     
     # Helper function to define initial conditions
     def applyInitialConditions(self):
         self.grid.fullTensor = self.initialCondition()
-        self.energyInitialCondition()
+        if not getattr(self.params, "MMSCompare", False):
+            self.energyInitialCondition()
         self.grid.fullTensorPhi = self.getPhi()
         self.fullTens = self.grid.fullTensor.copy()
         self.psi_old = self.grid.fullTensor.copy()
@@ -552,6 +854,34 @@ class MovingMeshEquations:
 
     # Incoming Planckians expressed in the boundary cells' current coordinates u = nu/T_cell
     def boundaryPlanck(self):
+        if getattr(self.params, "MMSCompare", False):
+            time = self.grid.timeSet[self.grid.timeStep + 1]
+            T0 = getattr(
+                self.params, "mmsT0", self.params.radiationTemperature
+            )
+            tau = getattr(self.params, "mmsTau", 2.0)
+            decay = np.exp(-tau * time / 2)
+            temperature = np.maximum(self.grid.T_next, 1e-12)
+            spatialLeft = manufacturedSpatialProfile(
+                self.params, self.grid.spaceGrid[0]
+            )
+            spatialRight = manufacturedSpatialProfile(
+                self.params, self.grid.spaceGrid[-1]
+            )
+            factor = self.const.c / (4 * np.pi) * (1 + decay)
+            left = np.broadcast_to(
+                factor
+                * spatialLeft
+                * self.planckBarInit(T0, temperature[0]),
+                (self.params.freqNum, self.sn),
+            ).copy()
+            right = np.broadcast_to(
+                factor
+                * spatialRight
+                * self.planckBarInit(T0, temperature[-1]),
+                (self.params.freqNum, self.sn),
+            ).copy()
+            return left, right
         shape = (self.params.freqNum, self.sn)
         planckLeft = np.broadcast_to(self.planckBarInit(self.params.setLeftBoundaryTemp, self.grid.T_next[0]), shape)
         planckRight = np.broadcast_to(self.planckBarInit(self.params.setRightBoundaryTemp, self.grid.T_next[-1]), shape)
@@ -615,7 +945,11 @@ class MovingMeshEquations:
             
             # Newton step on the material equation with emission linearized about T_iterative
             residual = T - T_iterative + f * np.sum(sa * phi - 4*np.pi*sa * bbar, axis=0)
+            if getattr(self.params, "MMSCompare", False):
+                residual += f * self.manufacturedQ
             T_next = T_iterative + self.params.temperatureLearningRate * residual / (1.0 + f * 4*np.pi * np.sum(sa * dbbar, axis=0))
+            if getattr(self.params, "MMSCompare", False):
+                T_next = np.maximum(T_next, 1e-12)
             self.T_next = T_next.copy()
             self.grid.T_next = T_next.copy()
 
@@ -626,7 +960,34 @@ class MovingMeshEquations:
         bbarNext = self.planckBar(T)  # Get the group-averaged Planckian for the next temperature
         bbarNext = np.broadcast_to(bbarNext[:, None,:], (self.params.freqNum, self.sn, self.params.nBins))  # shape: (freqNum, sn, nBins)
         sa = np.broadcast_to(self.material.sigma_a(self.grid.freqGroups, T)[:,None,:], (self.params.freqNum, self.sn, self.params.nBins))  # shape: (freqNum, sn, nBins)
-        rhs = sa * bbarNext + self.timeTerm * self.psi_old
+        sourceTerms = manufacturedSourceTerms(
+            self.params,
+            self.grid,
+            self.material,
+            self.mu,
+            self.grid.w,
+            frequencyScale=T,
+        )
+        if sourceTerms is None:
+            rhs = sa * bbarNext + self.timeTerm * self.psi_old
+            self.manufacturedQ.fill(0.0)
+        else:
+            _, self.manufacturedQ = sourceTerms
+            sourceS = discreteManufacturedRadiationSource(
+                self.params,
+                self.grid,
+                self.mu,
+                sa,
+                bbarNext,
+                self.psi_old,
+                frequencyScale=T,
+                frequencyVelocity=self.movingMeshConst,
+            )
+            rhs = (
+                4 * np.pi * sa * bbarNext
+                + self.timeTerm * self.psi_old
+                + sourceS
+            )
         self.sigmaStarVar = self.sigmaStar(T)
         self.grid.rhs = rhs.copy()
 
@@ -667,6 +1028,9 @@ class MovingMeshEquations:
             spatial_idx = -1
         else:
             raise ValueError("Side must be 'left' or 'right'")
+
+        if getattr(self.params, "MMSCompare", False):
+            return self.boundaryCondition(side, time)[f, m]
 
         # 2. Handle Reflective Boundary Condition
         if bc_type == "Reflective":
@@ -778,7 +1142,10 @@ class MovingMeshEquations:
             self.startTimeStep()
 
             # Set up Boundary conditions at the time step (allows for variable boundary conditions)
-            time = self.grid.timeSet[self.grid.timeStep]
+            boundaryTimeIndex = self.grid.timeStep + int(
+                getattr(self.params, "MMSCompare", False)
+            )
+            time = self.grid.timeSet[boundaryTimeIndex]
 
             # Initialize the next tensor
             newFull = np.zeros_like(self.fullTens)

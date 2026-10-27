@@ -5,6 +5,7 @@ from datetime import datetime
 from matplotlib.animation import FuncAnimation
 from Base import Constants as const
 import DiffEqSolve as diffEq
+import MMS
 
 # Plot Stuff
 import os
@@ -268,6 +269,119 @@ def plotTemperatureTimeLoaded(dataSet, paramsSet, fileSet, folderSet):
     )
     plt.tight_layout()
     plt.show()
+
+
+def plotMMSComparison(grid, params):
+    """Compare solved radiation and material temperatures with the 1-D MMS."""
+    snapshotCount = min(5, len(grid.timeSet))
+    referenceIndices = np.unique(
+        np.linspace(0, len(grid.timeSet) - 1, snapshotCount, dtype=int)
+    )
+    snapshotTimes = grid.timeSet[referenceIndices]
+    colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
+    fig, (radiationAxis, materialAxis) = plt.subplots(
+        1, 2, figsize=(13, 5), sharex=True, constrained_layout=True
+    )
+
+    x = grid.spaceMid
+    methodName = "VMG" if params.movingCoordinates else "MG"
+    lineStyle = "-." if params.movingCoordinates else "-"
+    spatial = np.exp(-(x**2) / (2 * params.mmsSigmaX**2)) / (
+        params.mmsSigmaX * np.sqrt(2 * np.pi)
+    )
+    for snapshotNumber, targetTime in enumerate(snapshotTimes):
+        timeIndex = int(np.argmin(np.abs(grid.timeSet - targetTime)))
+        time = grid.timeSet[timeIndex]
+        decay = np.exp(-params.mmsTau * time / 2)
+        exactMaterial = params.mmsT0 * (
+            (1 - decay) * spatial
+        ) ** 0.25
+        if params.movingCoordinates:
+            frequencyScale = np.maximum(exactMaterial, 1e-12)
+            lo = grid.freqGrid[:-1, None] * frequencyScale[None, :]
+            hi = grid.freqGrid[1:, None] * frequencyScale[None, :]
+        else:
+            lo = grid.freqGrid[:-1, None]
+            hi = grid.freqGrid[1:, None]
+        groupPlanck = MMS.simpson(
+            lambda nu: MMS.planck(nu, params.mmsT0), lo, hi
+        )
+        exactRadiation = (
+            np.sum(groupPlanck, axis=0)
+            * (1 + decay)
+            * spatial
+            / grid.constants.a
+        ) ** 0.25
+        radiationEnergy = (
+            np.sum(grid.fullTensorPhiTime[timeIndex], axis=0)
+            / (grid.constants.a * grid.constants.c)
+        )
+        solvedRadiation = np.maximum(radiationEnergy, 0) ** 0.25
+        solvedMaterial = grid.temperatureSet[:, timeIndex]
+        color = colors[snapshotNumber % len(colors)]
+        methodLabel = methodName if snapshotNumber == 0 else "_nolegend_"
+        mmsLabel = "MMS" if snapshotNumber == 0 else "_nolegend_"
+
+        radiationAxis.plot(
+            x, solvedRadiation, color=color, linestyle=lineStyle,
+            label=methodLabel
+        )
+        radiationAxis.plot(
+            x, exactRadiation, color=color, linestyle=":",
+            label=mmsLabel
+        )
+        materialAxis.plot(
+            x, solvedMaterial, color=color, linestyle=lineStyle,
+            label=methodLabel
+        )
+        materialAxis.plot(
+            x, exactMaterial, color=color, linestyle=":",
+            label=mmsLabel
+        )
+
+    radiationAxis.set_title("Radiation temperature")
+    materialAxis.set_title("Material temperature")
+    for axis in (radiationAxis, materialAxis):
+        axis.set_xlabel("Position x (cm)")
+        axis.set_ylabel("Temperature (keV)")
+        axis.minorticks_on()
+        axis.tick_params(which="both", direction="in", top=True, right=True)
+        axis.legend(frameon=False, fontsize="small", ncol=2)
+    timesLabel = ", ".join(f"{time:.2e}" for time in snapshotTimes)
+    fig.suptitle(
+        f"{methodName} compared with 1-D MMS (snapshot times: {timesLabel} ns)"
+    )
+    plt.show()
+    return fig, (radiationAxis, materialAxis)
+
+
+def plotMMSComparisonLoaded(data, params):
+    """Plot one saved MG/VMG MMS comparison loaded from HDF5."""
+    from types import SimpleNamespace
+
+    timeCount = min(
+        len(data["timeSet"]),
+        data["fullTensorPhi"].shape[0],
+        data["temperatureSet"].shape[1],
+    )
+    if timeCount == 0:
+        raise ValueError("A saved MMS result contains no time samples.")
+
+    grid = SimpleNamespace(
+        spaceMid=np.asarray(params["spaceMid"]),
+        fullTensorPhiTime=data["fullTensorPhi"][:timeCount],
+        temperatureSet=data["temperatureSet"][:, :timeCount],
+        timeSet=np.asarray(data["timeSet"])[:timeCount],
+        freqGrid=np.asarray(params["freqGrid"]),
+        constants=SimpleNamespace(a=const.a, c=const.c),
+    )
+    plotParams = SimpleNamespace(
+        mmsT0=params["mmsT0"],
+        mmsSigmaX=params["mmsSigmaX"],
+        mmsTau=params["mmsTau"],
+        movingCoordinates=params["movingCoordinates"],
+    )
+    return plotMMSComparison(grid, plotParams)
 
 
 def plotFinalFlux(grid, label="Final Scalar Flux"):

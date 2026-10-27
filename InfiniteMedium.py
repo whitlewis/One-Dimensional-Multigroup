@@ -95,11 +95,28 @@ class Material:
         nu_lo = self.grid.freqGrid[:-1, None]
         nu_hi = self.grid.freqGrid[1:, None]
 
-        # # Pure Brehmstralung
         sigma_aZero = 10 * np.ones((self.params.freqNum, self.params.nBins))
-        denom = np.sqrt(T) * self.planckg(nu_lo, nu_hi, T)
-        num = sigma_aZero * (np.exp(-nu_lo/T)-np.exp(-nu_hi/T))
-        out = np.clip(num / denom, a_min=1e-8, a_max=1e10)
+        x_lo = nu_lo / T
+        x_hi = nu_hi / T
+        # Scale out exp(-x_lo) so cold-cell opacity remains computable.
+        scaledPlanck = self.simpson(
+            lambda x: (
+                15.0 * x**3 / np.pi**4
+                * np.exp(x_lo - x)
+                / -np.expm1(-x)
+            ),
+            x_lo,
+            x_hi,
+        )
+        num = sigma_aZero * -np.expm1(-(x_hi - x_lo))
+        denom = np.sqrt(T) * scaledPlanck
+        out = np.divide(
+            num,
+            denom,
+            out=np.full_like(num, np.inf),
+            where=denom > 0,
+        )
+        out = np.clip(out, a_min=1e-8, a_max=1e10)
 
         # Gaussian Test case
         # nu0 = 4.0   # Peak frequency

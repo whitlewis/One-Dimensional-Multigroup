@@ -285,7 +285,7 @@ class Base:
         os.makedirs(f"dataStash/{filePrefix}", exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filepath = f"dataStash/{filePrefix}/{runName}_{self.params.nSteps}_Steps_{self.params.freqNum}_groups{timestamp}.h5"
-        fullTensorPhiTime = np.squeeze(self.grid.fullTensorPhiTime)[:-1,:,:]
+        fullTensorPhiTime = self.grid.fullTensorPhiTime
         with h5py.File(filepath, "w") as f:
             f.create_dataset("fullTensorPhi", data=fullTensorPhiTime, compression="gzip")
             f.create_dataset("temperatureSet", data=self.grid.temperatureSet, compression="gzip")
@@ -304,6 +304,17 @@ class Base:
             f.attrs["groups"] = self.params.freqNum
             f.attrs["solveType"] = self.params.fileFolder
             f.attrs["solveTime"] = self.runTime
+            f.attrs["MMSCompare"] = bool(
+                getattr(self.params, "MMSCompare", False)
+            )
+            f.attrs["mmsT0"] = getattr(
+                self.params, "mmsT0", self.params.radiationTemperature
+            )
+            f.attrs["mmsSigmaX"] = getattr(self.params, "mmsSigmaX", 0.5)
+            f.attrs["mmsTau"] = getattr(self.params, "mmsTau", 2.0)
+            f.attrs["movingCoordinates"] = bool(
+                self.params.movingCoordinates
+            )
 
     
 
