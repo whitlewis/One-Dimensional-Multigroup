@@ -167,8 +167,8 @@ for step in stepSet:
             "constantScale": True,
             "scaleTemp": 0.45,
             "MMSCompare": True,  # Set True to add MMS S and Q in both methods.
-            "MMS T0": 0.8,
-            "MMS Sigma X": 1.5,
+            "MMS T0": 10.0,
+            "MMS Sigma X": 20.0,
             "MMS Tau": 2.0,
         }
         # runName = f"ReflectiveMid{s}_{g}"

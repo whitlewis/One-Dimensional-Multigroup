@@ -94,9 +94,9 @@ class Material:
         nu_lo = self.grid.freqGrid[:-1, None]
         nu_hi = self.grid.freqGrid[1:, None]
 
-        sigma_aZero = 10 * np.ones((self.params.freqNum, self.params.nBins))
-        denom = np.sqrt(T) * self.planckg(nu_lo, nu_hi, T)
-        num = sigma_aZero * (np.exp(-nu_lo/T)-np.exp(-nu_hi/T))
+        # sigma_aZero = 10 * np.ones((self.params.freqNum, self.params.nBins))
+        # denom = np.sqrt(T) * self.planckg(nu_lo, nu_hi, T)
+        # num = sigma_aZero * (np.exp(-nu_lo/T)-np.exp(-nu_hi/T))
 
         # Gaussian Test case
         # nu0 = 4.0  # Peak frequency
@@ -106,12 +106,9 @@ class Material:
         #     -(nu - nu0)**2 / (2 * w**2)
         # )
 
-        out = np.clip(num / denom, a_min = 1.0e-8, a_max=1.0e10)  # Avoid division by zero and ensure non-negative opacities
+        # out = np.clip(num / denom, a_min = 1.0e-8, a_max=1.0e10)  # Avoid division by zero and ensure non-negative opacities
         # print(f"Calculated opacities with shape: {out.shape}, min: {np.min(out):3e}, max: {np.max(out):3e}")  # Debugging statement
         # out = np.ones((self.params.freqNum, self.params.nBins)) * 1 / 2 / T  # For testing purposes, set all opacities to a constant value
-
-        return out
-        out = np.clip(out, a_min=1e-8, a_max=maxOpacity)
 
         # Gaussian Test case
         # nu0 = 4.0   # Peak frequency
@@ -122,7 +119,7 @@ class Material:
         # )
 
 
-        # out = np.ones((self.params.freqNum, self.params.nBins)) * 1 / 2 / T  # For testing purposes, set all opacities to a constant value
+        out = np.ones((self.params.freqNum, self.params.nBins)) * 1 / 2 / T  # For testing purposes, set all opacities to a constant value
         return out
 
     # def sigma_a(self, freq, T):
