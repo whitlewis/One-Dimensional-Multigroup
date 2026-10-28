@@ -5,7 +5,6 @@ from datetime import datetime
 from matplotlib.animation import FuncAnimation
 from Base import Constants as const
 import DiffEqSolve as diffEq
-import MMS
 
 # Plot Stuff
 import os
@@ -271,17 +270,22 @@ def plotTemperatureTimeLoaded(dataSet, paramsSet, fileSet, folderSet):
     plt.show()
 
 
-def plotMMSComparison(grid, params):
+def plotMMSComparison(grid, params, axes=None, labelPrefix=None, show=True):
     """Compare solved radiation and material temperatures with the 1-D MMS."""
+    createFigure = axes is None
     snapshotCount = min(5, len(grid.timeSet))
     referenceIndices = np.unique(
         np.linspace(0, len(grid.timeSet) - 1, snapshotCount, dtype=int)
     )
     snapshotTimes = grid.timeSet[referenceIndices]
     colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
-    fig, (radiationAxis, materialAxis) = plt.subplots(
-        1, 2, figsize=(13, 5), sharex=True, constrained_layout=True
-    )
+    if axes is None:
+        fig, axes = plt.subplots(
+            1, 2, figsize=(13, 5), sharex=True
+        )
+    else:
+        fig = axes[0].figure
+    radiationAxis, materialAxis = axes
 
     x = grid.spaceMid
     methodName = "VMG" if params.movingCoordinates else "MG"
@@ -296,18 +300,15 @@ def plotMMSComparison(grid, params):
         exactMaterial = params.mmsT0 * (
             (1 - decay) * spatial
         ) ** 0.25
-        if params.movingCoordinates:
-            frequencyScale = np.maximum(exactMaterial, 1e-12)
-            lo = grid.freqGrid[:-1, None] * frequencyScale[None, :]
-            hi = grid.freqGrid[1:, None] * frequencyScale[None, :]
-        else:
-            lo = grid.freqGrid[:-1, None]
-            hi = grid.freqGrid[1:, None]
-        groupPlanck = MMS.simpson(
-            lambda nu: MMS.planck(nu, params.mmsT0), lo, hi
+        # Use the full Planck integral so MG and VMG share one continuum MMS reference.
+        integratedPlanck = (
+            grid.constants.a
+            * grid.constants.c
+            * params.mmsT0**4
+            / (4 * np.pi * const.h**4)
         )
         exactRadiation = (
-            np.sum(groupPlanck, axis=0)
+            integratedPlanck
             * (1 + decay)
             * spatial
             / grid.constants.a
@@ -319,8 +320,13 @@ def plotMMSComparison(grid, params):
         solvedRadiation = np.maximum(radiationEnergy, 0) ** 0.25
         solvedMaterial = grid.temperatureSet[:, timeIndex]
         color = colors[snapshotNumber % len(colors)]
-        methodLabel = methodName if snapshotNumber == 0 else "_nolegend_"
-        mmsLabel = "MMS" if snapshotNumber == 0 else "_nolegend_"
+        if labelPrefix:
+            methodLabel = f"{labelPrefix}, t={time:.2e} ns"
+        else:
+            groups = getattr(params, "freqNum", None)
+            groupLabel = f" ({groups} groups)" if groups is not None else ""
+            methodLabel = f"{methodName}{groupLabel}, t={time:.2e} ns"
+        mmsLabel = f"MMS, t={time:.2e} ns"
 
         radiationAxis.plot(
             x, solvedRadiation, color=color, linestyle=lineStyle,
@@ -346,16 +352,47 @@ def plotMMSComparison(grid, params):
         axis.set_ylabel("Temperature (keV)")
         axis.minorticks_on()
         axis.tick_params(which="both", direction="in", top=True, right=True)
-        axis.legend(frameon=False, fontsize="small", ncol=2)
     timesLabel = ", ".join(f"{time:.2e}" for time in snapshotTimes)
-    fig.suptitle(
-        f"{methodName} compared with 1-D MMS (snapshot times: {timesLabel} ns)"
-    )
-    plt.show()
+    if labelPrefix is None:
+        fig.suptitle(
+            f"{methodName} compared with 1-D MMS "
+            f"(snapshot times: {timesLabel} ns)"
+        )
+    if createFigure:
+        _addMMSLegend(fig, axes)
+    if show:
+        plt.show()
     return fig, (radiationAxis, materialAxis)
 
 
-def plotMMSComparisonLoaded(data, params):
+def _addMMSLegend(fig, axes, fontsize="small"):
+    handles, labels = axes[0].get_legend_handles_labels()
+    uniqueHandles = {}
+    for handle, label in zip(handles, labels):
+        if label and not label.startswith("_"):
+            uniqueHandles.setdefault(label, handle)
+
+    if not uniqueHandles:
+        return
+
+    ncol = min(4, len(uniqueHandles))
+    legendRows = (len(uniqueHandles) + ncol - 1) // ncol
+    bottom = min(0.5, 0.1 + 0.035 * legendRows)
+    fig.tight_layout(rect=(0, bottom, 1, 0.92))
+    fig.legend(
+        uniqueHandles.values(),
+        uniqueHandles.keys(),
+        frameon=False,
+        fontsize=fontsize,
+        ncol=ncol,
+        loc="lower center",
+        bbox_to_anchor=(0.5, 0.01),
+    )
+
+
+def plotMMSComparisonLoaded(
+    data, params, axes=None, labelPrefix=None, show=True
+):
     """Plot one saved MG/VMG MMS comparison loaded from HDF5."""
     from types import SimpleNamespace
 
@@ -380,8 +417,29 @@ def plotMMSComparisonLoaded(data, params):
         mmsSigmaX=params["mmsSigmaX"],
         mmsTau=params["mmsTau"],
         movingCoordinates=params["movingCoordinates"],
+        freqNum=params.get("groups"),
     )
-    return plotMMSComparison(grid, plotParams)
+    return plotMMSComparison(
+        grid, plotParams, axes=axes, labelPrefix=labelPrefix, show=show
+    )
+
+
+def plotMMSComparisonsLoaded(results):
+    """Overplot loaded MMS runs, identifying each run and snapshot in the legends."""
+    if not results:
+        return None
+
+    fig, axes = plt.subplots(
+        1, 2, figsize=(13, 5), sharex=True
+    )
+    for data, params, label in results:
+        plotMMSComparisonLoaded(
+            data, params, axes=axes, labelPrefix=label, show=False
+        )
+    fig.suptitle("Selected runs compared with 1-D MMS")
+    _addMMSLegend(fig, axes, fontsize="x-small")
+    plt.show()
+    return fig, axes
 
 
 def plotFinalFlux(grid, label="Final Scalar Flux"):

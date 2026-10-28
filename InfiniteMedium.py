@@ -81,7 +81,6 @@ class Material:
         denom = nu**3 * T*(1/2)
         return sa0 * num / denom
 
-    # Planckian for opacity calculation
     def planckg(self, nu_lo, nu_hi, T):
         # Calculate the Planck function for each frequency group
         # FIX: Broadcast frequency as column (freqNum, 1) against T (nBins,) -> Result is (freqNum, nBins)
@@ -89,34 +88,30 @@ class Material:
         nu_hi = nu_hi / T
         integrand = lambda nu: (15.0 * nu**3) / np.pi**4 /  np.expm1(nu)
         bg = self.simpson(integrand, nu_lo, nu_hi)
-        return bg  # Shape is now (freqNum, nBins)
+        return bg # Shape is now (freqNum, nBins)
     
-    def sigma_a(self, freq, T): 
+    def sigma_a(self, freq, T):
         nu_lo = self.grid.freqGrid[:-1, None]
         nu_hi = self.grid.freqGrid[1:, None]
 
         sigma_aZero = 10 * np.ones((self.params.freqNum, self.params.nBins))
-        x_lo = nu_lo / T
-        x_hi = nu_hi / T
-        # Scale out exp(-x_lo) so cold-cell opacity remains computable.
-        scaledPlanck = self.simpson(
-            lambda x: (
-                15.0 * x**3 / np.pi**4
-                * np.exp(x_lo - x)
-                / -np.expm1(-x)
-            ),
-            x_lo,
-            x_hi,
-        )
-        num = sigma_aZero * -np.expm1(-(x_hi - x_lo))
-        denom = np.sqrt(T) * scaledPlanck
-        out = np.divide(
-            num,
-            denom,
-            out=np.full_like(num, np.inf),
-            where=denom > 0,
-        )
-        out = np.clip(out, a_min=1e-8, a_max=1e10)
+        denom = np.sqrt(T) * self.planckg(nu_lo, nu_hi, T)
+        num = sigma_aZero * (np.exp(-nu_lo/T)-np.exp(-nu_hi/T))
+
+        # Gaussian Test case
+        # nu0 = 4.0  # Peak frequency
+        # w = 2.0      # Gaussian width
+        # nu = 0.5 * (nu_lo + nu_hi)  # Group-center frequencies
+        # out = (1 / (2 * T)) * np.exp(
+        #     -(nu - nu0)**2 / (2 * w**2)
+        # )
+
+        out = np.clip(num / denom, a_min = 1.0e-8, a_max=1.0e10)  # Avoid division by zero and ensure non-negative opacities
+        # print(f"Calculated opacities with shape: {out.shape}, min: {np.min(out):3e}, max: {np.max(out):3e}")  # Debugging statement
+        # out = np.ones((self.params.freqNum, self.params.nBins)) * 1 / 2 / T  # For testing purposes, set all opacities to a constant value
+
+        return out
+        out = np.clip(out, a_min=1e-8, a_max=maxOpacity)
 
         # Gaussian Test case
         # nu0 = 4.0   # Peak frequency

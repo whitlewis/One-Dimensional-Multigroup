@@ -72,6 +72,15 @@ def loadResults(filepaths=None):
             if dt is None:
                 dt = f["dt"][:]
 
+            fileName = os.path.splitext(os.path.basename(filepath))[0]
+            folder = os.path.basename(os.path.dirname(filepath))
+            nSteps = f.attrs.get("nSteps", None)
+            groups = f.attrs.get("groups", None)
+            movingCoordinates = bool(
+                f.attrs.get("movingCoordinates", False)
+            )
+            methodName = "VMG" if movingCoordinates else "MG"
+            groupLabel = f" ({groups} groups)" if groups is not None else ""
             params = {
             "spaceGrid": spaceGrid,
             "spaceMid": spaceMid,
@@ -79,24 +88,21 @@ def loadResults(filepaths=None):
             "dt": dt,
             "dx": f.attrs.get("dx", None),
             "nBins": f.attrs.get("nBins", None),
-            "nSteps": f.attrs.get("nSteps", None),
+            "nSteps": nSteps,
             "sn": f.attrs.get("sn", None),
             "maxFreq": f.attrs.get("maxFreq", None),
             "runLabel": f.attrs.get("runLabel", None),
-            "groups": f.attrs.get("groups", None),
+            "groups": groups,
             "solveType": f.attrs.get("solveType", None),
             "MMSCompare": bool(f.attrs.get("MMSCompare", False)),
             "mmsT0": f.attrs.get("mmsT0", None),
             "mmsSigmaX": f.attrs.get("mmsSigmaX", None),
             "mmsTau": f.attrs.get("mmsTau", None),
-            "movingCoordinates": bool(
-                f.attrs.get("movingCoordinates", False)
-            ),
+            "movingCoordinates": movingCoordinates,
+            "plotLabel": f"{methodName}{groupLabel}",
             }
             all_data.append(data)
             all_params.append(params)
-            fileName = os.path.basename(filepath).split("_")[0]
-            folder = os.path.basename(os.path.dirname(filepath))
             folderSet.append(folder)
             print(folder)
             fileSet.append(fileName)
@@ -109,13 +115,12 @@ def plotSet(filepaths=None):
     if data is None:
         return
     mmsResults = [
-        (runData, runParams)
+        (runData, runParams, runParams["plotLabel"])
         for runData, runParams in zip(data, params)
         if runParams["MMSCompare"]
     ]
     if mmsResults:
-        for mmsData, mmsParams in mmsResults:
-            Vis.plotMMSComparisonLoaded(mmsData, mmsParams)
+        Vis.plotMMSComparisonsLoaded(mmsResults)
     nonMmsResults = [
         (runData, runParams, file, folder)
         for runData, runParams, file, folder in zip(

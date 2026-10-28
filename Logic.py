@@ -1032,26 +1032,26 @@ class MovingMeshEquations:
         if getattr(self.params, "MMSCompare", False):
             return self.boundaryCondition(side, time)[f, m]
 
-        # 2. Handle Reflective Boundary Condition
+        # A missing boundary condition means no incoming flux.
         if bc_type == "Reflective":
-            # Spatial flux comes from the reflected angle at the current frequency
             bVal = self.fullTens[f, reflected_m, spatial_idx]
-        
-        if bc_type == "Vacuum":
+        elif bc_type in ("Vacuum", "None", None):
             bVal = 0.0
-
-        if bc_type == "Planckian":
+        elif bc_type == "Planckian":
             bVal = self.boundaryCondition(side, time)[f, m]
-
-        if bc_type == "Delta":
+        elif bc_type == "Delta":
             if side == "left":
                 T0 = self.params.setLeftBoundaryTemp
-            elif side == "right":
+            else:
                 T0 = self.params.setRightBoundaryTemp
             deltaSet = np.zeros((self.params.freqNum, self.sn))
             totalFlux = np.sum(self.grid.du * self.simpson(lambda nu: self.planckVCM(nu, T0, self.grid.T_next[spatial_idx]), self.grid.freqGrid[:-1], self.grid.freqGrid[1:]))
             deltaSet[self.params.freqNum//4, :] = totalFlux / self.grid.du[self.params.freqNum//4]      # Delta function at the middle frequency group
             bVal = deltaSet[f, m]
+        else:
+            raise ValueError(
+                f"Unsupported {side} boundary condition: {bc_type!r}"
+            )
                 
         return bVal
     

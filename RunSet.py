@@ -125,7 +125,7 @@ def ExecuteRunSetParallel(runSet):
 stepSplit = 0.88
 timeSplit = 0.15
 
-groupSet = [10, 200]
+groupSet = [100]
 # groupSet = [100]
 stepSet = [2500]
 
@@ -138,7 +138,7 @@ for step in stepSet:
     s += 1
     for group in groupSet:
         g += 1
-        runName = f"MMSCompare{s}_{g}"
+        runName = f"CodeCheck{s}_{g}"
         RunSet[runName] = {
             "runLabel": "Reflective",
             "Steps": step,
@@ -150,7 +150,7 @@ for step in stepSet:
             "Match Grid" : True,
             "Number of frequencies": group,
             "Sn": 8,
-            "Number of Bins": 80,
+            "Number of Bins": 60,
             "xMin": -1,
             "xMax": 1,
             "RadTemp": 0.5,
@@ -167,8 +167,8 @@ for step in stepSet:
             "constantScale": True,
             "scaleTemp": 0.45,
             "MMSCompare": True,  # Set True to add MMS S and Q in both methods.
-            "MMS T0": 0.25,
-            "MMS Sigma X": 0.5,
+            "MMS T0": 0.8,
+            "MMS Sigma X": 1.5,
             "MMS Tau": 2.0,
         }
         # runName = f"ReflectiveMid{s}_{g}"
