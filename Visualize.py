@@ -270,6 +270,85 @@ def plotTemperatureTimeLoaded(dataSet, paramsSet, fileSet, folderSet):
     plt.show()
 
 
+def plotTemperatureMMSLoaded(results, binIndex=20):
+    """Compare loaded MMS material and radiation temperatures at one spatial bin."""
+    if not results:
+        return None
+
+    fig, axis = plt.subplots(figsize=(8, 5))
+    colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
+
+    for runIndex, (data, params, label) in enumerate(results):
+        x = np.asarray(params["spaceMid"])
+        if not 0 <= binIndex < len(x):
+            raise IndexError(
+                f"Bin index {binIndex} is outside the saved spatial grid "
+                f"of {len(x)} bins."
+            )
+
+        timeCount = min(
+            len(data["timeSet"]),
+            data["fullTensorPhi"].shape[0],
+            data["temperatureSet"].shape[1],
+        )
+        if timeCount == 0:
+            raise ValueError(f"Saved MMS result {label!r} contains no time samples.")
+
+        time = np.asarray(data["timeSet"])[:timeCount]
+        materialTemperature = data["temperatureSet"][binIndex, :timeCount]
+        radiationEnergy = (
+            np.sum(data["fullTensorPhi"][:timeCount, :, binIndex], axis=1)
+            / (const.a * const.c)
+        )
+        radiationTemperature = np.maximum(radiationEnergy, 0) ** 0.25
+
+        t0 = params["mmsT0"]
+        sigmaX = params["mmsSigmaX"]
+        tau = params["mmsTau"]
+        spatial = np.exp(-(x[binIndex] ** 2) / (2 * sigmaX**2)) / (
+            sigmaX * np.sqrt(2 * np.pi)
+        )
+        decay = np.exp(-tau * time / 2)
+        exactMaterial = t0 * ((1 - decay) * spatial) ** 0.25
+        integratedPlanck = (
+            const.a * const.c * t0**4 / (4 * np.pi * const.h**4)
+        )
+        exactRadiation = (
+            integratedPlanck * (1 + decay) * spatial / const.a
+        ) ** 0.25
+        color = colors[runIndex % len(colors)]
+        markEvery = max(1, timeCount // 30)
+
+        axis.plot(
+            time, materialTemperature, color=color,
+            label=f"{label} material",
+        )
+        axis.plot(
+            time, radiationTemperature, color=color, linestyle="--",
+            label=f"{label} radiation",
+        )
+        axis.plot(
+            time, exactMaterial, color=color, linestyle=":",
+            marker="o", markersize=4, markevery=markEvery,
+            label=f"{label} MMS material",
+        )
+        axis.plot(
+            time, exactRadiation, color=color, linestyle=":",
+            marker="s", markersize=4, markevery=markEvery,
+            label=f"{label} MMS radiation",
+        )
+
+    axis.set_xlabel("Time (ns)")
+    axis.set_ylabel("Temperature (keV)")
+    axis.set_title(f"Temperature at spatial bin {binIndex}: solution vs. MMS")
+    axis.minorticks_on()
+    axis.tick_params(which="both", direction="in", top=True, right=True)
+    axis.legend(frameon=False, fontsize="small")
+    fig.tight_layout()
+    plt.show()
+    return fig, axis
+
+
 def plotMMSComparison(grid, params, axes=None, labelPrefix=None, show=True):
     """Compare solved radiation and material temperatures with the 1-D MMS."""
     createFigure = axes is None
@@ -290,6 +369,7 @@ def plotMMSComparison(grid, params, axes=None, labelPrefix=None, show=True):
     x = grid.spaceMid
     methodName = "VMG" if params.movingCoordinates else "MG"
     lineStyle = "-." if params.movingCoordinates else "-"
+    colorOffset = len(radiationAxis.lines) // 2
     spatial = np.exp(-(x**2) / (2 * params.mmsSigmaX**2)) / (
         params.mmsSigmaX * np.sqrt(2 * np.pi)
     )
@@ -319,14 +399,15 @@ def plotMMSComparison(grid, params, axes=None, labelPrefix=None, show=True):
         )
         solvedRadiation = np.maximum(radiationEnergy, 0) ** 0.25
         solvedMaterial = grid.temperatureSet[:, timeIndex]
-        color = colors[snapshotNumber % len(colors)]
+        color = colors[(colorOffset + snapshotNumber) % len(colors)]
         if labelPrefix:
             methodLabel = f"{labelPrefix}, t={time:.2e} ns"
+            mmsLabel = f"{labelPrefix} MMS, t={time:.2e} ns"
         else:
             groups = getattr(params, "freqNum", None)
             groupLabel = f" ({groups} groups)" if groups is not None else ""
             methodLabel = f"{methodName}{groupLabel}, t={time:.2e} ns"
-        mmsLabel = f"MMS, t={time:.2e} ns"
+            mmsLabel = f"MMS, t={time:.2e} ns"
 
         radiationAxis.plot(
             x, solvedRadiation, color=color, linestyle=lineStyle,
@@ -334,6 +415,8 @@ def plotMMSComparison(grid, params, axes=None, labelPrefix=None, show=True):
         )
         radiationAxis.plot(
             x, exactRadiation, color=color, linestyle=":",
+            marker="o", markersize=4, markevery=max(1, len(x) // 30),
+            zorder=1,
             label=mmsLabel
         )
         materialAxis.plot(
@@ -342,6 +425,8 @@ def plotMMSComparison(grid, params, axes=None, labelPrefix=None, show=True):
         )
         materialAxis.plot(
             x, exactMaterial, color=color, linestyle=":",
+            marker="o", markersize=4, markevery=max(1, len(x) // 30),
+            zorder=1,
             label=mmsLabel
         )
 

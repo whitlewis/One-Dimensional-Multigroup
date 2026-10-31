@@ -121,6 +121,7 @@ def plotSet(filepaths=None):
     ]
     if mmsResults:
         Vis.plotMMSComparisonsLoaded(mmsResults)
+        Vis.plotTemperatureMMSLoaded(mmsResults, binIndex=20)
     nonMmsResults = [
         (runData, runParams, file, folder)
         for runData, runParams, file, folder in zip(
