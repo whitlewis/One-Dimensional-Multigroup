@@ -59,7 +59,7 @@ def sigma_a(freqGrid, T, inputDict):
     # w = 2.0      # Gaussian width
     # nu = 0.5 * (nu_lo + nu_hi)  # Group-center frequencies
     # out = (1 / (2 * T)) * np.exp(
-    #     -(nu - nu0)**2 / (2 * w**2)
+    #     -(nu - nu0)**2 / (2 * w**2) 
     # )
     # out = np.clip(out, a_min=1e-8, a_max=1e10)
 

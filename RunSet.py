@@ -7,7 +7,6 @@ from InfiniteMedium import InfiniteMedium as IM
 import Reeds
 from Reeds import Reeds as ReedsProblem
 import Base as Base
-import Visualize as Vis
 
 # Variable Coordinate Imports
 import InfiniteVariable
@@ -72,8 +71,6 @@ def run_single_standard(item):
     solver = Base.Base(grid, problem, params, constants)
 
     fullTensor, grid = solver.solve()
-    if params.MMSCompare:
-        Vis.plotMMSComparison(grid, params)
     return f"{runName}_IM"
 
 
@@ -87,8 +84,6 @@ def run_single_variable(item):
     problem = IVM(grid, constants, params)
     solver = Base.Base(grid, problem, params, constants)
     fullTensor, grid = solver.solve()
-    if params.MMSCompare:
-        Vis.plotMMSComparison(grid, params)
     return f"{runName}_IVM"
 
 
@@ -138,7 +133,7 @@ for step in stepSet:
     s += 1
     for group in groupSet:
         g += 1
-        runName = f"CodeCheck{s}_{g}"
+        runName = f"FitOpacity{s}_{g}"
         RunSet[runName] = {
             "runLabel": "Reflective",
             "Steps": step,

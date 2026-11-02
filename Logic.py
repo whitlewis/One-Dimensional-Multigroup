@@ -163,7 +163,14 @@ def manufacturedSourceTerms(params, grid, material, mu, w, frequencyScale=None):
         params, grid, previousTime
     )
     sigmaX = getattr(params, "mmsSigmaX", 0.5)
-    sigmaG = material.sigma_a(grid.freqGroups, temperature)
+    if frequencyScale is None:
+        sigmaG = material.sigma_a(grid.freqGroups, temperature)
+    else:
+        sigmaG = material.sigma_a(
+            grid.freqGroups,
+            temperature,
+            frequencyScale=frequencyScale,
+        )
     freqGrid = grid.freqGrid
     if frequencyScale is not None:
         freqGrid = freqGrid[:, None] * frequencyScale[None, :]
@@ -656,7 +663,32 @@ class CoupledEquations:
 
 
 @njit
-def planckBarNumbaVariable(freqGrid, T, a, c, h):
+def planckVariableValue(u, temperature, frequencyScale, coefficient, h):
+    if temperature <= 0.0 or frequencyScale <= 0.0:
+        return 0.0
+
+    scaledFrequency = h * u * frequencyScale / temperature
+    if scaledFrequency > 700.0:
+        return 0.0
+    if scaledFrequency < 1e-8:
+        return (
+            coefficient
+            / h
+            * u**2
+            * frequencyScale**3
+            * temperature
+        )
+
+    return (
+        coefficient
+        * u**3
+        * frequencyScale**4
+        / np.expm1(scaledFrequency)
+    )
+
+
+@njit
+def planckBarNumbaVariable(freqGrid, T, frequencyScale, a, c, h):
     nGroups = freqGrid.shape[0] - 1
     nBins = T.shape[0]
 
@@ -676,12 +708,12 @@ def planckBarNumbaVariable(freqGrid, T, a, c, h):
 
         for i in range(nBins):
             Ti = T[i]
-            T4 = Ti**4
+            scale = frequencyScale[i]
 
-            B0 = C * u0**3 * T4 / np.expm1(h * u0)
-            B1 = C * u1**3 * T4 / np.expm1(h * u1)
-            B2 = C * u2**3 * T4 / np.expm1(h * u2)
-            B3 = C * u3**3 * T4 / np.expm1(h * u3)
+            B0 = planckVariableValue(u0, Ti, scale, C, h)
+            B1 = planckVariableValue(u1, Ti, scale, C, h)
+            B2 = planckVariableValue(u2, Ti, scale, C, h)
+            B3 = planckVariableValue(u3, Ti, scale, C, h)
 
             out[g, i] = (3.0 / 8.0) * dx * (
                 B0 + 3.0*B1 + 3.0*B2 + B3
@@ -711,6 +743,20 @@ class MovingMeshEquations:
         self.rhs = np.zeros((self.freq, self.params.nBins))
         self.T_next = np.ones(self.params.nBins)*self.params.initialTemperature
         self.manufacturedQ = np.zeros(self.params.nBins)
+        self.frequencyReferenceTemperature = np.full(
+            self.params.nBins, self.params.initialTemperature
+        )
+
+    def frequencyScale(self, temperature):
+        """Return the physical-frequency scale for this VMG coordinate grid."""
+        temperature = np.asarray(temperature)
+        if getattr(self.params, "matchNu", False):
+            reference = np.maximum(
+                self.frequencyReferenceTemperature, 1e-12
+            )
+            # At the reference state, scaled VMG edges equal the MG physical edges.
+            return self.params.initialTemperature * temperature / reference
+        return temperature
 
     def getPhi(self):
         # Integrate over angles to get scalar flux
@@ -726,9 +772,17 @@ class MovingMeshEquations:
     # Base Planck definiton
     def planckVCM(self, u, T, Tcoord):  # Planck function for variable basis (not group integrated or weighted)
         # u = nu/Tcoord, so a Planckian at temperature T in this coordinate is Tcoord * B(u*Tcoord, T)
-        denom = np.expm1(self.const.h * u * Tcoord / T)  # exp(x)-1 safely
+        scaledFrequency = self.const.h * u * Tcoord / T
+        safeScaledFrequency = np.minimum(scaledFrequency, 700.0)
+        denom = np.expm1(safeScaledFrequency)
         f = (15.0 * self.const.a * self.const.c) / (4.0 * np.pi**5)
-        return f * u**3 * Tcoord**4 / denom
+        numerator = f * u**3 * Tcoord**4
+        return np.divide(
+            numerator,
+            denom,
+            out=np.zeros_like(numerator, dtype=float),
+            where=scaledFrequency < 700.0,
+        )
 
     # Group integrated Planck at temperature T in the coordinate u = nu/Tcoord
     def planckBarInit(self, T, Tcoord):
@@ -738,10 +792,13 @@ class MovingMeshEquations:
         bbar = self.simpson(integrand, lo, hi)
         return bbar
     
-    def planckBar(self, T):
+    def planckBar(self, T, frequencyScale=None):
+        if frequencyScale is None:
+            frequencyScale = self.frequencyScale(T)
         return planckBarNumbaVariable(
             self.grid.freqGrid,
             T,
+            frequencyScale,
             self.const.a,
             self.const.c,
             self.const.h
@@ -751,7 +808,10 @@ class MovingMeshEquations:
     def initSpectra(self):
         T0 = self.params.radiationTemperature
         Tc = self.params.colorTemperature
-        planck = self.planckBarInit(Tc, self.grid.temperatureSet[:, 0])  # shape: (freqNum, nBins)
+        frequencyScale = self.frequencyScale(
+            self.grid.temperatureSet[:, 0]
+        )
+        planck = self.planckBarInit(Tc, frequencyScale)  # shape: (freqNum, nBins)
         self.grid.fullTensor[:] = planck[:, None, :]
         return self.grid.fullTensor.copy()
     
@@ -823,13 +883,16 @@ class MovingMeshEquations:
             self.T_next = temperature.copy()
             self.grid.T_next = temperature.copy()
             self.grid.temperatureSet[:, 0] = temperature
+            self.frequencyReferenceTemperature = temperature.copy()
             spatial = manufacturedSpatialProfile(
                 self.params, self.grid.spaceMid
             )
             decay = np.exp(
                 -getattr(self.params, "mmsTau", 2.0) * time / 2
             )
-            bbar = self.planckBarInit(T0, temperature)
+            bbar = self.planckBarInit(
+                T0, self.frequencyScale(temperature)
+            )
             intensity = (
                 self.const.c / (4 * np.pi)
                 * (1 + decay)
@@ -840,6 +903,9 @@ class MovingMeshEquations:
                 intensity[:, None, :],
                 (self.params.freqNum, self.sn, self.params.nBins),
             ).copy()
+        self.frequencyReferenceTemperature = np.full(
+            self.params.nBins, self.params.initialTemperature
+        )
         return self.initSpectra()
     
     # Helper function to define initial conditions
@@ -869,22 +935,24 @@ class MovingMeshEquations:
                 self.params, self.grid.spaceGrid[-1]
             )
             factor = self.const.c / (4 * np.pi) * (1 + decay)
+            frequencyScale = self.frequencyScale(temperature)
             left = np.broadcast_to(
                 factor
                 * spatialLeft
-                * self.planckBarInit(T0, temperature[0]),
+                * self.planckBarInit(T0, frequencyScale[0]),
                 (self.params.freqNum, self.sn),
             ).copy()
             right = np.broadcast_to(
                 factor
                 * spatialRight
-                * self.planckBarInit(T0, temperature[-1]),
+                * self.planckBarInit(T0, frequencyScale[-1]),
                 (self.params.freqNum, self.sn),
             ).copy()
             return left, right
         shape = (self.params.freqNum, self.sn)
-        planckLeft = np.broadcast_to(self.planckBarInit(self.params.setLeftBoundaryTemp, self.grid.T_next[0]), shape)
-        planckRight = np.broadcast_to(self.planckBarInit(self.params.setRightBoundaryTemp, self.grid.T_next[-1]), shape)
+        frequencyScale = self.frequencyScale(self.grid.T_next)
+        planckLeft = np.broadcast_to(self.planckBarInit(self.params.setLeftBoundaryTemp, frequencyScale[0]), shape)
+        planckRight = np.broadcast_to(self.planckBarInit(self.params.setRightBoundaryTemp, frequencyScale[-1]), shape)
         return planckLeft, planckRight
 
     # Possible time varying Boundary condition
@@ -939,9 +1007,14 @@ class MovingMeshEquations:
                 T_iterative = self.grid.T_next
             T = self.grid.temperatureSet[:, self.grid.timeStep]
             phi = self.getPhi()  # Compute scalar flux by integrating over angles
-            bbar = self.planckBar(T_iterative)  # Get the group-averaged Planckian for the material 
+            frequencyScale = self.frequencyScale(T_iterative)
+            bbar = self.planckBar(T_iterative, frequencyScale)  # Get the group-averaged Planckian for the material
             dbbar = 4.0 * bbar / T_iterative  # B-hat_g scales as T^4 at fixed u
-            sa = self.material.sigma_a(self.grid.freqGroups, T_iterative)
+            sa = self.material.sigma_a(
+                self.grid.freqGroups,
+                T_iterative,
+                frequencyScale=frequencyScale,
+            )
             
             # Newton step on the material equation with emission linearized about T_iterative
             residual = T - T_iterative + f * np.sum(sa * phi - 4*np.pi*sa * bbar, axis=0)
@@ -957,16 +1030,21 @@ class MovingMeshEquations:
     def rhsUpdate(self):
         self.startTimeStep()  # psi_old and timeTerm must belong to this step before building Q*
         T = self.grid.T_next
-        bbarNext = self.planckBar(T)  # Get the group-averaged Planckian for the next temperature
+        frequencyScale = self.frequencyScale(T)
+        bbarNext = self.planckBar(T, frequencyScale)  # Get the group-averaged Planckian for the next temperature
         bbarNext = np.broadcast_to(bbarNext[:, None,:], (self.params.freqNum, self.sn, self.params.nBins))  # shape: (freqNum, sn, nBins)
-        sa = np.broadcast_to(self.material.sigma_a(self.grid.freqGroups, T)[:,None,:], (self.params.freqNum, self.sn, self.params.nBins))  # shape: (freqNum, sn, nBins)
+        sa = np.broadcast_to(self.material.sigma_a(
+            self.grid.freqGroups,
+            T,
+            frequencyScale=frequencyScale,
+        )[:,None,:], (self.params.freqNum, self.sn, self.params.nBins))  # shape: (freqNum, sn, nBins)
         sourceTerms = manufacturedSourceTerms(
             self.params,
             self.grid,
             self.material,
             self.mu,
             self.grid.w,
-            frequencyScale=T,
+            frequencyScale=frequencyScale,
         )
         if sourceTerms is None:
             rhs = sa * bbarNext + self.timeTerm * self.psi_old
@@ -980,7 +1058,7 @@ class MovingMeshEquations:
                 sa,
                 bbarNext,
                 self.psi_old,
-                frequencyScale=T,
+                frequencyScale=frequencyScale,
                 frequencyVelocity=self.movingMeshConst,
             )
             rhs = (
@@ -995,18 +1073,26 @@ class MovingMeshEquations:
         T = self.grid.T_next
         Tminus = self.grid.temperatureSet[:, self.grid.timeStep] if self.grid.timeStep > 0 else T
         dt = self.grid.dt[self.grid.timeStep]
-        dTdt = (T - Tminus) / dt
-        dTdx = np.gradient(T, self.grid.dx)
+        frequencyScale = self.frequencyScale(T)
+        previousFrequencyScale = self.frequencyScale(Tminus)
+        dScaleDt = (frequencyScale - previousFrequencyScale) / dt
+        dScaleDx = np.gradient(frequencyScale, self.grid.dx)
         constSet = np.zeros((self.sn, self.params.nBins))
         for m in range(self.sn):
-            constOut = 1/T * (1 / self.const.c * dTdt +  self.mu[m] * dTdx)
+            constOut = 1/frequencyScale * (
+                1 / self.const.c * dScaleDt + self.mu[m] * dScaleDx
+            )
             constSet[m] = constOut
         return constSet
 
 
     # Define modified opacity
     def sigmaStar(self, T):
-        return self.material.sigma_a(self.grid.freqGroups, T) + 1/self.const.c*1/self.grid.dt[self.grid.timeStep]  # modified opacity
+        return self.material.sigma_a(
+            self.grid.freqGroups,
+            T,
+            frequencyScale=self.frequencyScale(T),
+        ) + 1/self.const.c*1/self.grid.dt[self.grid.timeStep]  # modified opacity
     
     # Here begins helper functions for the moving mesh radiation sweep
 

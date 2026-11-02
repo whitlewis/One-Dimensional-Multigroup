@@ -86,7 +86,17 @@ class Material:
         # FIX: Broadcast frequency as column (freqNum, 1) against T (nBins,) -> Result is (freqNum, nBins)
         nu_lo = nu_lo / T
         nu_hi = nu_hi / T
-        integrand = lambda nu: (15.0 * nu**3) / np.pi**4 /  np.expm1(nu)
+        def integrand(nu):
+            expNegative = np.exp(-nu)
+            denominator = -np.expm1(-nu)
+            factor = np.divide(
+                expNegative,
+                denominator,
+                out=np.zeros_like(expNegative, dtype=float),
+                where=denominator > 0,
+            )
+            return (15.0 * nu**3 / np.pi**4) * factor
+
         bg = self.simpson(integrand, nu_lo, nu_hi)
         return bg # Shape is now (freqNum, nBins)
     
@@ -94,9 +104,11 @@ class Material:
         nu_lo = self.grid.freqGrid[:-1, None]
         nu_hi = self.grid.freqGrid[1:, None]
 
-        # sigma_aZero = 10 * np.ones((self.params.freqNum, self.params.nBins))
-        # denom = np.sqrt(T) * self.planckg(nu_lo, nu_hi, T)
-        # num = sigma_aZero * (np.exp(-nu_lo/T)-np.exp(-nu_hi/T))
+        sigma_aZero = 10 * np.ones((self.params.freqNum, self.params.nBins))
+        denom = np.sqrt(T) * self.planckg(nu_lo, nu_hi, T)
+        hi_exp = np.minimum(-nu_hi/T, 700.0)  # Avoid overflow in exp for large nu_hi/T
+        lo_exp = np.minimum(-nu_lo/T, 700.0)
+        num = sigma_aZero * (np.exp(lo_exp)-np.exp(hi_exp))
 
         # Gaussian Test case
         # nu0 = 4.0  # Peak frequency
@@ -106,7 +118,15 @@ class Material:
         #     -(nu - nu0)**2 / (2 * w**2)
         # )
 
-        # out = np.clip(num / denom, a_min = 1.0e-8, a_max=1.0e10)  # Avoid division by zero and ensure non-negative opacities
+        opacity = np.divide(
+            num,
+            denom,
+            out=np.full_like(num, 1.0e10),
+            where=denom > 0,
+        )
+        out = np.clip(
+            opacity, a_min=1.0e-8, a_max=1.0e10
+        )  # Avoid division by zero and ensure non-negative opacities
         # print(f"Calculated opacities with shape: {out.shape}, min: {np.min(out):3e}, max: {np.max(out):3e}")  # Debugging statement
         # out = np.ones((self.params.freqNum, self.params.nBins)) * 1 / 2 / T  # For testing purposes, set all opacities to a constant value
 
@@ -119,7 +139,7 @@ class Material:
         # )
 
 
-        out = np.ones((self.params.freqNum, self.params.nBins)) * 1 / 2 / T  # For testing purposes, set all opacities to a constant value
+        # out = np.ones((self.params.freqNum, self.params.nBins)) * 1 / 2 / T  # For testing purposes, set all opacities to a constant value
         return out
 
     # def sigma_a(self, freq, T):
