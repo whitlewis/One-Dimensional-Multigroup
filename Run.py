@@ -30,21 +30,37 @@ class MMSEquations(Log.CoupledEquations):
 
     def materialTemperature(self, time):
         decay = np.exp(-self.tau * time / 2)
-        return self.T0 * (
-            (1 - decay) * self.spatialProfile(self.grid.spaceMid)
-        ) ** 0.25
+        profile = (1 - decay) * self.spatialProfile(self.grid.spaceMid)
+        return MMS.temperatureFromFourthPowerProfile(
+            self.T0,
+            profile,
+            getattr(
+                self.params,
+                "mmsTemperatureOffset",
+                MMS.DEFAULT_TEMPERATURE_OFFSET,
+            ),
+        )
 
     def exactIntensity(self, time, x):
         x = np.asarray(x)
         basePlanck = self.planckBar(
             np.full(x.shape, self.T0)
         )
+        offsetPlanck = self.planckBar(
+            np.full(
+                x.shape,
+                getattr(
+                    self.params,
+                    "mmsTemperatureOffset",
+                    MMS.DEFAULT_TEMPERATURE_OFFSET,
+                ),
+            )
+        )
         decay = np.exp(-self.tau * time / 2)
         return (
-            self.const.c / (4 * np.pi)
-            * basePlanck
-            * (1 + decay)
+            basePlanck * (1 + decay)
             * self.spatialProfile(x)[None, :]
+            + offsetPlanck
         )
 
     def initialCondition(self):
@@ -94,6 +110,11 @@ class MMSEquations(Log.CoupledEquations):
             tau=self.tau,
             materialT=targetTemperature,
             materialTPrevious=oldTemperature,
+            temperatureOffset=getattr(
+                self.params,
+                "mmsTemperatureOffset",
+                MMS.DEFAULT_TEMPERATURE_OFFSET,
+            ),
         )
 
     def rhsUpdate(self):
@@ -243,6 +264,7 @@ def mainMMS(nSteps=100, nBins=100, opacity=0.1):
     params.mmsT0 = 0.25
     params.mmsSigmaX = 0.5
     params.mmsTau = 2.0
+    params.mmsTemperatureOffset = MMS.DEFAULT_TEMPERATURE_OFFSET
     params.mmsOpacity = opacity
     params.mmsHeatCapacity = 0.01
 

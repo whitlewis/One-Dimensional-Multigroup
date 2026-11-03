@@ -15,10 +15,16 @@ def manufacturedSpatialProfile(params, x):
 def manufacturedTemperatureProfile(params, grid, time):
     T0 = getattr(params, "mmsT0", params.radiationTemperature)
     tau = getattr(params, "mmsTau", 2.0)
-    return T0 * (
+    temperatureOffset = getattr(
+        params, "mmsTemperatureOffset", MMS.DEFAULT_TEMPERATURE_OFFSET
+    )
+    profile = (
         (1 - np.exp(-tau * time / 2))
         * manufacturedSpatialProfile(params, grid.spaceMid)
-    ) ** 0.25
+    )
+    return MMS.temperatureFromFourthPowerProfile(
+        T0, profile, temperatureOffset
+    )
 
 
 def discreteManufacturedRadiationSource(
@@ -41,11 +47,15 @@ def discreteManufacturedRadiationSource(
     else:
         lo, hi = edges[:-1], edges[1:]
     groupPlanck = MMS.simpson(lambda nu: MMS.planck(nu, T0), lo, hi)
+    temperatureOffset = getattr(
+        params, "mmsTemperatureOffset", MMS.DEFAULT_TEMPERATURE_OFFSET
+    )
+    offsetPlanck = MMS.simpson(
+        lambda nu: MMS.planck(nu, temperatureOffset), lo, hi
+    )
     targetIntensity = (
-        grid.constants.c / (4 * np.pi)
-        * (1 + decay)
-        * spatial[None, :]
-        * groupPlanck
+        (1 + decay) * spatial[None, :] * groupPlanck
+        + offsetPlanck
     )
     targetIntensity = np.broadcast_to(
         targetIntensity[:, None, :],
@@ -68,16 +78,14 @@ def discreteManufacturedRadiationSource(
             else grid.freqGrid * scale
         )
         boundaryPlanck = MMS.simpson(
-            lambda nu: MMS.planck(nu, T0),
+            lambda nu: (
+                MMS.planck(nu, T0) * (1 + decay) * xProfile
+                + MMS.planck(nu, temperatureOffset)
+            ),
             boundaryEdges[:-1],
             boundaryEdges[1:],
         )
-        return (
-            grid.constants.c / (4 * np.pi)
-            * (1 + decay)
-            * xProfile
-            * boundaryPlanck
-        )
+        return boundaryPlanck
 
     leftBoundary = boundaryIntensity(spatialLeft, leftScale)
     rightBoundary = boundaryIntensity(spatialRight, rightScale)
@@ -192,6 +200,9 @@ def manufacturedSourceTerms(params, grid, material, mu, w, frequencyScale=None):
         tau=tau,
         materialT=temperature,
         materialTPrevious=previousTemperature,
+        temperatureOffset=getattr(
+            params, "mmsTemperatureOffset", MMS.DEFAULT_TEMPERATURE_OFFSET
+        ),
     )
 
 
@@ -422,6 +433,11 @@ class CoupledEquations:
             T0 = getattr(
                 self.params, "mmsT0", self.params.radiationTemperature
             )
+            temperatureOffset = getattr(
+                self.params,
+                "mmsTemperatureOffset",
+                MMS.DEFAULT_TEMPERATURE_OFFSET,
+            )
             temperature = np.maximum(
                 manufacturedTemperatureProfile(self.params, self.grid, time),
                 1e-12,
@@ -436,11 +452,12 @@ class CoupledEquations:
                 -getattr(self.params, "mmsTau", 2.0) * time / 2
             )
             bbar = self.planckBar(np.full(self.params.nBins, T0))
+            offsetBbar = self.planckBar(
+                np.full(self.params.nBins, temperatureOffset)
+            )
             intensity = (
-                self.const.c / (4 * np.pi)
-                * (1 + decay)
-                * spatial[None, :]
-                * bbar
+                (1 + decay) * spatial[None, :] * bbar
+                + offsetBbar
             )
             return np.broadcast_to(
                 intensity[:, None, :],
@@ -484,12 +501,15 @@ class CoupledEquations:
             T0 = getattr(
                 self.params, "mmsT0", self.params.radiationTemperature
             )
+            temperatureOffset = getattr(
+                self.params,
+                "mmsTemperatureOffset",
+                MMS.DEFAULT_TEMPERATURE_OFFSET,
+            )
             decay = np.exp(-getattr(self.params, "mmsTau", 2.0) * time / 2)
             return np.broadcast_to(
-                self.const.c / (4 * np.pi)
-                * (1 + decay)
-                * spatial
-                * self.planckBar(T0),
+                (1 + decay) * spatial * self.planckBar(T0)
+                + self.planckBar(temperatureOffset),
                 (self.params.freqNum, self.sn),
             ).copy()
         left, right = self.boundaryPlanck()
@@ -893,11 +913,17 @@ class MovingMeshEquations:
             bbar = self.planckBarInit(
                 T0, self.frequencyScale(temperature)
             )
+            offsetBbar = self.planckBarInit(
+                getattr(
+                    self.params,
+                    "mmsTemperatureOffset",
+                    MMS.DEFAULT_TEMPERATURE_OFFSET,
+                ),
+                self.frequencyScale(temperature),
+            )
             intensity = (
-                self.const.c / (4 * np.pi)
-                * (1 + decay)
-                * spatial[None, :]
-                * bbar
+                (1 + decay) * spatial[None, :] * bbar
+                + offsetBbar
             )
             return np.broadcast_to(
                 intensity[:, None, :],
@@ -934,18 +960,26 @@ class MovingMeshEquations:
             spatialRight = manufacturedSpatialProfile(
                 self.params, self.grid.spaceGrid[-1]
             )
-            factor = self.const.c / (4 * np.pi) * (1 + decay)
             frequencyScale = self.frequencyScale(temperature)
+            temperatureOffset = getattr(
+                self.params,
+                "mmsTemperatureOffset",
+                MMS.DEFAULT_TEMPERATURE_OFFSET,
+            )
             left = np.broadcast_to(
-                factor
-                * spatialLeft
-                * self.planckBarInit(T0, frequencyScale[0]),
+                (1 + decay) * spatialLeft
+                * self.planckBarInit(T0, frequencyScale[0])
+                + self.planckBarInit(
+                    temperatureOffset, frequencyScale[0]
+                ),
                 (self.params.freqNum, self.sn),
             ).copy()
             right = np.broadcast_to(
-                factor
-                * spatialRight
-                * self.planckBarInit(T0, frequencyScale[-1]),
+                (1 + decay) * spatialRight
+                * self.planckBarInit(T0, frequencyScale[-1])
+                + self.planckBarInit(
+                    temperatureOffset, frequencyScale[-1]
+                ),
                 (self.params.freqNum, self.sn),
             ).copy()
             return left, right

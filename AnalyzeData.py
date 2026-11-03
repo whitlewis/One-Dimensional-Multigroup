@@ -98,6 +98,11 @@ def loadResults(filepaths=None):
             "mmsT0": f.attrs.get("mmsT0", None),
             "mmsSigmaX": f.attrs.get("mmsSigmaX", None),
             "mmsTau": f.attrs.get("mmsTau", None),
+            "mmsTemperatureOffset": f.attrs.get(
+                "mmsTemperatureOffset", 0.4
+            ),
+            "boundaryLeft": f.attrs.get("boundaryLeft", ""),
+            "boundaryRight": f.attrs.get("boundaryRight", ""),
             "movingCoordinates": movingCoordinates,
             "plotLabel": f"{methodName}{groupLabel}",
             }
@@ -130,9 +135,14 @@ def plotSet(filepaths=None):
         if not runParams["MMSCompare"]
     ]
     if nonMmsResults:
+        nonMmsSnapshotResults = [
+            (runData, runParams, runParams["plotLabel"])
+            for runData, runParams, _, _ in nonMmsResults
+        ]
         nonMmsData, nonMmsParams, nonMmsFiles, nonMmsFolders = zip(
             *nonMmsResults
         )
+        Vis.plotTemperatureSnapshotsLoaded(nonMmsSnapshotResults)
         Vis.plotTemperatureLoaded(
             nonMmsData, nonMmsParams, nonMmsFiles, nonMmsFolders,
             const=const(),

@@ -312,6 +312,11 @@ class Base:
             )
             f.attrs["mmsSigmaX"] = getattr(self.params, "mmsSigmaX", 0.5)
             f.attrs["mmsTau"] = getattr(self.params, "mmsTau", 2.0)
+            f.attrs["mmsTemperatureOffset"] = getattr(
+                self.params, "mmsTemperatureOffset", 0.4
+            )
+            f.attrs["boundaryLeft"] = self.params.boundaryLeft
+            f.attrs["boundaryRight"] = self.params.boundaryRight
             f.attrs["movingCoordinates"] = bool(
                 self.params.movingCoordinates
             )

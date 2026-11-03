@@ -7,6 +7,7 @@ from InfiniteMedium import InfiniteMedium as IM
 import Reeds
 from Reeds import Reeds as ReedsProblem
 import Base as Base
+import MMS
 
 # Variable Coordinate Imports
 import InfiniteVariable
@@ -51,6 +52,9 @@ def setRun(params, runName, config):
     params.mmsT0 = config.get("MMS T0", params.radiationTemperature)
     params.mmsSigmaX = config.get("MMS Sigma X", 0.5)
     params.mmsTau = config.get("MMS Tau", 2.0)
+    params.mmsTemperatureOffset = config.get(
+        "MMS Temperature Offset", MMS.DEFAULT_TEMPERATURE_OFFSET
+    )
 
 
     # Choose to save
@@ -133,9 +137,9 @@ for step in stepSet:
     s += 1
     for group in groupSet:
         g += 1
-        runName = f"FitOpacity{s}_{g}"
+        runName = f"PlanckRHS{s}_{g}"
         RunSet[runName] = {
-            "runLabel": "Reflective",
+            "runLabel": "PlanckRHS",
             "Steps": step,
             "Maximum Time": 0.5,
             "Max Frequency": 45,
@@ -152,7 +156,7 @@ for step in stepSet:
             "MatTemp": 0.4,
             "ColorTemp" : 1.0,
             "leftBC": "Reflective",
-            "rightBC": "Reflective",
+            "rightBC": "Planckian",
             "leftTemp": 0.8,
             "rightTemp": 0.8,
             "timeScale": "log",
@@ -161,10 +165,11 @@ for step in stepSet:
             "stepType": False, 
             "constantScale": True,
             "scaleTemp": 0.45,
-            "MMSCompare": True,  # Set True to add MMS S and Q in both methods.
+            "MMSCompare": False,  # Set True to add MMS S and Q in both methods.
             "MMS T0": 1.0,
             "MMS Sigma X": 1.0,
             "MMS Tau": 2.0,
+            "MMS Temperature Offset": MMS.DEFAULT_TEMPERATURE_OFFSET,
         }
         # runName = f"ReflectiveMid{s}_{g}"
         # RunSet[runName] = {

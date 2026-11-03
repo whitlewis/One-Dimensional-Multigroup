@@ -5,6 +5,19 @@ from scipy.integrate import solve_ivp
 
 import Base as Base
 
+DEFAULT_TEMPERATURE_OFFSET = 0.4
+
+
+def temperatureFromFourthPowerProfile(
+    T0, profile, temperatureOffset=DEFAULT_TEMPERATURE_OFFSET
+):
+    """Convert an MMS T^4 profile with a uniform temperature floor to T."""
+    fourthPower = (
+        temperatureOffset**4 + np.asarray(T0) ** 4 * np.asarray(profile)
+    )
+    return np.maximum(fourthPower, 0.0) ** 0.25
+
+
 def simpson(integrand, lo, hi):
     h = (hi - lo) / 3
     out = 3/8 *h* (integrand(lo) + 3*integrand(lo + h) + 3*integrand(lo +2*h) +integrand(hi))
@@ -66,11 +79,20 @@ def sigma_a(freqGrid, T, inputDict):
     # out = np.ones(inputDict["freqNum"]) * 1  # For testing purposes, set all opacities to a constant value
     return out
 
-def MMSBase(tSet, T0, freqGrid):
-    const = Base.Constants
+def MMSBase(
+    tSet,
+    T0,
+    freqGrid,
+    temperatureOffset=DEFAULT_TEMPERATURE_OFFSET,
+):
     tau = 2
-    Trad = T0*(1 + np.exp((-tau * tSet)/2))
-    Tmat = T0*(1 - np.exp((-tau * tSet)/2))
+    decay = np.exp(-tau * tSet / 2)
+    Trad = temperatureFromFourthPowerProfile(
+        T0, 1 + decay, temperatureOffset
+    )
+    Tmat = temperatureFromFourthPowerProfile(
+        T0, 1 - decay, temperatureOffset
+    )
     return tSet, Trad, Tmat
 
 def MMSSource(T0, T, TM1, t, dt , w, sigmaG, Cv, freqGrid):
@@ -110,6 +132,7 @@ def MMSSource1D(
     tau=2,
     materialT=None,
     materialTPrevious=None,
+    temperatureOffset=DEFAULT_TEMPERATURE_OFFSET,
 ):
     """Return Gaussian 1-D manufactured transport and material sources."""
     const = Base.Constants
@@ -143,6 +166,9 @@ def MMSSource1D(
 
     Bg = planckBarByCell(T)
     BgM1 = planckBarByCell(TM1)
+    BgOffset = planckBarByCell(
+        np.full(x.shape, temperatureOffset)
+    )
     materialTemperature = np.broadcast_to(
         np.asarray(T if materialT is None else materialT), x.shape
     )
@@ -150,17 +176,14 @@ def MMSSource1D(
     dtBg = (Bg - BgM1) / dt
 
     psi = (
-        const.c / (4 * np.pi)
-        * Bg
-        * (1 + expTerm)
-        * spatial[None, :]
+        Bg * (1 + expTerm) * spatial[None, :]
+        + BgOffset
     )
-    dtPsi = const.c / (4 * np.pi) * spatial[None, :] * (
+    dtPsi = spatial[None, :] * (
         dtBg * (1 + expTerm) - tau / 2 * Bg * expTerm
     )
     dxPsi = (
-        const.c / (4 * np.pi)
-        * (1 + expTerm)
+        (1 + expTerm)
         * Bg
         * spatialDerivative[None, :]
     )
@@ -169,14 +192,9 @@ def MMSSource1D(
     phi = 4 * np.pi * np.sum(w[None, :, None] * psiByAngle, axis=1)
     sigmaByAngle = sigmaG[:, None, :]
     if materialTPrevious is None:
-        materialGrowth = -np.expm1(-tau * t / 2)
         materialTemperatureDerivative = (
-            T0
-            * tau
-            / 8
-            * expTerm
-            * spatial ** (1 / 4)
-            / materialGrowth ** (3 / 4)
+            T0**4 * tau / 8 * expTerm * spatial
+            / materialTemperature**3
         )
     else:
         previousTemperature = np.broadcast_to(
@@ -232,6 +250,7 @@ def MMSPlot1D(
     xMax=2.0,
     xNum=500,
     savePath=None,
+    temperatureOffset=DEFAULT_TEMPERATURE_OFFSET,
 ):
     """Plot the Gaussian 1-D manufactured temperatures and spatial profile."""
     x = np.linspace(xMin, xMax, xNum)
@@ -239,8 +258,12 @@ def MMSPlot1D(
     spatial = np.exp(-(x**2) / (2 * sigmaX**2)) / (
         sigmaX * np.sqrt(2 * np.pi)
     )
-    Trad = T0 * ((1 + expTerm) * spatial) ** 0.25
-    Tmat = T0 * ((1 - expTerm) * spatial) ** 0.25
+    Trad = temperatureFromFourthPowerProfile(
+        T0, (1 + expTerm) * spatial, temperatureOffset
+    )
+    Tmat = temperatureFromFourthPowerProfile(
+        T0, (1 - expTerm) * spatial, temperatureOffset
+    )
 
     fig, (temperatureAxis, spatialAxis) = plt.subplots(
         2, 1, sharex=True, figsize=(8, 7), constrained_layout=True
@@ -277,6 +300,7 @@ def MMSPlot1DTimeEvolution(
     xMax=2.0,
     xNum=300,
     savePath=None,
+    temperatureOffset=DEFAULT_TEMPERATURE_OFFSET,
 ):
     """Plot radiation and material temperature over space and time."""
     x = np.linspace(xMin, xMax, xNum)
@@ -285,8 +309,16 @@ def MMSPlot1DTimeEvolution(
         sigmaX * np.sqrt(2 * np.pi)
     )
     expTerm = np.exp(-tau * t / 2)
-    Trad = T0 * ((1 + expTerm[:, None]) * spatial[None, :]) ** 0.25
-    Tmat = T0 * ((1 - expTerm[:, None]) * spatial[None, :]) ** 0.25
+    Trad = temperatureFromFourthPowerProfile(
+        T0,
+        (1 + expTerm[:, None]) * spatial[None, :],
+        temperatureOffset,
+    )
+    Tmat = temperatureFromFourthPowerProfile(
+        T0,
+        (1 - expTerm[:, None]) * spatial[None, :],
+        temperatureOffset,
+    )
 
     fig, (radiationAxis, materialAxis) = plt.subplots(
         2, 1, sharex=True, sharey=True, figsize=(8, 7),

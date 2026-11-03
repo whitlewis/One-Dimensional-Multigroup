@@ -5,6 +5,7 @@ from datetime import datetime
 from matplotlib.animation import FuncAnimation
 from Base import Constants as const
 import DiffEqSolve as diffEq
+import MMS
 
 # Plot Stuff
 import os
@@ -173,10 +174,17 @@ def plotTemperatureLoaded(dataSet, paramsSet, fileSet, folderSet, const):
         plt.plot(t, T, label=labelT)
         plt.plot(t, Trad, label=f"{labelT} from Radiation Energy Density with {timeSteps} steps", linestyle='--')
 
-    # Diff Eq solve Plot
-    t, T, Tr = getDiffeq(const, np.max(t))
-    plt.plot(t, T, label="0-D Solve", linestyle="--")
-    plt.plot(t, Tr, label="0-D Rad Temperature")
+    reflectiveResults = [
+        (data, params)
+        for data, params in zip(dataSet, paramsSet)
+        if params.get("boundaryLeft") == "Reflective"
+        and params.get("boundaryRight") == "Reflective"
+    ]
+    if reflectiveResults:
+        maxTime = max(np.max(data["timeSet"]) for data, _ in reflectiveResults)
+        t, T, Tr = getDiffeq(const, maxTime)
+        plt.plot(t, T, label="0-D Solve (reflective boundaries)", linestyle="--")
+        plt.plot(t, Tr, label="0-D Rad Temperature (reflective boundaries)")
 
     plt.ylim(.35, 0.55)
     plt.xlabel("t (ns)")
@@ -305,17 +313,19 @@ def plotTemperatureMMSLoaded(results, binIndex=20):
         t0 = params["mmsT0"]
         sigmaX = params["mmsSigmaX"]
         tau = params["mmsTau"]
+        temperatureOffset = params.get(
+            "mmsTemperatureOffset", MMS.DEFAULT_TEMPERATURE_OFFSET
+        )
         spatial = np.exp(-(x[binIndex] ** 2) / (2 * sigmaX**2)) / (
             sigmaX * np.sqrt(2 * np.pi)
         )
         decay = np.exp(-tau * time / 2)
-        exactMaterial = t0 * ((1 - decay) * spatial) ** 0.25
-        integratedPlanck = (
-            const.a * const.c * t0**4 / (4 * np.pi * const.h**4)
+        exactMaterial = MMS.temperatureFromFourthPowerProfile(
+            t0, (1 - decay) * spatial, temperatureOffset
         )
-        exactRadiation = (
-            integratedPlanck * (1 + decay) * spatial / const.a
-        ) ** 0.25
+        exactRadiation = MMS.temperatureFromFourthPowerProfile(
+            t0, (1 + decay) * spatial, temperatureOffset
+        )
         color = colors[runIndex % len(colors)]
         markEvery = max(1, timeCount // 30)
 
@@ -339,6 +349,7 @@ def plotTemperatureMMSLoaded(results, binIndex=20):
         )
 
     axis.set_xlabel("Time (ns)")
+    axis.set_ylim(0, 1.5)
     axis.set_ylabel("Temperature (keV)")
     axis.set_title(f"Temperature at spatial bin {binIndex}: solution vs. MMS")
     axis.minorticks_on()
@@ -349,8 +360,10 @@ def plotTemperatureMMSLoaded(results, binIndex=20):
     return fig, axis
 
 
-def plotMMSComparison(grid, params, axes=None, labelPrefix=None, show=True):
-    """Compare solved radiation and material temperatures with the 1-D MMS."""
+def plotMMSComparison(
+    grid, params, axes=None, labelPrefix=None, show=True, includeMMS=True
+):
+    """Plot solved temperature snapshots, optionally against the 1-D MMS."""
     createFigure = axes is None
     snapshotCount = min(5, len(grid.timeSet))
     referenceIndices = np.unique(
@@ -369,30 +382,33 @@ def plotMMSComparison(grid, params, axes=None, labelPrefix=None, show=True):
     x = grid.spaceMid
     methodName = "VMG" if params.movingCoordinates else "MG"
     lineStyle = "-." if params.movingCoordinates else "-"
-    colorOffset = len(radiationAxis.lines) // 2
-    spatial = np.exp(-(x**2) / (2 * params.mmsSigmaX**2)) / (
-        params.mmsSigmaX * np.sqrt(2 * np.pi)
+    colorOffset = len(radiationAxis.lines) // (
+        2 if includeMMS else 1
     )
+    if includeMMS:
+        spatial = np.exp(-(x**2) / (2 * params.mmsSigmaX**2)) / (
+            params.mmsSigmaX * np.sqrt(2 * np.pi)
+        )
     for snapshotNumber, targetTime in enumerate(snapshotTimes):
         timeIndex = int(np.argmin(np.abs(grid.timeSet - targetTime)))
         time = grid.timeSet[timeIndex]
-        decay = np.exp(-params.mmsTau * time / 2)
-        exactMaterial = params.mmsT0 * (
-            (1 - decay) * spatial
-        ) ** 0.25
-        # Use the full Planck integral so MG and VMG share one continuum MMS reference.
-        integratedPlanck = (
-            grid.constants.a
-            * grid.constants.c
-            * params.mmsT0**4
-            / (4 * np.pi * const.h**4)
-        )
-        exactRadiation = (
-            integratedPlanck
-            * (1 + decay)
-            * spatial
-            / grid.constants.a
-        ) ** 0.25
+        if includeMMS:
+            decay = np.exp(-params.mmsTau * time / 2)
+            temperatureOffset = getattr(
+                params,
+                "mmsTemperatureOffset",
+                MMS.DEFAULT_TEMPERATURE_OFFSET,
+            )
+            exactMaterial = MMS.temperatureFromFourthPowerProfile(
+                params.mmsT0,
+                (1 - decay) * spatial,
+                temperatureOffset,
+            )
+            exactRadiation = MMS.temperatureFromFourthPowerProfile(
+                params.mmsT0,
+                (1 + decay) * spatial,
+                temperatureOffset,
+            )
         radiationEnergy = (
             np.sum(grid.fullTensorPhiTime[timeIndex], axis=0)
             / (grid.constants.a * grid.constants.c)
@@ -413,22 +429,24 @@ def plotMMSComparison(grid, params, axes=None, labelPrefix=None, show=True):
             x, solvedRadiation, color=color, linestyle=lineStyle,
             label=methodLabel
         )
-        radiationAxis.plot(
-            x, exactRadiation, color=color, linestyle=":",
-            marker="o", markersize=4, markevery=max(1, len(x) // 30),
-            zorder=1,
-            label=mmsLabel
-        )
+        if includeMMS:
+            radiationAxis.plot(
+                x, exactRadiation, color=color, linestyle=":",
+                marker="o", markersize=4, markevery=max(1, len(x) // 30),
+                zorder=1,
+                label=mmsLabel
+            )
         materialAxis.plot(
             x, solvedMaterial, color=color, linestyle=lineStyle,
             label=methodLabel
         )
-        materialAxis.plot(
-            x, exactMaterial, color=color, linestyle=":",
-            marker="o", markersize=4, markevery=max(1, len(x) // 30),
-            zorder=1,
-            label=mmsLabel
-        )
+        if includeMMS:
+            materialAxis.plot(
+                x, exactMaterial, color=color, linestyle=":",
+                marker="o", markersize=4, markevery=max(1, len(x) // 30),
+                zorder=1,
+                label=mmsLabel
+            )
 
     radiationAxis.set_title("Radiation temperature")
     materialAxis.set_title("Material temperature")
@@ -438,9 +456,14 @@ def plotMMSComparison(grid, params, axes=None, labelPrefix=None, show=True):
         axis.minorticks_on()
         axis.tick_params(which="both", direction="in", top=True, right=True)
     timesLabel = ", ".join(f"{time:.2e}" for time in snapshotTimes)
-    if labelPrefix is None:
+    if labelPrefix is None and includeMMS:
         fig.suptitle(
             f"{methodName} compared with 1-D MMS "
+            f"(snapshot times: {timesLabel} ns)"
+        )
+    elif labelPrefix is None:
+        fig.suptitle(
+            f"{methodName} temperature snapshots "
             f"(snapshot times: {timesLabel} ns)"
         )
     if createFigure:
@@ -476,9 +499,9 @@ def _addMMSLegend(fig, axes, fontsize="small"):
 
 
 def plotMMSComparisonLoaded(
-    data, params, axes=None, labelPrefix=None, show=True
+    data, params, axes=None, labelPrefix=None, show=True, includeMMS=True
 ):
-    """Plot one saved MG/VMG MMS comparison loaded from HDF5."""
+    """Plot temperature snapshots from one saved MG/VMG result."""
     from types import SimpleNamespace
 
     timeCount = min(
@@ -487,7 +510,7 @@ def plotMMSComparisonLoaded(
         data["temperatureSet"].shape[1],
     )
     if timeCount == 0:
-        raise ValueError("A saved MMS result contains no time samples.")
+        raise ValueError("A saved result contains no time samples.")
 
     grid = SimpleNamespace(
         spaceMid=np.asarray(params["spaceMid"]),
@@ -498,14 +521,19 @@ def plotMMSComparisonLoaded(
         constants=SimpleNamespace(a=const.a, c=const.c),
     )
     plotParams = SimpleNamespace(
-        mmsT0=params["mmsT0"],
-        mmsSigmaX=params["mmsSigmaX"],
-        mmsTau=params["mmsTau"],
         movingCoordinates=params["movingCoordinates"],
         freqNum=params.get("groups"),
     )
+    if includeMMS:
+        plotParams.mmsT0 = params["mmsT0"]
+        plotParams.mmsSigmaX = params["mmsSigmaX"]
+        plotParams.mmsTau = params["mmsTau"]
+        plotParams.mmsTemperatureOffset = params.get(
+            "mmsTemperatureOffset", MMS.DEFAULT_TEMPERATURE_OFFSET
+        )
     return plotMMSComparison(
-        grid, plotParams, axes=axes, labelPrefix=labelPrefix, show=show
+        grid, plotParams, axes=axes, labelPrefix=labelPrefix, show=show,
+        includeMMS=includeMMS,
     )
 
 
@@ -522,6 +550,23 @@ def plotMMSComparisonsLoaded(results):
             data, params, axes=axes, labelPrefix=label, show=False
         )
     fig.suptitle("Selected runs compared with 1-D MMS")
+    _addMMSLegend(fig, axes, fontsize="x-small")
+    plt.show()
+    return fig, axes
+
+
+def plotTemperatureSnapshotsLoaded(results):
+    """Overplot loaded non-MMS temperature profiles at selected times."""
+    if not results:
+        return None
+
+    fig, axes = plt.subplots(1, 2, figsize=(13, 5), sharex=True)
+    for data, params, label in results:
+        plotMMSComparisonLoaded(
+            data, params, axes=axes, labelPrefix=label, show=False,
+            includeMMS=False,
+        )
+    fig.suptitle("Selected runs: temperature snapshots")
     _addMMSLegend(fig, axes, fontsize="x-small")
     plt.show()
     return fig, axes
