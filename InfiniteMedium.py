@@ -54,6 +54,7 @@ class Parameters:
         self.movingCoordinates = False
         self.energyCheckFreq = 200 # Check energy conservation every 200 time steps
         self.iterationCheck = False
+        self.extrapolateTemp = False
         self.fileFolder = "InfiniteMedium"
         self.runName = "Run"
         self.saveResults = False  # Flag to determine whether to save results after simulation (asks after the simulation)
@@ -106,9 +107,9 @@ class Material:
 
         sigma_aZero = 10 * np.ones((self.params.freqNum, self.params.nBins))
         denom = np.sqrt(T) * self.planckg(nu_lo, nu_hi, T)
-        hi_exp = np.minimum(-nu_hi/T, 700.0)  # Avoid overflow in exp for large nu_hi/T
-        lo_exp = np.minimum(-nu_lo/T, 700.0)
-        num = sigma_aZero * (np.exp(lo_exp)-np.exp(hi_exp))
+        hi_exp = np.minimum(nu_hi/T, 700.0)  # Avoid overflow in exp for large nu_hi/T
+        lo_exp = np.minimum(nu_lo/T, 700.0)
+        num = sigma_aZero * (np.exp(-lo_exp) - np.exp(-hi_exp))
 
         # Gaussian Test case
         # nu0 = 4.0  # Peak frequency
@@ -125,7 +126,7 @@ class Material:
             where=denom > 0,
         )
         out = np.clip(
-            opacity, a_min=1.0e-8, a_max=1.0e10
+            opacity, a_min=1.0e-4, a_max=1.0e8
         )  # Avoid division by zero and ensure non-negative opacities
         # print(f"Calculated opacities with shape: {out.shape}, min: {np.min(out):3e}, max: {np.max(out):3e}")  # Debugging statement
         # out = np.ones((self.params.freqNum, self.params.nBins)) * 1 / 2 / T  # For testing purposes, set all opacities to a constant value

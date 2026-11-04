@@ -113,11 +113,17 @@ class Base:
                 self.problem.equations.radiationSweep()
                 if self.params.checkEnergy and self.index % self.params.energyCheckFreq == 0 and it==0:  # Check energy conservation every 50 time steps
                     self.checkEnergyConservation()
+                temperatureErr = 0.0
                 if self.params.materialCoupled:
+                    previousTemperatureIterate = self.grid.T_next.copy()
                     self.T_next = self.grid.T_next.copy()
                     self.problem.equations.materialEquation() # update material temperature after radiation sweep
+                    temperatureErr = np.max(
+                        np.abs(self.grid.T_next - previousTemperatureIterate)
+                    )
                 diff = np.abs((self.grid.fullTensor - self.grid.fullTensOld))
-                err = np.max(diff)    # directly compare the full values for convergence (Space, angle, and frequency group convergence)
+                radiationErr = np.max(diff)
+                err = max(radiationErr, temperatureErr)
                 if self.params.iterationCheck == True:
                     if it % 2 == 0:
 
@@ -255,6 +261,20 @@ class Base:
         print("Starting Solve...") 
         for index, time in enumerate(self.grid.timeSet[:-1]):
             self.index = index  # Update index for this time step
+            if (
+                index > 0
+                and getattr(self.params, "extrapolateTemp", False)
+                and not getattr(self.params, "movingCoordinates", False)
+            ):
+                previousTemperature = self.grid.temperatureSet[:, index]
+                olderTemperature = self.grid.temperatureSet[:, index - 1]
+                previousDt = self.grid.timeSet[index] - self.grid.timeSet[index - 1]
+                stepRatio = self.grid.dt[index] / previousDt
+                self.grid.T_next = np.maximum(
+                    previousTemperature
+                    + stepRatio * (previousTemperature - olderTemperature),
+                    1e-12,
+                )
             self.fullTensOld = self.grid.fullTensor.copy()  # Update old solution for time-stepping
             self.converge()  # Perform the radiation sweep to get the new solution
             self.updateAll(index)  # Store the solution and increment time step counter
@@ -314,6 +334,9 @@ class Base:
             f.attrs["mmsTau"] = getattr(self.params, "mmsTau", 2.0)
             f.attrs["mmsTemperatureOffset"] = getattr(
                 self.params, "mmsTemperatureOffset", 0.4
+            )
+            f.attrs["extrapolateTemp"] = bool(
+                getattr(self.params, "extrapolateTemp", False)
             )
             f.attrs["boundaryLeft"] = self.params.boundaryLeft
             f.attrs["boundaryRight"] = self.params.boundaryRight

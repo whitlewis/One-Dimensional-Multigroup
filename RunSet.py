@@ -48,6 +48,7 @@ def setRun(params, runName, config):
     # Debug params
     params.constantScale = config["constantScale"]
     params.scaleTemp = config["scaleTemp"]
+    params.extrapolateTemp = config.get("extrapolateTemp", False)
     params.MMSCompare = config.get("MMSCompare", False)
     params.mmsT0 = config.get("MMS T0", params.radiationTemperature)
     params.mmsSigmaX = config.get("MMS Sigma X", 0.5)
@@ -126,7 +127,7 @@ timeSplit = 0.15
 
 groupSet = [100]
 # groupSet = [100]
-stepSet = [2500]
+stepSet = [4500]
 
 RunSet = {}
 s = 0
@@ -137,9 +138,9 @@ for step in stepSet:
     s += 1
     for group in groupSet:
         g += 1
-        runName = f"PlanckRHS{s}_{g}"
+        runName = f"HighGroupMMSlin{s}_{g}"
         RunSet[runName] = {
-            "runLabel": "PlanckRHS",
+            "runLabel": "MMS",
             "Steps": step,
             "Maximum Time": 0.5,
             "Max Frequency": 45,
@@ -156,16 +157,17 @@ for step in stepSet:
             "MatTemp": 0.4,
             "ColorTemp" : 1.0,
             "leftBC": "Reflective",
-            "rightBC": "Planckian",
+            "rightBC": "Reflective",
             "leftTemp": 0.8,
             "rightTemp": 0.8,
-            "timeScale": "log",
+            "timeScale": "linear",
             "TransTime": timeSplit,
             "stepSplit": stepSplit,  # tells what proportion of time steps are log vs linear
             "stepType": False, 
             "constantScale": True,
             "scaleTemp": 0.45,
-            "MMSCompare": False,  # Set True to add MMS S and Q in both methods.
+            "extrapolateTemp": True,
+            "MMSCompare": True,  # Set True to add MMS S and Q in both methods.
             "MMS T0": 1.0,
             "MMS Sigma X": 1.0,
             "MMS Tau": 2.0,

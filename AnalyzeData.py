@@ -104,7 +104,7 @@ def loadResults(filepaths=None):
             "boundaryLeft": f.attrs.get("boundaryLeft", ""),
             "boundaryRight": f.attrs.get("boundaryRight", ""),
             "movingCoordinates": movingCoordinates,
-            "plotLabel": f"{methodName}{groupLabel}",
+            "plotLabel": f"{methodName}{groupLabel} | {fileName}",
             }
             all_data.append(data)
             all_params.append(params)
