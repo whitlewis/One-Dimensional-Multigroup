@@ -108,9 +108,9 @@ class Material:
     def sigma_a(self, freq, T, frequencyScale=None):
         nu_lo = self.grid.freqGrid[:-1, None]
         nu_hi = self.grid.freqGrid[1:, None] 
-
+        eps = 1e-12  # Small value to prevent division by zero
         sigma_aZero = 10 * np.ones((self.params.freqNum, self.params.nBins))
-        denom = np.sqrt(T) * self.planckg(nu_lo, nu_hi, T)
+        denom = np.sqrt(T) * self.planckg(nu_lo, nu_hi, T) + eps
         hi_exp = np.minimum(nu_hi/T, 700.0)  # Avoid overflow in exp for large nu_hi/T
         lo_exp = np.minimum(nu_lo/T, 700.0)
         num = sigma_aZero * (np.exp(-lo_exp) - np.exp(-hi_exp))
@@ -133,7 +133,7 @@ class Material:
             opacity, a_min=1.0e-4, a_max=1.0e8
         )  # Avoid division by zero and ensure non-negative opacities
         # print(f"Calculated opacities with shape: {out.shape}, min: {np.min(out):3e}, max: {np.max(out):3e}")  # Debugging statement
-        # out = np.ones((self.params.freqNum, self.params.nBins)) * 1 / 2 / T  # For testing purposes, set all opacities to a constant value
+        out = np.ones((self.params.freqNum, self.params.nBins)) * 1 / 2 / T  # For testing purposes, set all opacities to a constant value
 
         return out
 

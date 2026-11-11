@@ -20,6 +20,7 @@ import numpy as np
 
 def setRun(params, runName, config):
     params.runName = runName
+    params.tol = config.get("Iteration Tolerance", params.tol)
     params.runLabel = config["runLabel"]
     params.groupSpace = config["Group Spacing"] # log or linear
     params.matchNu = config["Match Grid"]
@@ -125,9 +126,10 @@ def ExecuteRunSetParallel(runSet):
 stepSplit = 0.88
 timeSplit = 0.15
 
+# groupSet = [10, 50, 100, 150]
+# stepSet = [2500, 5000]
 groupSet = [100]
-# groupSet = [100]
-stepSet = [4500]
+stepSet = [2500]
 
 RunSet = {}
 s = 0
@@ -138,10 +140,11 @@ for step in stepSet:
     s += 1
     for group in groupSet:
         g += 1
-        runName = f"HighGroupMMSlin{s}_{g}"
+        runName = f"MMSTemperatureDepOp{s}_{g}"
         RunSet[runName] = {
-            "runLabel": "MMS",
+            "runLabel": "Stability",
             "Steps": step,
+            "Iteration Tolerance": 1e-25,
             "Maximum Time": 0.5,
             "Max Frequency": 45,
             "Min Frequency": 1e-4,
@@ -149,18 +152,18 @@ for step in stepSet:
             "Group Spacing": 'log',
             "Match Grid" : True,
             "Number of frequencies": group,
-            "Sn": 8,
-            "Number of Bins": 60,
+            "Sn": 10,
+            "Number of Bins": 100,
             "xMin": -1,
             "xMax": 1,
             "RadTemp": 0.5,
-            "MatTemp": 0.4,
-            "ColorTemp" : 1.0,
+            "MatTemp": 0.5,
+            "ColorTemp" : 0.5,
             "leftBC": "Reflective",
             "rightBC": "Reflective",
             "leftTemp": 0.8,
             "rightTemp": 0.8,
-            "timeScale": "linear",
+            "timeScale": "log",
             "TransTime": timeSplit,
             "stepSplit": stepSplit,  # tells what proportion of time steps are log vs linear
             "stepType": False, 

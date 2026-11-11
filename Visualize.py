@@ -97,24 +97,27 @@ def plotPhiStepFreq(grid, params, step, label="Initial Scalar Flux  accross Freq
 
 
 def plotTemperature(grid):
-    t = grid.timeSet[:-1] # cell centers
+    timeCount = min(
+        len(grid.timeSet),
+        len(grid.fullTensorPhiTime),
+        grid.temperatureSet.shape[1],
+    )
+    t = grid.timeSet[:timeCount]
+    cellIndex = grid.nBins // 2
     EradSet = []
-    for i, timeStep in enumerate(grid.timeSet):
-        Erad = np.sum(grid.fullTensorPhiTime[i], axis=0)
-        EradSet.append(Erad[grid.nBins//2])  # Store the radiation energy density at the middle spatial bin for each time step
+    for timeIndex in range(timeCount):
+        Erad = np.sum(grid.fullTensorPhiTime[timeIndex], axis=0)
+        EradSet.append(Erad[cellIndex])
     Trad = (np.array(EradSet)/ const.a / const.c)**0.25
-    labelT = "Temperature vs Time"
-    shape = grid.temperatureSet.shape
-    print(f'Temperature set shape: {shape}')  # Debugging print statement to check the shape of temperatureSet
-    T = grid.temperatureSet[grid.nBins//2][:-1]  # Final temperature distribution at the last time step
-    plt.plot(t, T, label=labelT)
-    plt.plot(t, Trad[:-1], label=f"{labelT} from Radiation Energy Density", linestyle='--')
+    T = grid.temperatureSet[cellIndex, :timeCount]
+    plt.plot(t, T, label="Material temperature")
+    plt.plot(t, Trad, label="Radiation temperature", linestyle='--')
     plt.xlabel("t (ns)")
     plt.ylabel("Temperature (keV)")
     plt.legend()
     plt.grid(True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"figures/{labelT}_{timestamp}.pdf"
+    filename = f"figures/Temperature_vs_Time_{timestamp}.pdf"
     plt.savefig(filename)
     plt.show()
 
@@ -159,20 +162,25 @@ def plotTemperatureLoaded(dataSet, paramsSet, fileSet, folderSet, const):
         else:
             methodName = "VMG"
 
-        t = data["timeSet"][:-1] # cell centers
-        timeSteps = np.shape(data["timeSet"])[0]
-        dt = data["timeSet"][1:] - data["timeSet"][:-1]
-        EradSet = []
-        for i, timeStep in enumerate(t):
-            Erad = np.sum(data["fullTensorPhi"][i], axis=0)
-            EradSet.append(Erad[params["nBins"]//2])  # Store the radiation energy density at the middle spatial bin for each time step
-        Trad = (np.array(EradSet)/ const.a / const.c)**0.25
+        timeCount = min(
+            len(data["timeSet"]),
+            len(data["fullTensorPhi"]),
+            data["temperatureSet"].shape[1],
+        )
+        t = data["timeSet"][:timeCount]
+        timeSteps = timeCount - 1
+        cellIndex = params["nBins"] // 2
+        radiationFlux = np.sum(
+            data["fullTensorPhi"][:timeCount, :, cellIndex], axis=1
+        )
+        Trad = (radiationFlux / const.a / const.c) ** 0.25
         labelT = f'{file} using {methodName} for {params["groups"]} groups with {timeSteps} steps'
-        shape = data["temperatureSet"].shape
-        print(f'Temperature set shape: {shape}')  # Debugging print statement to check the shape of temperatureSet
-        T = data["temperatureSet"][params["nBins"]//2][:-1]  # Final temperature distribution at the last time step
-        plt.plot(t, T, label=labelT)
-        plt.plot(t, Trad, label=f"{labelT} from Radiation Energy Density with {timeSteps} steps", linestyle='--')
+        T = data["temperatureSet"][cellIndex, :timeCount]
+        plt.plot(t, T, label=f"{labelT} material")
+        plt.plot(
+            t, Trad, linestyle='--',
+            label=f"{labelT} radiation",
+        )
 
     reflectiveResults = [
         (data, params)
@@ -186,7 +194,7 @@ def plotTemperatureLoaded(dataSet, paramsSet, fileSet, folderSet, const):
         plt.plot(t, T, label="0-D Solve (reflective boundaries)", linestyle="--")
         plt.plot(t, Tr, label="0-D Rad Temperature (reflective boundaries)")
 
-    plt.ylim(.35, 0.55)
+    plt.ylim(0.25, 0.85)
     plt.xlabel("t (ns)")
     plt.ylabel("Temperature (keV)")
     plt.minorticks_on()
@@ -349,9 +357,71 @@ def plotTemperatureMMSLoaded(results, binIndex=20):
         )
 
     axis.set_xlabel("Time (ns)")
-    axis.set_ylim(0, 1.5)
+    axis.set_ylim(0.25, 0.85)
     axis.set_ylabel("Temperature (keV)")
     axis.set_title(f"Temperature at spatial bin {binIndex}: solution vs. MMS")
+    axis.minorticks_on()
+    axis.tick_params(which="both", direction="in", top=True, right=True)
+    axis.legend(frameon=False, fontsize="small")
+    fig.tight_layout()
+    plt.show()
+    return fig, axis
+
+
+def plotMaterialTemperatureMMSErrorLoaded(results, binIndex=20):
+    """Plot solved-minus-MMS material-temperature error at one spatial bin."""
+    if not results:
+        return None
+
+    fig, axis = plt.subplots(figsize=(8, 5))
+    colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
+
+    for runIndex, (data, params, label) in enumerate(results):
+        x = np.asarray(params["spaceMid"])
+        if not 0 <= binIndex < len(x):
+            raise IndexError(
+                f"Bin index {binIndex} is outside the saved spatial grid "
+                f"of {len(x)} bins."
+            )
+
+        timeCount = min(
+            len(data["timeSet"]),
+            data["temperatureSet"].shape[1],
+        )
+        if timeCount == 0:
+            raise ValueError(f"Saved MMS result {label!r} contains no time samples.")
+
+        time = np.asarray(data["timeSet"])[:timeCount]
+        materialTemperature = data["temperatureSet"][binIndex, :timeCount]
+        t0 = params["mmsT0"]
+        sigmaX = params["mmsSigmaX"]
+        tau = params["mmsTau"]
+        temperatureOffset = params.get(
+            "mmsTemperatureOffset", MMS.DEFAULT_TEMPERATURE_OFFSET
+        )
+        spatial = np.exp(-(x[binIndex] ** 2) / (2 * sigmaX**2)) / (
+            sigmaX * np.sqrt(2 * np.pi)
+        )
+        exactMaterial = MMS.temperatureFromFourthPowerProfile(
+            t0,
+            (1 - np.exp(-tau * time / 2)) * spatial,
+            temperatureOffset,
+        )
+
+        axis.plot(
+            time,
+            materialTemperature - exactMaterial,
+            color=colors[runIndex % len(colors)],
+            linestyle="--" if params.get("movingCoordinates", False) else ":",
+            label=label,
+        )
+
+    axis.axhline(0.0, color="black", linewidth=0.8, linestyle="-")
+    axis.set_xlabel("Time (ns)")
+    axis.set_ylabel("Material temperature error (keV)")
+    axis.set_title(
+        f"Material temperature error from MMS at spatial bin {binIndex}"
+    )
     axis.minorticks_on()
     axis.tick_params(which="both", direction="in", top=True, right=True)
     axis.legend(frameon=False, fontsize="small")

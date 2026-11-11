@@ -76,12 +76,6 @@ class Material:
         f = (15.0 * self.const.a * self.const.c) / (4.0 * np.pi**5)
         return f * nu**3 / denom
 
-    def sigmaAP(self, nu, T):
-        sa0 = 10
-        num = 1 - np.exp(-nu / T)
-        denom = nu**3 * T*(1/2)
-        return sa0 * num / denom
-
     def planckg(self, nu_lo, nu_hi, T):
         # Calculate the Planck function for each frequency group
         # FIX: Broadcast frequency as column (freqNum, 1) against T (nBins,) -> Result is (freqNum, nBins)
@@ -104,9 +98,9 @@ class Material:
     def sigma_a(self, freq, T):
         nu_lo = self.grid.freqGrid[:-1, None]
         nu_hi = self.grid.freqGrid[1:, None]
-
+        eps = 1e-12  # Small value to prevent division by zero
         sigma_aZero = 10 * np.ones((self.params.freqNum, self.params.nBins))
-        denom = np.sqrt(T) * self.planckg(nu_lo, nu_hi, T)
+        denom = np.sqrt(T) * self.planckg(nu_lo, nu_hi, T) + eps
         hi_exp = np.minimum(nu_hi/T, 700.0)  # Avoid overflow in exp for large nu_hi/T
         lo_exp = np.minimum(nu_lo/T, 700.0)
         num = sigma_aZero * (np.exp(-lo_exp) - np.exp(-hi_exp))
@@ -140,19 +134,9 @@ class Material:
         # )
 
 
-        # out = np.ones((self.params.freqNum, self.params.nBins)) * 1 / 2 / T  # For testing purposes, set all opacities to a constant value
+        out = np.ones((self.params.freqNum, self.params.nBins)) * 1 / 2 / T  # For testing purposes, set all opacities to a constant value
         return out
 
-    # def sigma_a(self, freq, T):
-    #     nu_lo = self.grid.freqGrid[:-1, None]
-    #     nu_hi = self.grid.freqGrid[1:, None]
-    #     num = lambda nu: self.planck(nu, T) * self.sigmaAP(nu, T)
-    #     denom = lambda nu: self.planck(nu, T)
-    #     numG = self.simpson(num, nu_lo, nu_hi)
-    #     denomG = self.simpson(denom, nu_lo, nu_hi)
-    #     out = numG / denomG
-    #     return out
-    # End of opacity implementation
     
     def C_v(self, T):  # Placeholder constant heat capacity
         return .01

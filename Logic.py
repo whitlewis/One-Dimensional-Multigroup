@@ -1,6 +1,5 @@
 import numpy as np
 np.seterr(divide='raise', invalid='raise', over='raise')
-from numba import njit
 import matplotlib.pyplot as plt
 import MMS
 
@@ -366,24 +365,27 @@ class CoupledEquations:
 
     # Group integrated Planck
     def planckBar(self, T):
-        # Integrate the Planck function over each frequency group to get group-averaged source
-
-        lo = self.grid.freqGrid[:-1, None]
-        hi = self.grid.freqGrid[1:, None]
-
-        freqGroups = 0.5 * (
-            self.grid.freqGrid[:-1] + self.grid.freqGrid[1:]
+        temperature = np.atleast_1d(np.asarray(T, dtype=float))
+        return MMS.planckBarNumbaVariable(
+            self.grid.freqGrid,
+            temperature,
+            np.ones_like(temperature),
+            self.const.a,
+            self.const.c,
+            self.const.h,
         )
-        integrand = lambda nu: self.planck(nu, T)
-        bbar = self.simpson(integrand, lo, hi)
-        return bbar
 
     # Group-integrated dB/dT
     def planckBarDeriv(self, T):
-        lo = self.grid.freqGrid[:-1, None]
-        hi = self.grid.freqGrid[1:, None]
-        integrand = lambda nu: self.planck(nu, T) * (nu / T) / (T * -np.expm1(-nu / T))
-        return self.simpson(integrand, lo, hi)
+        temperature = np.atleast_1d(np.asarray(T, dtype=float))
+        return MMS.planckBarDerivativeNumbaVariable(
+            self.grid.freqGrid,
+            temperature,
+            np.ones_like(temperature),
+            self.const.a,
+            self.const.c,
+            self.const.h,
+        )
 
 
     # Function for initial Condition as Planckian (helper for initialCondition)  
@@ -396,7 +398,7 @@ class CoupledEquations:
     
     def energyInitialCondition(self):
         T0 = self.params.radiationTemperature
-        groupEnergies = self.simpson(lambda nu: self.planck(nu, T0), self.grid.freqGrid[:-1], self.grid.freqGrid[1:])
+        groupEnergies = self.planckBar(T0)[:, 0]
         
         # Calculate the exact expected macroscopic density per cell
         EradExpectedPerCell = self.const.a * T0**4
@@ -482,11 +484,14 @@ class CoupledEquations:
         planckLeft = np.broadcast_to(self.planckBar(T0), (self.params.freqNum, self.sn)).copy()  # shape: (freqNum, sn)
         planckRight = np.broadcast_to(self.planckBar(T1), (self.params.freqNum, self.sn)).copy()  # shape: (freqNum, sn)
         if self.params.boundaryLeft == "Delta":
-            totalFlux = np.sum(self.grid.du * self.simpson(lambda nu: self.planck(nu, T0), self.grid.freqGrid[:-1], self.grid.freqGrid[1:]))
-            planckLeft[self.params.freqNum//4, :] = totalFlux / self.grid.du[self.params.freqNum//4]  # Delta function at the middle frequency group
+            totalFlux = np.sum(self.planckBar(T0))
+            # PlanckBar is group-integrated; preserve its total without a width conversion.
+            planckLeft.fill(0.0)
+            planckLeft[self.params.freqNum//4, :] = totalFlux
         if self.params.boundaryRight == "Delta":
-            totalFlux = np.sum(self.grid.du * self.simpson(lambda nu: self.planck(nu, T1), self.grid.freqGrid[:-1], self.grid.freqGrid[1:]))
-            planckRight[self.params.freqNum//4, :] = totalFlux / self.grid.du[self.params.freqNum//4]      # Delta function at the middle frequency group
+            totalFlux = np.sum(self.planckBar(T1))
+            planckRight.fill(0.0)
+            planckRight[self.params.freqNum//4, :] = totalFlux
         if self.params.boundaryLeft not in ["Infinite", "Reflective", "Vacuum", "Delta", "Planckian"]:
             raise ValueError("Boundary must be one of: [Infinite, Reflective, Vacuum, Delta, Planckian]")
         if self.params.boundaryRight not in ["Infinite", "Reflective", "Vacuum", "Delta", "Planckian"]:
@@ -682,65 +687,6 @@ class CoupledEquations:
 
 
 
-@njit
-def planckVariableValue(u, temperature, frequencyScale, coefficient, h):
-    if temperature <= 0.0 or frequencyScale <= 0.0:
-        return 0.0
-
-    scaledFrequency = h * u * frequencyScale / temperature
-    if scaledFrequency > 700.0:
-        return 0.0
-    if scaledFrequency < 1e-8:
-        return (
-            coefficient
-            / h
-            * u**2
-            * frequencyScale**3
-            * temperature
-        )
-
-    return (
-        coefficient
-        * u**3
-        * frequencyScale**4
-        / np.expm1(scaledFrequency)
-    )
-
-
-@njit
-def planckBarNumbaVariable(freqGrid, T, frequencyScale, a, c, h):
-    nGroups = freqGrid.shape[0] - 1
-    nBins = T.shape[0]
-
-    out = np.empty((nGroups, nBins))
-
-    C = (15.0 * a * c) / (4.0 * np.pi**5)
-
-    for g in range(nGroups):
-        lo = freqGrid[g]
-        hi = freqGrid[g + 1]
-        dx = (hi - lo) / 3.0
-
-        u0 = lo
-        u1 = lo + dx
-        u2 = lo + 2.0 * dx
-        u3 = hi
-
-        for i in range(nBins):
-            Ti = T[i]
-            scale = frequencyScale[i]
-
-            B0 = planckVariableValue(u0, Ti, scale, C, h)
-            B1 = planckVariableValue(u1, Ti, scale, C, h)
-            B2 = planckVariableValue(u2, Ti, scale, C, h)
-            B3 = planckVariableValue(u3, Ti, scale, C, h)
-
-            out[g, i] = (3.0 / 8.0) * dx * (
-                B0 + 3.0*B1 + 3.0*B2 + B3
-            )
-
-    return out
-
 class MovingMeshEquations:
     def __init__(self, params, grid, material, constants):
         # Init classes
@@ -806,16 +752,25 @@ class MovingMeshEquations:
 
     # Group integrated Planck at temperature T in the coordinate u = nu/Tcoord
     def planckBarInit(self, T, Tcoord):
-        lo = self.grid.freqGrid[:-1, None]
-        hi = self.grid.freqGrid[1:, None]
-        integrand = lambda u: self.planckVCM(u, T, Tcoord)
-        bbar = self.simpson(integrand, lo, hi)
-        return bbar
+        temperature, frequencyScale = np.broadcast_arrays(
+            np.asarray(T, dtype=float),
+            np.asarray(Tcoord, dtype=float),
+        )
+        temperature = np.atleast_1d(temperature).copy()
+        frequencyScale = np.atleast_1d(frequencyScale).copy()
+        return MMS.planckBarNumbaVariable(
+            self.grid.freqGrid,
+            temperature,
+            frequencyScale,
+            self.const.a,
+            self.const.c,
+            self.const.h,
+        )
     
     def planckBar(self, T, frequencyScale=None):
         if frequencyScale is None:
             frequencyScale = self.frequencyScale(T)
-        return planckBarNumbaVariable(
+        return MMS.planckBarNumbaVariable(
             self.grid.freqGrid,
             T,
             frequencyScale,
@@ -1164,9 +1119,14 @@ class MovingMeshEquations:
                 T0 = self.params.setLeftBoundaryTemp
             else:
                 T0 = self.params.setRightBoundaryTemp
+            frequencyScale = self.frequencyScale(self.grid.T_next)
+            planckSpectrum = self.planckBarInit(
+                T0, frequencyScale[spatial_idx]
+            )[:, 0]
             deltaSet = np.zeros((self.params.freqNum, self.sn))
-            totalFlux = np.sum(self.grid.du * self.simpson(lambda nu: self.planckVCM(nu, T0, self.grid.T_next[spatial_idx]), self.grid.freqGrid[:-1], self.grid.freqGrid[1:]))
-            deltaSet[self.params.freqNum//4, :] = totalFlux / self.grid.du[self.params.freqNum//4]      # Delta function at the middle frequency group
+            totalFlux = np.sum(planckSpectrum)
+            # PlanckBarInit is group-integrated; preserve its total without a width conversion.
+            deltaSet[self.params.freqNum//4, :] = totalFlux
             bVal = deltaSet[f, m]
         else:
             raise ValueError(

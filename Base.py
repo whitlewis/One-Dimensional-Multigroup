@@ -113,22 +113,36 @@ class Base:
                 self.problem.equations.radiationSweep()
                 if self.params.checkEnergy and self.index % self.params.energyCheckFreq == 0 and it==0:  # Check energy conservation every 50 time steps
                     self.checkEnergyConservation()
-                temperatureErr = 0.0
+                temperatureDiff = np.zeros_like(self.grid.T_next)
                 if self.params.materialCoupled:
                     previousTemperatureIterate = self.grid.T_next.copy()
                     self.T_next = self.grid.T_next.copy()
                     self.problem.equations.materialEquation() # update material temperature after radiation sweep
-                    temperatureErr = np.max(
-                        np.abs(self.grid.T_next - previousTemperatureIterate)
+                    temperatureDiff = np.abs(
+                        self.grid.T_next - previousTemperatureIterate
                     )
-                diff = np.abs((self.grid.fullTensor - self.grid.fullTensOld))
+                diff = np.abs(
+                    self.grid.fullTensor - self.grid.fullTensOld
+                )
                 radiationErr = np.max(diff)
+                radiationL2Err = np.linalg.norm(diff.ravel(), ord=2)
+                temperatureErr = np.max(temperatureDiff)
+                temperatureL2Err = np.linalg.norm(
+                    temperatureDiff.ravel(), ord=2
+                )
                 err = max(radiationErr, temperatureErr)
                 if self.params.iterationCheck == True:
                     if it % 2 == 0:
 
                         print(f"Time step {self.index}, Iteration {it}, Error change: {self.err - err:.2e}")
-                        print(f'Old error: {self.err}, New error{err}, Mean Error {np.mean(diff)}')
+                        print(
+                            f"Radiation errors: L2={radiationL2Err:.6e}, "
+                            f"L-infinity={radiationErr:.6e}"
+                        )
+                        print(
+                            f"Temperature errors: L2={temperatureL2Err:.6e}, "
+                            f"L-infinity={temperatureErr:.6e}"
+                        )
                         self.err = err  # Store the error for external access if needed
                         max_idx = np.unravel_index(np.argmax(diff), diff.shape)
 
@@ -139,21 +153,44 @@ class Base:
                         print(f"Occurred at Index: {max_idx}")
                         print(f"  fullTensor: {val_new}")
                         print(f"  fullTensOld: {val_old}")
-                if np.isnan(err).any() or np.isinf(err).any():
+                if not np.all(
+                    np.isfinite(
+                        (
+                            radiationL2Err,
+                            radiationErr,
+                            temperatureL2Err,
+                            temperatureErr,
+                        )
+                    )
+                ):
                     name = "Convergence Check"
                     print("\n⚠️ INVALID RESULT DETECTED")
                     print("Operation:", name)
                     print("a =",self.grid.fullTensor)
                     print("b =", self.grid.fullTensOld)
-                    print("result =", err)
-                if err < self.params.tol:
+                    print(
+                        "Radiation L2/L-infinity errors =",
+                        radiationL2Err,
+                        radiationErr,
+                    )
+                    print(
+                        "Temperature L2/L-infinity errors =",
+                        temperatureL2Err,
+                        temperatureErr,
+                    )
+                if (
+                    radiationErr < self.params.tol
+                    and radiationL2Err < self.params.tol
+                    and temperatureErr < self.params.tol
+                    and temperatureL2Err < self.params.tol
+                ):
                     if it > 40: print(f"Converged in {it} iterations")
                     break
                 if it % 2 == 0:
                     self.errorLag = err
                 if abs(self.err - err) < 1e-40 and abs(self.errorLag - err) < 1e-40:
                     self.errorStag += 1
-                    if self.errorStag >=2:
+                    if self.errorStag >=15:
                         if it % 40 == 0:
                             print(f'Not further trending toward convergence, breaking loop and Moving to next step after {it} iterations, final error: {err}')
                         if err > 10.00:
@@ -335,6 +372,7 @@ class Base:
             f.attrs["mmsTemperatureOffset"] = getattr(
                 self.params, "mmsTemperatureOffset", 0.4
             )
+            f.attrs["iterationTolerance"] = self.params.tol
             f.attrs["extrapolateTemp"] = bool(
                 getattr(self.params, "extrapolateTemp", False)
             )

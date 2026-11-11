@@ -7,6 +7,134 @@ import Base as Base
 
 DEFAULT_TEMPERATURE_OFFSET = 0.4
 
+_PLANCK_GAUSS_NODES = np.array(
+    [
+        -0.9602898564975363,
+        -0.7966664774136267,
+        -0.5255324099163290,
+        -0.1834346424956498,
+        0.1834346424956498,
+        0.5255324099163290,
+        0.7966664774136267,
+        0.9602898564975363,
+    ],
+    dtype=np.float64,
+)
+_PLANCK_GAUSS_WEIGHTS = np.array(
+    [
+        0.1012285362903763,
+        0.2223810344533745,
+        0.3137066458778873,
+        0.3626837833783620,
+        0.3626837833783620,
+        0.3137066458778873,
+        0.2223810344533745,
+        0.1012285362903763,
+    ],
+    dtype=np.float64,
+)
+
+
+@njit
+def _planckDimensionlessValue(z):
+    if z <= 0.0:
+        return 0.0
+    if z < 1e-5:
+        return z**2 * (1.0 - z / 2.0 + z**2 / 12.0)
+    if z >= 50.0:
+        return 0.0
+    expNegative = np.exp(-z)
+    return z**3 * expNegative / (1.0 - expNegative)
+
+
+@njit
+def _planckDimensionlessIntegral(zLo, zHi):
+    # Composite quadrature resolves the peak; the Wien tail past 50 is negligible.
+    zLo = max(zLo, 0.0)
+    zHi = min(zHi, 50.0)
+    if zHi <= zLo:
+        return 0.0
+
+    segmentCount = max(1, int(np.ceil((zHi - zLo) / 2.0)))
+    segmentWidth = (zHi - zLo) / segmentCount
+    integral = 0.0
+    for segment in range(segmentCount):
+        segmentLo = zLo + segment * segmentWidth
+        midpoint = segmentLo + 0.5 * segmentWidth
+        halfWidth = 0.5 * segmentWidth
+        for nodeIndex in range(8):
+            z = midpoint + halfWidth * _PLANCK_GAUSS_NODES[nodeIndex]
+            integral += (
+                halfWidth
+                * _PLANCK_GAUSS_WEIGHTS[nodeIndex]
+                * _planckDimensionlessValue(z)
+            )
+    return integral
+
+
+@njit
+def planckBarNumbaVariable(freqGrid, T, frequencyScale, a, c, h):
+    nGroups = freqGrid.shape[0] - 1
+    nBins = T.shape[0]
+    out = np.zeros((nGroups, nBins))
+    coefficient = (15.0 * a * c) / (4.0 * np.pi**5)
+
+    for group in range(nGroups):
+        for cell in range(nBins):
+            temperature = T[cell]
+            scale = frequencyScale[cell]
+            if temperature <= 0.0 or scale <= 0.0:
+                continue
+
+            if freqGrid.ndim == 1:
+                nuLo = freqGrid[group]
+                nuHi = freqGrid[group + 1]
+            else:
+                nuLo = freqGrid[group, cell]
+                nuHi = freqGrid[group + 1, cell]
+            zLo = h * nuLo * scale / temperature
+            zHi = h * nuHi * scale / temperature
+            integral = _planckDimensionlessIntegral(zLo, zHi)
+            out[group, cell] = (
+                coefficient * (temperature / h) ** 4 * integral
+            )
+    return out
+
+
+@njit
+def planckBarDerivativeNumbaVariable(freqGrid, T, frequencyScale, a, c, h):
+    nGroups = freqGrid.shape[0] - 1
+    nBins = T.shape[0]
+    out = np.zeros((nGroups, nBins))
+    coefficient = (15.0 * a * c) / (4.0 * np.pi**5)
+
+    for group in range(nGroups):
+        for cell in range(nBins):
+            temperature = T[cell]
+            scale = frequencyScale[cell]
+            if temperature <= 0.0 or scale <= 0.0:
+                continue
+
+            if freqGrid.ndim == 1:
+                nuLo = freqGrid[group]
+                nuHi = freqGrid[group + 1]
+            else:
+                nuLo = freqGrid[group, cell]
+                nuHi = freqGrid[group + 1, cell]
+            zLo = h * nuLo * scale / temperature
+            zHi = h * nuHi * scale / temperature
+            integral = _planckDimensionlessIntegral(zLo, zHi)
+            boundaryTerm = (
+                zLo * _planckDimensionlessValue(zLo)
+                - zHi * _planckDimensionlessValue(zHi)
+            )
+            out[group, cell] = (
+                coefficient
+                * (temperature / h) ** 3
+                * (4.0 * integral + boundaryTerm)
+            )
+    return out
+
 
 def temperatureFromFourthPowerProfile(
     T0, profile, temperatureOffset=DEFAULT_TEMPERATURE_OFFSET
@@ -47,17 +175,18 @@ def planck(nu, T):  # Planck function (not group integrated or weighted)
 
 # Group integrated Planck
 def planckBar(T, freqGrid):
-    # Integrate the Planck function over each frequency group to get group-averaged source
-
-    lo = freqGrid[:-1]
-    hi = freqGrid[1:]
-
-    freqGroups = 0.5 * (
-        freqGrid[:-1] + freqGrid[1:]
+    temperature = np.atleast_1d(np.asarray(T, dtype=float))
+    result = planckBarNumbaVariable(
+        np.asarray(freqGrid, dtype=float),
+        temperature,
+        np.ones_like(temperature),
+        Base.Constants.a,
+        Base.Constants.c,
+        Base.Constants.h,
     )
-    integrand = lambda nu: planck(nu, T)
-    bbar = simpson(integrand, lo, hi)
-    return bbar
+    if np.asarray(T).ndim == 0 and np.asarray(freqGrid).ndim == 1:
+        return result[:, 0]
+    return result
 
 # Planckian for opacity calculation
 def planckg(T, freqGrid):
@@ -150,19 +279,16 @@ def MMSSource1D(
     spatialDerivative = -x / sigmaX**2 * spatial
 
     def planckBarByCell(temperature):
-        temperature = temperature[None, :]
-        positiveTemperature = temperature > 0
-        safeTemperature = np.where(positiveTemperature, temperature, 1.0)
-        if freqGrid.ndim == 1:
-            lo = freqGrid[:-1, None]
-            hi = freqGrid[1:, None]
-        else:
-            lo = freqGrid[:-1]
-            hi = freqGrid[1:]
-        bbar = simpson(
-            lambda nu: planck(nu, safeTemperature), lo, hi
+        temperature = np.asarray(temperature, dtype=float)
+        bbar = planckBarNumbaVariable(
+            np.asarray(freqGrid, dtype=float),
+            temperature,
+            np.ones_like(temperature),
+            const.a,
+            const.c,
+            const.h,
         )
-        return np.where(positiveTemperature, bbar, 0.0)
+        return bbar
 
     Bg = planckBarByCell(T)
     BgM1 = planckBarByCell(TM1)
