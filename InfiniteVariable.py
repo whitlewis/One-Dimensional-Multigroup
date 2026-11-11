@@ -133,7 +133,7 @@ class Material:
             opacity, a_min=1.0e-4, a_max=1.0e8
         )  # Avoid division by zero and ensure non-negative opacities
         # print(f"Calculated opacities with shape: {out.shape}, min: {np.min(out):3e}, max: {np.max(out):3e}")  # Debugging statement
-        out = np.ones((self.params.freqNum, self.params.nBins)) * 1 / 2 / T  # For testing purposes, set all opacities to a constant value
+        # out = np.ones((self.params.freqNum, self.params.nBins)) * 1 / 2 / T  # For testing purposes, set all opacities to a constant value
 
         return out
 

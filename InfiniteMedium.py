@@ -134,7 +134,7 @@ class Material:
         # )
 
 
-        out = np.ones((self.params.freqNum, self.params.nBins)) * 1 / 2 / T  # For testing purposes, set all opacities to a constant value
+        # out = np.ones((self.params.freqNum, self.params.nBins)) * 1 / 2 / T  # For testing purposes, set all opacities to a constant value
         return out
 
     
