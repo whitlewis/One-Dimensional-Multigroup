@@ -106,35 +106,50 @@ class Material:
         return bg # Shape is now (freqNum, nBins)
     
     def sigma_a(self, freq, T, frequencyScale=None):
-        nu_lo = self.grid.freqGrid[:-1, None]
-        nu_hi = self.grid.freqGrid[1:, None] 
-        eps = 1e-12  # Small value to prevent division by zero
-        sigma_aZero = 10 * np.ones((self.params.freqNum, self.params.nBins))
-        denom = np.sqrt(T) * self.planckg(nu_lo, nu_hi, T) + eps
-        hi_exp = np.minimum(nu_hi/T, 700.0)  # Avoid overflow in exp for large nu_hi/T
-        lo_exp = np.minimum(nu_lo/T, 700.0)
-        num = sigma_aZero * (np.exp(-lo_exp) - np.exp(-hi_exp))
-
-        # Gaussian Test case
-        # nu0 = 4.0  # Peak frequency
-        # w = 2.0      # Gaussian width
-        # nu = 0.5 * (nu_lo + nu_hi)  # Group-center frequencies
-        # out = (1 / (2 * T)) * np.exp(
-        #     -(nu - nu0)**2 / (2 * w**2)
+        # temperature = np.broadcast_to(
+        #     np.asarray(T, dtype=float), (self.params.nBins,)
         # )
+        # if frequencyScale is None:
+        #     frequencyScale = np.ones(self.params.nBins)
+        # else:
+        #     frequencyScale = np.broadcast_to(
+        #         np.asarray(frequencyScale, dtype=float),
+        #         (self.params.nBins,),
+        #     )
+        # # Opacity group integrals use physical frequency, not the VMG coordinate u.
+        # physicalFreqGrid = (
+        #     self.grid.freqGrid[:, None] * frequencyScale[None, :]
+        # )
+        # nu_lo = physicalFreqGrid[:-1]
+        # nu_hi = physicalFreqGrid[1:]
+        # eps = 1e-12  # Small value to prevent division by zero
+        # sigma_aZero = 10 * np.ones((self.params.freqNum, self.params.nBins))
+        # denom = np.sqrt(temperature) * self.planckg(
+        #     nu_lo, nu_hi, temperature
+        # ) + eps
+        # hi_exp = np.minimum(nu_hi / temperature, 700.0)
+        # lo_exp = np.minimum(nu_lo / temperature, 700.0)
+        # num = sigma_aZero * (np.exp(-lo_exp) - np.exp(-hi_exp))
 
-        opacity = np.divide(
-            num,
-            denom,
-            out=np.full_like(num, 1.0e10),
-            where=denom > 0,
-        )
-        out = np.clip(
-            opacity, a_min=1.0e-4, a_max=1.0e8
-        )  # Avoid division by zero and ensure non-negative opacities
+        # # Gaussian Test case
+        # # nu0 = 4.0  # Peak frequency
+        # # w = 2.0      # Gaussian width
+        # # nu = 0.5 * (nu_lo + nu_hi)  # Group-center frequencies
+        # # out = (1 / (2 * T)) * np.exp(
+        # #     -(nu - nu0)**2 / (2 * w**2)
+        # # )
+
+        # opacity = np.divide(
+        #     num,
+        #     denom,
+        #     out=np.full_like(num, 1.0e10),
+        #     where=denom > 0,
+        # )
+        # out = np.clip(
+        #     opacity, a_min=1.0e-4, a_max=1.0e8
+        # )  # Avoid division by zero and ensure non-negative opacities
         # print(f"Calculated opacities with shape: {out.shape}, min: {np.min(out):3e}, max: {np.max(out):3e}")  # Debugging statement
-        # out = np.ones((self.params.freqNum, self.params.nBins)) * 1 / 2 / T  # For testing purposes, set all opacities to a constant value
-
+        out = np.ones((self.params.freqNum, self.params.nBins)) * 1 / 2 / T  # For testing purposes, set all opacities to a constant value
         return out
 
     def C_v(self, T):  # Placeholder constant heat capacity
