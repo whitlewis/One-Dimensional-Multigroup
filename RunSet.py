@@ -92,19 +92,17 @@ def run_single_variable(item):
 
 
 def ExecuteRunSetParallel(runSet):
-    methodChoice = input("Which method is desired? (IVM, IM, Both): ").strip().lower()
-
-    tasks = []
-    if methodChoice in ("im", "both"):
-        tasks.extend([(run_single_standard, item) for item in runSet.items()])
-    if methodChoice in ("ivm", "both"):
-        tasks.extend([(run_single_variable, item) for item in runSet.items()])
+    tasks = [
+        (worker, item)
+        for item in runSet.items()
+        for worker in (run_single_standard, run_single_variable)
+    ]
 
     results = {}
+    failures = []
 
     # Distribute tasks across CPU cores
     with concurrent.futures.ProcessPoolExecutor() as executor:
-        # Submit tasks: worker_func(item)
         future_to_task = {
             executor.submit(worker, item): item[0] for worker, item in tasks
         }
@@ -114,8 +112,16 @@ def ExecuteRunSetParallel(runSet):
             try:
                 run_id = future.result()
                 print(f"Completed: {run_id}")
+                results[run_id] = True
             except Exception as exc:
                 print(f"Task '{task_name}' generated an exception: {exc}")
+                failures.append((task_name, exc))
+
+    if failures:
+        failureSummary = "; ".join(
+            f"{task_name}: {error}" for task_name, error in failures
+        )
+        raise RuntimeError(f"One or more simulation tasks failed: {failureSummary}")
 
     return results
 
@@ -138,11 +144,11 @@ for step in stepSet:
     s += 1
     for group in groupSet:
         g += 1
-        runName = f"MMSLinear{s}_{g}"
+        runName = f"RHS_Planckian{s}_{g}"
         RunSet[runName] = {
-            "runLabel": "MMSLinear",
+            "runLabel": "RHS Planckian",
             "Steps": step,
-            "Iteration Tolerance": 1e-16,
+            "Iteration Tolerance": 1e-14,
             "Maximum Time": 0.5,
             "Max Frequency": 45,
             "Min Frequency": 1e-4,
@@ -151,22 +157,22 @@ for step in stepSet:
             "Match Grid" : True,
             "Number of frequencies": group,
             "Sn": 8,
-            "Number of Bins": 50,
+            "Number of Bins": 80,
             "xMin": -1,
             "xMax": 1,
             "RadTemp": 0.5,
             "MatTemp": 0.5,
             "ColorTemp" : 0.5,
             "leftBC": "Reflective",
-            "rightBC": "Reflective",
+            "rightBC": "Planckian",
             "leftTemp": 0.8,
             "rightTemp": 0.8,
-            "timeScale": "linear",
+            "timeScale": "log",
             "TransTime": timeSplit,
             "stepSplit": stepSplit,  # tells what proportion of time steps are log vs linear
             "stepType": False, 
             "extrapolateTemp": True,
-            "MMSCompare": True,  # Set True to add MMS S and Q in both methods.
+            "MMSCompare": False,  # Set True to add MMS S and Q in both methods.
             "MMS T0": 1.0,
             "MMS Sigma X": 1.0,
             "MMS Tau": 2.0,

@@ -709,20 +709,10 @@ class MovingMeshEquations:
         self.rhs = np.zeros((self.freq, self.params.nBins))
         self.T_next = np.ones(self.params.nBins)*self.params.initialTemperature
         self.manufacturedQ = np.zeros(self.params.nBins)
-        self.frequencyReferenceTemperature = np.full(
-            self.params.nBins, self.params.initialTemperature
-        )
 
     def frequencyScale(self, temperature):
         """Return the physical-frequency scale for this VMG coordinate grid."""
-        temperature = np.asarray(temperature)
-        if getattr(self.params, "matchNu", False):
-            reference = np.maximum(
-                self.frequencyReferenceTemperature, 1e-12
-            )
-            # At the reference state, scaled VMG edges equal the MG physical edges.
-            return self.params.initialTemperature * temperature / reference
-        return temperature
+        return np.asarray(temperature)
 
     def getPhi(self):
         # Integrate over angles to get scalar flux
@@ -858,7 +848,6 @@ class MovingMeshEquations:
             self.T_next = temperature.copy()
             self.grid.T_next = temperature.copy()
             self.grid.temperatureSet[:, 0] = temperature
-            self.frequencyReferenceTemperature = temperature.copy()
             spatial = manufacturedSpatialProfile(
                 self.params, self.grid.spaceMid
             )
@@ -884,9 +873,6 @@ class MovingMeshEquations:
                 intensity[:, None, :],
                 (self.params.freqNum, self.sn, self.params.nBins),
             ).copy()
-        self.frequencyReferenceTemperature = np.full(
-            self.params.nBins, self.params.initialTemperature
-        )
         return self.initSpectra()
     
     # Helper function to define initial conditions
@@ -975,25 +961,13 @@ class MovingMeshEquations:
         self.bcLeft, self.bcRight = self.boundaryPlanck()
 
 
-    def polyPredict(self):
-        t2 = self.grid.temperatureSet[:, self.grid.timeStep - 2]
-        t1 = self.grid.temperatureSet[:, self.grid.timeStep - 1]
-        t = self.grid.temperatureSet[:, self.grid.timeStep]
-        T_guess = 3*t - 3*t1 + t2
-        return T_guess
-
     def materialEquation(self):
             # Outer constant calc
             dt = self.grid.dt[self.grid.timeStep]
             f = dt / self.material.C_v(self.grid.temperatureSet[:, self.grid.timeStep]) 
             
             # Lagged temperature and phi
-            if self.grid.timeStep < 3:      
-                T_iterative = self.grid.T_next
-            elif self.params.extrapolateTemp == True: 
-                T_iterative = self.polyPredict()
-            else:
-                T_iterative = self.grid.T_next
+            T_iterative = self.grid.T_next
             T = self.grid.temperatureSet[:, self.grid.timeStep]
             phi = self.getPhi()  # Compute scalar flux by integrating over angles
             frequencyScale = self.frequencyScale(T_iterative)

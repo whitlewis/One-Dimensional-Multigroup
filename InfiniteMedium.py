@@ -2,6 +2,7 @@ import numpy as np
 import numpy.polynomial.legendre as leggauss
 import Logic as Log
 import Base as Base
+import NickelOpacity as nickel_opacity
 
 class Parameters:
     def __init__(self, maxIters=400, tol=1e-8, nSteps=400, Transient=True):
@@ -96,47 +97,12 @@ class Material:
         return bg # Shape is now (freqNum, nBins)
     
     def sigma_a(self, freq, T):
-        # nu_lo = self.grid.freqGrid[:-1, None]
-        # nu_hi = self.grid.freqGrid[1:, None]
-        # eps = 1e-12  # Small value to prevent division by zero
-        # sigma_aZero = 10 * np.ones((self.params.freqNum, self.params.nBins))
-        # denom = np.sqrt(T) * self.planckg(nu_lo, nu_hi, T) + eps
-        # hi_exp = np.minimum(nu_hi/T, 700.0)  # Avoid overflow in exp for large nu_hi/T
-        # lo_exp = np.minimum(nu_lo/T, 700.0)
-        # num = sigma_aZero * (np.exp(-lo_exp) - np.exp(-hi_exp))
-
-        # # Gaussian Test case
-        # # nu0 = 4.0  # Peak frequency
-        # # w = 2.0      # Gaussian width
-        # # nu = 0.5 * (nu_lo + nu_hi)  # Group-center frequencies
-        # # out = (1 / (2 * T)) * np.exp(
-        # #     -(nu - nu0)**2 / (2 * w**2)
-        # # )
-
-        # opacity = np.divide(
-        #     num,
-        #     denom,
-        #     out=np.full_like(num, 1.0e10),
-        #     where=denom > 0,
-        # )
-        # out = np.clip(
-        #     opacity, a_min=1.0e-4, a_max=1.0e8
-        # )  
-            # Avoid division by zero and ensure non-negative opacities
-        # print(f"Calculated opacities with shape: {out.shape}, min: {np.min(out):3e}, max: {np.max(out):3e}")  # Debugging statement
-        # out = np.ones((self.params.freqNum, self.params.nBins)) * 1 / 2 / T  # For testing purposes, set all opacities to a constant value
-
-        # Gaussian Test case
-        # nu0 = 4.0   # Peak frequency
-        # w = 2.0      # Gaussian width
-        # nu = 0.5 * (nu_lo + nu_hi)  # Group-center frequencies
-        # out = (1 / (2 * T)) * np.exp(
-        #     -(nu - nu0)**2 / (2 * w**2)
-        # )
-
-
-        out = np.ones((self.params.freqNum, self.params.nBins)) * 1 / 2 / T  # For testing purposes, set all opacities to a constant value
-        return out
+        temperature = np.broadcast_to(
+            np.asarray(T, dtype=float), (self.params.nBins,)
+        )
+        return nickel_opacity.interpolate_planck_opacity(
+            temperature, np.asarray(freq, dtype=float)
+        )
 
     
     def C_v(self, T):  # Placeholder constant heat capacity

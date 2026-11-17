@@ -184,7 +184,7 @@ class Base:
                     and temperatureErr < self.params.tol
                     and temperatureL2Err < self.params.tol
                 ):
-                    if it > 40: print(f"Converged in {it} iterations")
+                    if it > 40 and self.index % 100 == 0: print(f"Converged in {it} iterations")
                     break
                 if it % 2 == 0:
                     self.errorLag = err
@@ -301,7 +301,6 @@ class Base:
             if (
                 index > 0
                 and getattr(self.params, "extrapolateTemp", False)
-                and not getattr(self.params, "movingCoordinates", False)
             ):
                 previousTemperature = self.grid.temperatureSet[:, index]
                 olderTemperature = self.grid.temperatureSet[:, index - 1]

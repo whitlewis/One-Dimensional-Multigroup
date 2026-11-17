@@ -4363,15 +4363,22 @@ TEMPERATURE_GRID_KEV, ENERGY_GRID_KEV, PLANCK_OPACITY_DENSITY_1 = (
 def interpolate_planck_opacity(temperature_kev, physical_energy_kev):
     """Return density-1 Planck opacity in cm^2/g for physical keV group centers.
 
-    Inputs may be scalars or 1-D arrays. The result has shape
-    (number of energy groups, number of temperatures), ready for use by
-    a material ``sigma_a`` method. Values outside the TOPS table are clamped
-    to the nearest tabulated temperature or energy.
+    Temperature may be a scalar or 1-D cell array. Energy may be a scalar,
+    a 1-D group array shared by all cells, or a 2-D group-by-cell array.
+    The result has shape (number of groups, number of cells). Values outside
+    the TOPS table are clamped to the nearest tabulated temperature or energy.
     """
     temperature = np.atleast_1d(np.asarray(temperature_kev, dtype=float))
-    energy = np.atleast_1d(np.asarray(physical_energy_kev, dtype=float))
-    if temperature.ndim != 1 or energy.ndim != 1:
-        raise ValueError("Temperature and physical energy inputs must be scalars or 1-D arrays.")
+    energy = np.asarray(physical_energy_kev, dtype=float)
+    if temperature.ndim != 1 or energy.ndim > 2:
+        raise ValueError(
+            "Temperature must be scalar or 1-D and physical energy must be "
+            "scalar, 1-D, or 2-D."
+        )
+    if energy.ndim == 0:
+        energy = energy.reshape(1, 1)
+    elif energy.ndim == 1:
+        energy = energy[:, None]
     if (
         np.any(~np.isfinite(temperature))
         or np.any(temperature <= 0)
@@ -4392,9 +4399,14 @@ def interpolate_planck_opacity(temperature_kev, physical_energy_kev):
         log_energy_grid[0],
         log_energy_grid[-1],
     )
+    log_temperature, log_energy = np.broadcast_arrays(
+        log_temperature[None, :], log_energy
+    )
 
     temperature_index = np.clip(
-        np.searchsorted(log_temperature_grid, log_temperature, side="right") - 1,
+        np.searchsorted(
+            log_temperature_grid, log_temperature[0], side="right"
+        ) - 1,
         0,
         len(log_temperature_grid) - 2,
     )
@@ -4404,7 +4416,7 @@ def interpolate_planck_opacity(temperature_kev, physical_energy_kev):
         len(log_energy_grid) - 2,
     )
     temperature_fraction = (
-        (log_temperature - log_temperature_grid[temperature_index])
+        (log_temperature[0] - log_temperature_grid[temperature_index])
         / (
             log_temperature_grid[temperature_index + 1]
             - log_temperature_grid[temperature_index]
@@ -4417,18 +4429,18 @@ def interpolate_planck_opacity(temperature_kev, physical_energy_kev):
 
     log_opacity = np.log(PLANCK_OPACITY_DENSITY_1)
     lower_energy = (
-        log_opacity[temperature_index[:, None], energy_index[None, :]]
-        * (1.0 - temperature_fraction[:, None])
-        + log_opacity[temperature_index[:, None] + 1, energy_index[None, :]]
-        * temperature_fraction[:, None]
+        log_opacity[temperature_index[None, :], energy_index]
+        * (1.0 - temperature_fraction[None, :])
+        + log_opacity[temperature_index[None, :] + 1, energy_index]
+        * temperature_fraction[None, :]
     )
     upper_energy = (
-        log_opacity[temperature_index[:, None], energy_index[None, :] + 1]
-        * (1.0 - temperature_fraction[:, None])
-        + log_opacity[temperature_index[:, None] + 1, energy_index[None, :] + 1]
-        * temperature_fraction[:, None]
+        log_opacity[temperature_index[None, :], energy_index + 1]
+        * (1.0 - temperature_fraction[None, :])
+        + log_opacity[temperature_index[None, :] + 1, energy_index + 1]
+        * temperature_fraction[None, :]
     )
     return np.exp(
-        lower_energy * (1.0 - energy_fraction[None, :])
-        + upper_energy * energy_fraction[None, :]
-    ).T
+        lower_energy * (1.0 - energy_fraction)
+        + upper_energy * energy_fraction
+    )
