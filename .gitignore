@@ -1,5 +1,6 @@
 __pycache__/
+.venv/
 *.pyc
 Test.py
 *.h5
-
+*.sh
