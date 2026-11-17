@@ -1,0 +1,16 @@
+/opt/sge/crc/spool/d32cepyc207/job_scripts/1767688: line 1: import: command not found
+/opt/sge/crc/spool/d32cepyc207/job_scripts/1767688: line 2: import: command not found
+/opt/sge/crc/spool/d32cepyc207/job_scripts/1767688: line 5: import: command not found
+/opt/sge/crc/spool/d32cepyc207/job_scripts/1767688: line 6: from: command not found
+/opt/sge/crc/spool/d32cepyc207/job_scripts/1767688: line 7: import: command not found
+/opt/sge/crc/spool/d32cepyc207/job_scripts/1767688: line 8: from: command not found
+/opt/sge/crc/spool/d32cepyc207/job_scripts/1767688: line 9: import: command not found
+/opt/sge/crc/spool/d32cepyc207/job_scripts/1767688: line 10: import: command not found
+/opt/sge/crc/spool/d32cepyc207/job_scripts/1767688: line 13: import: command not found
+/opt/sge/crc/spool/d32cepyc207/job_scripts/1767688: line 14: from: command not found
+/opt/sge/crc/spool/d32cepyc207/job_scripts/1767688: line 15: import: command not found
+/opt/sge/crc/spool/d32cepyc207/job_scripts/1767688: line 16: from: command not found
+/opt/sge/crc/spool/d32cepyc207/job_scripts/1767688: line 17: import: command not found
+/opt/sge/crc/spool/d32cepyc207/job_scripts/1767688: line 18: import: command not found
+/opt/sge/crc/spool/d32cepyc207/job_scripts/1767688: line 21: syntax error near unexpected token `('
+/opt/sge/crc/spool/d32cepyc207/job_scripts/1767688: line 21: `def setRun(params, runName, config):'
