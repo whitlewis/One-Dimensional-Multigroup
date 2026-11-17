@@ -1,24 +1,16 @@
 #!/bin/bash
-#$ -cwd
 
 #$ -M wlewis7@nd.edu
-#$ -m a
-#$ -pe smp 24
-#$ -q long
-#$ -N Batch_Multigroup
+#$ -m abe
+#$ -pe smp 24        # Specify parallel environment and legal core size
+#$ -q long           # Specify queue
+#$ -N MultiGroup       # Specify job name
 
-module load python
+# Required modules
+module load python/3.12.15
 
-script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-python_env="${PYTHON_ENV:-$script_dir/.venv}"
+# Add your local pip install path (adjust version if needed)
+setenv PATH "$HOME/.local/bin:$PATH"
+setenv PYTHONPATH "$HOME/.local/lib/python3.12/site-packages"
 
-if [[ ! -x "$python_env/bin/python" ]]; then
-    echo "Python environment not found: $python_env" >&2
-    echo "Create it with: python3 -m venv \"$python_env\"" >&2
-    echo "Then install dependencies with: \"$python_env/bin/python\" -m pip install -r \"$script_dir/requirements-crc.txt\"" >&2
-    exit 1
-fi
-
-cd "$script_dir"
-export PYTHONNOUSERSITE=1
-exec "$python_env/bin/python" "$script_dir/RunSet.py"
+python3 RunSet.py  # Application to execute

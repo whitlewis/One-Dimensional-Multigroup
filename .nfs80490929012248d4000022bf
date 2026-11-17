@@ -1,0 +1,20 @@
+Loading CRC_default/1.1
+Loading CRC_default/1.1
+ERROR: Unable to locate a modulefile for 'python/3.9.25'
+Traceback (most recent call last):
+  File "/users/wlewis7/MultiGroup/One-Dimensional-Multigroup/RunSet.py", line 5, in <module>
+    import InfiniteMedium   
+  File "/users/wlewis7/MultiGroup/One-Dimensional-Multigroup/InfiniteMedium.py", line 3, in <module>
+    import Logic as Log
+  File "/users/wlewis7/MultiGroup/One-Dimensional-Multigroup/Logic.py", line 4, in <module>
+    import MMS
+  File "/users/wlewis7/MultiGroup/One-Dimensional-Multigroup/MMS.py", line 4, in <module>
+    from scipy.integrate import solve_ivp
+  File "/users/wlewis7/.local/lib/python3.9/site-packages/scipy/integrate/__init__.py", line 94, in <module>
+    from ._quadrature import *
+  File "/users/wlewis7/.local/lib/python3.9/site-packages/scipy/integrate/_quadrature.py", line 4, in <module>
+    import numpy.typing as npt
+  File "/usr/lib64/python3.9/site-packages/numpy/typing/__init__.py", line 158, in <module>
+    from numpy._typing import (
+ModuleNotFoundError: No module named 'numpy._typing'
+Loading CRC_default/1.1

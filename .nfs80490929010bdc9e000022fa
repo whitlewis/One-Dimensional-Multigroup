@@ -1,0 +1,22 @@
+Loading CRC_default/1.1
+Loading CRC_default/1.1
+Loading python/3.12.15
+  Loading requirement: tcl/8.6.17
+/opt/sge/crc/spool/d32cepyc064/job_scripts/1768389: line 11: setenv: command not found
+/opt/sge/crc/spool/d32cepyc064/job_scripts/1768389: line 12: setenv: command not found
+Traceback (most recent call last):
+  File "/users/wlewis7/MultiGroup/One-Dimensional-Multigroup/RunSet.py", line 5, in <module>
+    import InfiniteMedium   
+    ^^^^^^^^^^^^^^^^^^^^^
+  File "/users/wlewis7/MultiGroup/One-Dimensional-Multigroup/InfiniteMedium.py", line 3, in <module>
+    import Logic as Log
+  File "/users/wlewis7/MultiGroup/One-Dimensional-Multigroup/Logic.py", line 4, in <module>
+    import MMS
+  File "/users/wlewis7/MultiGroup/One-Dimensional-Multigroup/MMS.py", line 2, in <module>
+    from numba import njit, jit
+  File "/users/wlewis7/.local/lib/python3.12/site-packages/numba/__init__.py", line 59, in <module>
+    _ensure_critical_deps()
+  File "/users/wlewis7/.local/lib/python3.12/site-packages/numba/__init__.py", line 45, in _ensure_critical_deps
+    raise ImportError(msg)
+ImportError: Numba needs NumPy 2.2 or less. Got NumPy 2.5.
+Loading CRC_default/1.1

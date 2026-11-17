@@ -1,5 +1,4 @@
 import numpy as np
-from numba import njit, jit
 import matplotlib.pyplot as plt
 from scipy.integrate import solve_ivp
 
@@ -35,7 +34,7 @@ _PLANCK_GAUSS_WEIGHTS = np.array(
 )
 
 
-@njit
+
 def _planckDimensionlessValue(z):
     if z <= 0.0:
         return 0.0
@@ -47,7 +46,7 @@ def _planckDimensionlessValue(z):
     return z**3 * expNegative / (1.0 - expNegative)
 
 
-@njit
+
 def _planckDimensionlessIntegral(zLo, zHi):
     # Composite quadrature resolves the peak; the Wien tail past 50 is negligible.
     zLo = max(zLo, 0.0)
@@ -72,7 +71,7 @@ def _planckDimensionlessIntegral(zLo, zHi):
     return integral
 
 
-@njit
+
 def planckBarNumbaVariable(freqGrid, T, frequencyScale, a, c, h):
     nGroups = freqGrid.shape[0] - 1
     nBins = T.shape[0]
@@ -101,7 +100,7 @@ def planckBarNumbaVariable(freqGrid, T, frequencyScale, a, c, h):
     return out
 
 
-@njit
+
 def planckBarDerivativeNumbaVariable(freqGrid, T, frequencyScale, a, c, h):
     nGroups = freqGrid.shape[0] - 1
     nBins = T.shape[0]

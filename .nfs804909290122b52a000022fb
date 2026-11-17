@@ -1,0 +1,6 @@
+Loading CRC_default/1.1
+Loading CRC_default/1.1
+Loading python/3.12.15
+  Loading requirement: tcl/8.6.17
+/opt/sge/crc/spool/d32cepyc210/job_scripts/1768393: line 11: setenv: command not found
+/opt/sge/crc/spool/d32cepyc210/job_scripts/1768393: line 12: setenv: command not found

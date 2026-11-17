@@ -1,0 +1,5 @@
+Loading CRC_default/1.1
+Loading CRC_default/1.1
+ERROR: Unable to locate a modulefile for 'python/3.12.8'
+/opt/sge/crc/spool/d32cepyc065/job_scripts/1768267: line 9: python: command not found
+Loading CRC_default/1.1
