@@ -76,16 +76,67 @@ class Grid:
         self.T_next = self.temperatureSet[:, 0].copy()  # Initialize T_next for the first step
 
         # Time-dependent tensors
-        self.fullTensorTime = np.zeros((parameters.nSteps+1,) + self.fullTensor.shape)  # shape: (nSteps+1, freqNum, nMu, nBins)
+        # The angular history is sn times larger than the scalar-flux history and is only needed for
+        # angular rank analysis, so it is opt-in through params.storeAngular.
+        self.storeAngular = bool(getattr(parameters, "storeAngular", False))
+        if self.storeAngular:
+            self.fullTensorTime = np.zeros((parameters.nSteps+1,) + self.fullTensor.shape)  # shape: (nSteps+1, freqNum, nMu, nBins)
+        else:
+            self.fullTensorTime = None
         self.fullTensorPhi = np.zeros((parameters.freqNum, parameters.nBins))  # shape: (freqNum, nBins)
         self.fullTensorPhiTime = np.zeros((parameters.nSteps+1,) + self.fullTensorPhi.shape)  # shape: (nSteps+1, freqNum, nBins)
 
         # Helper variables for calculations
         self.timeStep = 0   # time step counter
-        self.rhs = np.zeros((parameters.freqNum, parameters.nBins))  # shape: (freqNum, sn, nBins)
-        self.psiOld = np.zeros((parameters.freqNum, parameters.sn, parameters.nBins))  # shape: (freqNum, sn, nBins)
+        self.rhs = np.zeros((parameters.freqNum, parameters.sn, parameters.nBins))  # shape: (freqNum, sn, nBins)
 
 
+
+
+class AndersonAccelerator:
+    """Anderson acceleration (type II) of the per-time-step fixed point T = G(T).
+
+    G is one outer iteration: Q*(T) -> sweep -> material Newton update. From the last `depth`
+    secant pairs (dT_i, dr_i) of the residual r = G(T) - T it picks the combination gamma that
+    minimises the linearised residual ||r_k - R gamma|| and steps to
+        T_{k+1} = T_k + beta r_k - (X + beta R) gamma.
+    The fixed point is unchanged, so the converged answer is the same as plain iteration.
+    """
+
+    def __init__(self, depth, damping=1.0, rcond=1e-10, floor=1e-12):
+        self.depth = int(depth)
+        self.damping = float(damping)
+        self.rcond = rcond
+        self.floor = floor
+        self.reset()
+
+    def reset(self):
+        self.temperatures = []
+        self.residuals = []
+
+    def step(self, temperatureIn, temperatureOut):
+        residual = temperatureOut - temperatureIn
+        self.temperatures.append(np.array(temperatureIn, dtype=float))
+        self.residuals.append(residual)
+        if len(self.residuals) > self.depth + 1:
+            self.temperatures.pop(0)
+            self.residuals.pop(0)
+
+        plain = temperatureIn + self.damping * residual
+        if len(self.residuals) < 2:
+            return plain
+
+        X = np.diff(np.array(self.temperatures), axis=0).T   # (nBins, m)
+        R = np.diff(np.array(self.residuals), axis=0).T      # (nBins, m)
+        gamma = np.linalg.lstsq(R, residual, rcond=self.rcond)[0]
+        accelerated = plain - (X + self.damping * R) @ gamma
+
+        # Safeguard: fall back to the plain update and restart the history
+        if not np.all(np.isfinite(accelerated)) or np.any(accelerated <= self.floor):
+            self.temperatures = self.temperatures[-1:]
+            self.residuals = self.residuals[-1:]
+            return plain
+        return accelerated
 
 
 class Base:
@@ -97,116 +148,171 @@ class Base:
         self.index = 0  # Initialize index for time stepping
         self.getPhi = self.problem.equations.getPhi  # Initialize getPhi method from the equations object for use in storing scalar flux each step
         self.err = 0.0
-        self.errorStag = 0.0
-        self.errorLag= 0.0
+        self.iterationsPerStep = []   # outer iterations taken by each time step
+        self.stagnatedSteps = 0       # steps that ended on the stagnation check instead of tol
 
-    
+        # Iteration exit controls (all per time step)
+        self.minIters = int(getattr(params, "minIters", 3))                     # iterations before any early exit
+        self.stagnationWindow = int(getattr(params, "stagnationWindow", 15))    # iterations without a new minimum error
+        self.stagnationWarnTol = getattr(params, "stagnationWarnTol", 1e-10)    # only report stagnation above this error
+        self.roundoffFactor = getattr(params, "roundoffFactor", 16.0)           # round-off floor = factor * eps * |solution|
+
+        # Anderson acceleration of the radiation/material iteration (params.andersonDepth = 0 turns it off)
+        self.andersonDepth = int(getattr(params, "andersonDepth", 0))
+        self.anderson = None
+        if self.params.materialCoupled and self.andersonDepth > 0:
+            self.anderson = AndersonAccelerator(
+                self.andersonDepth,
+                damping=getattr(params, "andersonDamping", 1.0),
+            )
+        # Below this temperature residual, plain iteration finishes the step so it can settle
+        # onto the floating-point fixed point (Anderson keeps mixing round-off otherwise)
+        self.andersonMinResidual = getattr(params, "andersonMinResidual", 1e-13)
+
+    def setTemperatureIterate(self, temperature):
+        self.grid.T_next = temperature
+        self.problem.equations.equations.T_next = temperature.copy()
+
+    def atRoundoff(self, radiationErr, radiationL2Err, temperatureErr, temperatureL2Err):
+        """True when every iteration change is within round-off of the current solution (L-inf and L2)."""
+        eps = self.roundoffFactor * np.finfo(float).eps
+        psi = self.grid.fullTensor
+        if radiationErr > eps * np.max(np.abs(psi)):
+            return False
+        if radiationL2Err > eps * np.linalg.norm(psi.ravel()):
+            return False
+        if self.params.materialCoupled:
+            T = self.grid.T_next
+            if temperatureErr > eps * np.max(np.abs(T)):
+                return False
+            if temperatureL2Err > eps * np.linalg.norm(T):
+                return False
+        return True
+
     def converge(self):
+        if self.anderson is not None:
+            self.anderson.reset()
+        # Stagnation state is per time step
+        bestErr = np.inf
+        iterationsSinceBest = 0
         for it in range(self.params.maxIters):
-            if it >= 2:
-
-                # update Temperature and get Q* if material coupled
-                if self.params.materialCoupled:
-                    self.rhs = self.grid.rhs.copy()
-                    self.problem.equations.rhsUpdate()
-                # Perform the radiation sweep to get the new solution
-                self.problem.equations.radiationSweep()
-                if self.params.checkEnergy and self.index % self.params.energyCheckFreq == 0 and it==0:  # Check energy conservation every 50 time steps
-                    self.checkEnergyConservation()
+            # update Temperature and get Q* if material coupled
+            if self.params.materialCoupled:
+                self.problem.equations.rhsUpdate()
+            # Perform the radiation sweep to get the new solution
+            self.problem.equations.radiationSweep()
+            if self.params.checkEnergy and self.index % self.params.energyCheckFreq == 0 and it==0:  # Check energy conservation every energyCheckFreq time steps
+                self.checkEnergyConservation()
+            if self.params.materialCoupled:
+                previousTemperatureIterate = self.grid.T_next  # materialEquation rebinds grid.T_next, so no copy is needed
+                self.problem.equations.materialEquation() # update material temperature after radiation sweep
+                temperatureDiff = np.abs(
+                    self.grid.T_next - previousTemperatureIterate
+                )
+            else:
                 temperatureDiff = np.zeros_like(self.grid.T_next)
-                if self.params.materialCoupled:
-                    previousTemperatureIterate = self.grid.T_next.copy()
-                    self.T_next = self.grid.T_next.copy()
-                    self.problem.equations.materialEquation() # update material temperature after radiation sweep
-                    temperatureDiff = np.abs(
-                        self.grid.T_next - previousTemperatureIterate
-                    )
-                diff = np.abs(
-                    self.grid.fullTensor - self.grid.fullTensOld
-                )
-                radiationErr = np.max(diff)
-                radiationL2Err = np.linalg.norm(diff.ravel(), ord=2)
-                temperatureErr = np.max(temperatureDiff)
-                temperatureL2Err = np.linalg.norm(
-                    temperatureDiff.ravel(), ord=2
-                )
-                err = max(radiationErr, temperatureErr)
-                if self.params.iterationCheck == True:
-                    if it % 2 == 0:
+            diff = np.abs(
+                self.grid.fullTensor - self.grid.fullTensOld
+            )
+            radiationErr = np.max(diff)
+            radiationL2Err = np.linalg.norm(diff.ravel(), ord=2)
+            temperatureErr = np.max(temperatureDiff)
+            temperatureL2Err = np.linalg.norm(
+                temperatureDiff.ravel(), ord=2
+            )
+            err = max(radiationErr, temperatureErr)
+            if self.params.iterationCheck == True:
+                if it % 2 == 0:
 
-                        print(f"Time step {self.index}, Iteration {it}, Error change: {self.err - err:.2e}")
-                        print(
-                            f"Radiation errors: L2={radiationL2Err:.6e}, "
-                            f"L-infinity={radiationErr:.6e}"
-                        )
-                        print(
-                            f"Temperature errors: L2={temperatureL2Err:.6e}, "
-                            f"L-infinity={temperatureErr:.6e}"
-                        )
-                        self.err = err  # Store the error for external access if needed
-                        max_idx = np.unravel_index(np.argmax(diff), diff.shape)
-
-                        val_new = self.grid.fullTensor[max_idx]
-                        val_old = self.grid.fullTensOld[max_idx]
-
-                        print(f"Max Error: {err:.6e}")
-                        print(f"Occurred at Index: {max_idx}")
-                        print(f"  fullTensor: {val_new}")
-                        print(f"  fullTensOld: {val_old}")
-                if not np.all(
-                    np.isfinite(
-                        (
-                            radiationL2Err,
-                            radiationErr,
-                            temperatureL2Err,
-                            temperatureErr,
-                        )
-                    )
-                ):
-                    name = "Convergence Check"
-                    print("\n⚠️ INVALID RESULT DETECTED")
-                    print("Operation:", name)
-                    print("a =",self.grid.fullTensor)
-                    print("b =", self.grid.fullTensOld)
+                    print(f"Time step {self.index}, Iteration {it}, Error change: {self.err - err:.2e}")
                     print(
-                        "Radiation L2/L-infinity errors =",
+                        f"Radiation errors: L2={radiationL2Err:.6e}, "
+                        f"L-infinity={radiationErr:.6e}"
+                    )
+                    print(
+                        f"Temperature errors: L2={temperatureL2Err:.6e}, "
+                        f"L-infinity={temperatureErr:.6e}"
+                    )
+                    self.err = err  # Store the error for external access if needed
+                    max_idx = np.unravel_index(np.argmax(diff), diff.shape)
+
+                    val_new = self.grid.fullTensor[max_idx]
+                    val_old = self.grid.fullTensOld[max_idx]
+
+                    print(f"Max Error: {err:.6e}")
+                    print(f"Occurred at Index: {max_idx}")
+                    print(f"  fullTensor: {val_new}")
+                    print(f"  fullTensOld: {val_old}")
+            if not np.all(
+                np.isfinite(
+                    (
                         radiationL2Err,
                         radiationErr,
-                    )
-                    print(
-                        "Temperature L2/L-infinity errors =",
                         temperatureL2Err,
                         temperatureErr,
                     )
-                if (
-                    radiationErr < self.params.tol
-                    and radiationL2Err < self.params.tol
-                    and temperatureErr < self.params.tol
-                    and temperatureL2Err < self.params.tol
-                ):
-                    if it > 40: print(f"Converged in {it} iterations")
-                    break
-                if it % 2 == 0:
-                    self.errorLag = err
-                if abs(self.err - err) < 1e-40 and abs(self.errorLag - err) < 1e-40:
-                    self.errorStag += 1
-                    if self.errorStag >=15:
-                        if it % 40 == 0:
-                            print(f'Not further trending toward convergence, breaking loop and Moving to next step after {it} iterations, final error: {err}')
-                        if err > 10.00:
-                            self.params.fileFolder = self.params.fileFolder + "Failed"
-                            self.params.runName = self.params.runName + "Failed"
-                            print("Solve Failed")
-                            self.runTime = 1.0
-                            self.saveResults()
-                            raise ValueError(f'Change Iteration is not converging to reasonable value, try a smaller time step. Final iteration difference: {err}')
+                )
+            ):
+                name = "Convergence Check"
+                print("\n⚠️ INVALID RESULT DETECTED")
+                print("Operation:", name)
+                print("a =",self.grid.fullTensor)
+                print("b =", self.grid.fullTensOld)
+                print(
+                    "Radiation L2/L-infinity errors =",
+                    radiationL2Err,
+                    radiationErr,
+                )
+                print(
+                    "Temperature L2/L-infinity errors =",
+                    temperatureL2Err,
+                    temperatureErr,
+                )
+            if (
+                radiationErr < self.params.tol
+                and radiationL2Err < self.params.tol
+                and temperatureErr < self.params.tol
+                and temperatureL2Err < self.params.tol
+            ):
+                if it > 40: print(f"Converged in {it} iterations")
+                break
+            # Converged to machine precision: the changes are round-off of the solution itself, so a
+            # tolerance below that (e.g. 1e-16 on T ~ 1) can never be met by further iterating.
+            if it + 1 >= self.minIters and self.atRoundoff(
+                radiationErr, radiationL2Err, temperatureErr, temperatureL2Err
+            ):
+                break
+            if self.anderson is not None and temperatureErr > self.andersonMinResidual:
+                self.setTemperatureIterate(
+                    self.anderson.step(previousTemperatureIterate, self.grid.T_next)
+                )
+            # Stagnation: no new minimum error within this step for stagnationWindow iterations
+            if err < bestErr:
+                bestErr = err
+                iterationsSinceBest = 0
+            else:
+                iterationsSinceBest += 1
+            if it + 1 >= self.minIters and iterationsSinceBest >= self.stagnationWindow:
+                if err > 10.00:
+                    self.params.fileFolder = self.params.fileFolder + "Failed"
+                    self.params.runName = self.params.runName + "Failed"
+                    print("Solve Failed")
+                    self.runTime = 1.0
+                    self.saveResults()
+                    raise ValueError(f'Change Iteration is not converging to reasonable value, try a smaller time step. Final iteration difference: {err}')
+                self.stagnatedSteps += 1
+                if bestErr > self.stagnationWarnTol:
+                    print(
+                        f"Not further trending toward convergence at time step {self.index}: "
+                        f"no improvement in {self.stagnationWindow} iterations, moving on after "
+                        f"{it + 1} iterations (best error {bestErr:.3e}, final error {err:.3e})"
+                    )
+                break
+            self.err = err
 
-                        self.errorStag = 0
-                        break
-                self.err = err
 
-
-        self.grid.fullTensOld = self.grid.fullTensor   # Do I need this?
+        self.grid.fullTensOld = self.grid.fullTensor
+        self.iterationsPerStep.append(it + 1)
 
 
         if it == self.params.maxIters - 1:
@@ -217,10 +323,12 @@ class Base:
     
     def updateAll(self, index):
         # Updates grid object with new solutions each step
-        self.grid.fullTensOld = self.grid.fullTensor.copy()  # Update old solution for time-stepping
+        # Sweeps rebind grid.fullTensor to a fresh array, so an alias is enough here
+        self.grid.fullTensOld = self.grid.fullTensor
         # Solution of step `index` lives at timeSet[index + 1], matching temperatureSet
-        self.grid.fullTensorTime[index + 1] = self.grid.fullTensor.copy()
-        self.grid.fullTensorPhiTime[index + 1] = self.getPhi().copy()
+        if self.grid.fullTensorTime is not None:
+            self.grid.fullTensorTime[index + 1] = self.grid.fullTensor
+        self.grid.fullTensorPhiTime[index + 1] = self.getPhi()
         self.grid.timeStep += 1  # Increment time step counter
         if self.params.materialCoupled:                      # update temperature for next step
             self.grid.temperatureSet[:, self.grid.timeStep] = self.problem.equations.equations.T_next
@@ -290,7 +398,8 @@ class Base:
     
     def solve(self):
         tick = machineTime.perf_counter()
-        self.grid.fullTensorTime[0] = self.grid.fullTensor.copy()    # Initialize 0'th step (Thanks to Johannes for this fix)
+        if self.grid.fullTensorTime is not None:
+            self.grid.fullTensorTime[0] = self.grid.fullTensor    # Initialize 0'th step (Thanks to Johannes for this fix)
         self.grid.fullTensorPhiTime[0] = self.getPhi()
         self.grid.fullTensOld = self.grid.fullTensor.copy()  # Initialize old solution for time-stepping
         self.setEnergy()  # Initial energy check
@@ -312,7 +421,6 @@ class Base:
                     + stepRatio * (previousTemperature - olderTemperature),
                     1e-12,
                 )
-            self.fullTensOld = self.grid.fullTensor.copy()  # Update old solution for time-stepping
             self.converge()  # Perform the radiation sweep to get the new solution
             self.updateAll(index)  # Store the solution and increment time step counter
             if index % 200 == 0:  
@@ -334,7 +442,7 @@ class Base:
             else:
                 print("Results not saved.")
             
-        return self.grid.fullTensorTime, self.grid  # Return the full time-dependent solution tensor
+        return self.grid.fullTensorTime, self.grid  # Full angular history (None unless params.storeAngular)
     
     def saveResults(self):
         filePrefix = self.params.fileFolder
@@ -350,6 +458,9 @@ class Base:
             f.create_dataset("spaceGrid", data=self.grid.spaceGrid, compression="gzip")
             f.create_dataset("spaceMid", data=self.grid.spaceMid, compression="gzip")
             f.create_dataset("dt", data=self.grid.dt, compression="gzip")
+            f.create_dataset("iterationsPerStep", data=np.asarray(self.iterationsPerStep, dtype=np.int32))
+            f.attrs["andersonDepth"] = self.andersonDepth
+            f.attrs["stagnatedSteps"] = self.stagnatedSteps
             f.attrs["dx"] = self.grid.dx
             f.attrs["freqGrid"] = self.grid.freqGrid
             f.attrs["nBins"] = self.grid.nBins

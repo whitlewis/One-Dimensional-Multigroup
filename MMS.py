@@ -1,5 +1,11 @@
 import numpy as np
-from numba import njit, jit
+try:
+    from numba import njit
+except ImportError:  # Fall back to plain Python (slow, but runs without numba)
+    def njit(*args, **kwargs):
+        if len(args) == 1 and callable(args[0]) and not kwargs:
+            return args[0]
+        return lambda function: function
 import matplotlib.pyplot as plt
 from scipy.integrate import solve_ivp
 

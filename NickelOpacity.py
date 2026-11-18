@@ -4432,3 +4432,54 @@ def interpolate_planck_opacity(temperature_kev, physical_energy_kev):
         lower_energy * (1.0 - energy_fraction[None, :])
         + upper_energy * energy_fraction[None, :]
     ).T
+
+_LOG_TEMPERATURE_GRID = np.log(TEMPERATURE_GRID_KEV)
+_LOG_ENERGY_GRID = np.log(ENERGY_GRID_KEV)
+_LOG_PLANCK_OPACITY = np.log(PLANCK_OPACITY_DENSITY_1)
+
+
+def interpolate_planck_opacity_pointwise(temperature_kev, physical_energy_kev):
+    """Pointwise version of interpolate_planck_opacity using numpy broadcasting.
+
+    Same interpolation (bilinear in log T, log E of log opacity, clamped to the table), but each
+    (temperature, energy) pair is evaluated on its own, so every spatial cell can have its own
+    energies (needed by the moving frequency grid, where E = u * scale(x)). Returns cm^2/g at
+    rho = 1 g/cc with the broadcast shape of the two inputs.
+    """
+    temperature, energy = np.broadcast_arrays(
+        np.asarray(temperature_kev, dtype=float),
+        np.asarray(physical_energy_kev, dtype=float),
+    )
+    if (
+        np.any(~np.isfinite(temperature))
+        or np.any(temperature <= 0)
+        or np.any(~np.isfinite(energy))
+        or np.any(energy <= 0)
+    ):
+        raise ValueError("Temperature and physical energy values must be finite and positive.")
+
+    log_temperature = np.clip(
+        np.log(temperature), _LOG_TEMPERATURE_GRID[0], _LOG_TEMPERATURE_GRID[-1]
+    )
+    log_energy = np.clip(np.log(energy), _LOG_ENERGY_GRID[0], _LOG_ENERGY_GRID[-1])
+
+    ti = np.clip(
+        np.searchsorted(_LOG_TEMPERATURE_GRID, log_temperature, side="right") - 1,
+        0,
+        len(_LOG_TEMPERATURE_GRID) - 2,
+    )
+    ei = np.clip(
+        np.searchsorted(_LOG_ENERGY_GRID, log_energy, side="right") - 1,
+        0,
+        len(_LOG_ENERGY_GRID) - 2,
+    )
+    ft = (log_temperature - _LOG_TEMPERATURE_GRID[ti]) / (
+        _LOG_TEMPERATURE_GRID[ti + 1] - _LOG_TEMPERATURE_GRID[ti]
+    )
+    fe = (log_energy - _LOG_ENERGY_GRID[ei]) / (_LOG_ENERGY_GRID[ei + 1] - _LOG_ENERGY_GRID[ei])
+
+    lower_energy = _LOG_PLANCK_OPACITY[ti, ei] * (1.0 - ft) + _LOG_PLANCK_OPACITY[ti + 1, ei] * ft
+    upper_energy = (
+        _LOG_PLANCK_OPACITY[ti, ei + 1] * (1.0 - ft) + _LOG_PLANCK_OPACITY[ti + 1, ei + 1] * ft
+    )
+    return np.exp(lower_energy * (1.0 - fe) + upper_energy * fe)

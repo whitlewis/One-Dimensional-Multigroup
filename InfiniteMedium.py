@@ -2,6 +2,9 @@ import numpy as np
 import numpy.polynomial.legendre as leggauss
 import Logic as Log
 import Base as Base
+import NickelOpacity
+
+NI_DENSITY = 1.0  # g/cc; NickelOpacity loads only the rho = 1 g/cc TOPS table
 
 class Parameters:
     def __init__(self, maxIters=400, tol=1e-8, nSteps=400, Transient=True):
@@ -54,6 +57,9 @@ class Parameters:
         self.movingCoordinates = False
         self.energyCheckFreq = 200 # Check energy conservation every 200 time steps
         self.iterationCheck = False
+        self.andersonDepth = 5         # Anderson acceleration memory for the T iteration (0 = off)
+        self.opacityModel = "nickel"   # "nickel" (TOPS Planck table) or "test" (1/(2T))
+        self.useNumba = True           # numba sweeps (False = numpy/Python sweeps, identical results)
         self.extrapolateTemp = False
         self.fileFolder = "InfiniteMedium"
         self.runName = "Run"
@@ -135,8 +141,16 @@ class Material:
         # )
 
 
-        out = np.ones((self.params.freqNum, self.params.nBins)) * 1 / 2 / T  # For testing purposes, set all opacities to a constant value
-        return out
+        temperature = np.broadcast_to(np.asarray(T, dtype=float), (self.params.nBins,))
+        if getattr(self.params, "opacityModel", "nickel") == "test":
+            return np.ones((self.params.freqNum, self.params.nBins)) * 1 / 2 / temperature  # 1/(2T) test opacity
+
+        # Interpolated TOPS nickel Planck opacity at the physical group centres (keV), shape (freqNum, nBins).
+        # The table is cm^2/g at rho = 1 g/cc, so sigma_a [1/cm] = kappa * rho.
+        energy = np.asarray(freq, dtype=float)[:, None]
+        return NI_DENSITY * NickelOpacity.interpolate_planck_opacity_pointwise(
+            temperature[None, :], energy
+        )
 
     
     def C_v(self, T):  # Placeholder constant heat capacity

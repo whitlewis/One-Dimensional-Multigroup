@@ -48,6 +48,9 @@ def setRun(params, runName, config):
 
     # Debug params
     params.extrapolateTemp = config.get("extrapolateTemp", False)
+    params.andersonDepth = config.get("Anderson Depth", getattr(params, "andersonDepth", 0))
+    params.useNumba = config.get("Use Numba", getattr(params, "useNumba", True))
+    params.opacityModel = config.get("Opacity Model", getattr(params, "opacityModel", "nickel"))
     params.MMSCompare = config.get("MMSCompare", False)
     params.mmsT0 = config.get("MMS T0", params.radiationTemperature)
     params.mmsSigmaX = config.get("MMS Sigma X", 0.5)
@@ -158,10 +161,10 @@ for step in stepSet:
             "MatTemp": 0.5,
             "ColorTemp" : 0.5,
             "leftBC": "Reflective",
-            "rightBC": "Reflective",
+            "rightBC": "Planckian",
             "leftTemp": 0.8,
             "rightTemp": 0.8,
-            "timeScale": "linear",
+            "timeScale": "log",
             "TransTime": timeSplit,
             "stepSplit": stepSplit,  # tells what proportion of time steps are log vs linear
             "stepType": False, 

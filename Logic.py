@@ -3,6 +3,84 @@ np.seterr(divide='raise', invalid='raise', over='raise')
 import matplotlib.pyplot as plt
 import MMS
 
+# Optional numba kernels for the transport sweeps. Set params.useNumba = False to force the
+# pure numpy/Python sweeps (identical results, slower).
+try:
+    from numba import njit
+    NUMBA_AVAILABLE = True
+except ImportError:
+    NUMBA_AVAILABLE = False
+
+
+def useNumbaFor(params):
+    return NUMBA_AVAILABLE and bool(getattr(params, "useNumba", True))
+
+
+if NUMBA_AVAILABLE:
+    @njit
+    def sweepBlockNumba(rhs, sig_t, speed, incoming, forward):
+        """Upwind spatial sweep. rhs (G, nA, nBins), sig_t (G, nBins), speed (nA,), incoming (G, nA)."""
+        G, nAngles, nBins = rhs.shape
+        out = np.empty((G, nAngles, nBins))
+        for f in range(G):
+            for a in range(nAngles):
+                s = speed[a]
+                upstream = incoming[f, a]
+                for step in range(nBins):
+                    i = step if forward else nBins - 1 - step
+                    upstream = (rhs[f, a, i] + s * upstream) / (s + sig_t[f, i])
+                    out[f, a, i] = upstream
+        return out
+
+    @njit
+    def movingMeshSweepNumba(rhs, sigT, c, mu, dx, freqGrid, du, incoming):
+        """Moving-mesh sweep: upwind in space, and upwind in u by the sign of c within each cell.
+        rhs (G, sn, nBins), sigT (G, nBins), c (sn, nBins), incoming spatial boundary (G, sn)."""
+        G, sn, nBins = rhs.shape
+        out = np.empty((G, sn, nBins))
+        upstream = np.empty(G)
+        cur = np.empty(G)
+        for m in range(sn):
+            forward = mu[m] >= 0
+            spatial_speed = abs(mu[m]) / dx
+            for f in range(G):
+                upstream[f] = incoming[f, m]
+            for step in range(nBins):
+                i = step if forward else nBins - 1 - step
+                cc = c[m, i]
+                if cc > 0:
+                    for f in range(G - 1, -1, -1):
+                        denominator = sigT[f, i]
+                        numerator = rhs[f, m, i]
+                        numerator += spatial_speed * upstream[f]
+                        denominator += spatial_speed
+                        denominator += cc * freqGrid[f] / du[f]
+                        if f + 1 < G:
+                            numerator += cc * freqGrid[f + 1] / du[f + 1] * cur[f + 1]
+                        cur[f] = numerator / denominator
+                elif cc < 0:
+                    frequency_speed = -cc
+                    for f in range(G):
+                        denominator = sigT[f, i]
+                        numerator = rhs[f, m, i]
+                        numerator += spatial_speed * upstream[f]
+                        denominator += spatial_speed
+                        denominator += frequency_speed * freqGrid[f + 1] / du[f]
+                        if f > 0:
+                            numerator += frequency_speed * freqGrid[f] / du[f - 1] * cur[f - 1]
+                        cur[f] = numerator / denominator
+                else:
+                    for f in range(G):
+                        denominator = sigT[f, i]
+                        numerator = rhs[f, m, i]
+                        numerator += spatial_speed * upstream[f]
+                        denominator += spatial_speed
+                        cur[f] = numerator / denominator
+                for f in range(G):
+                    out[f, m, i] = cur[f]
+                    upstream[f] = cur[f]
+        return out
+
 
 def manufacturedSpatialProfile(params, x):
     sigmaX = getattr(params, "mmsSigmaX", 0.5)
@@ -335,7 +413,12 @@ class CoupledEquations:
         self.rhs = np.zeros((self.freq, self.params.nBins))
         self.T_next = np.ones(self.params.nBins)*self.params.initialTemperature
         self.manufacturedQ = np.zeros(self.params.nBins)
-    
+
+        # Caches that remove repeated work inside one iteration / time step
+        self._materialStateCache = None   # (T, bbar, sigma_a) built by the latest rhsUpdate
+        self._manufacturedCache = None    # MMS material source; depends only on the time step here
+        self._boundaryCache = None        # Non-MMS boundary Planckians; fixed for the whole run
+
     def getPhi(self):
         # Integrate over angles to get scalar flux
         fullTensorPhi = 4*np.pi*np.sum(self.grid.w[:, None] * self.grid.fullTensor, axis=1)  # shape: (freqNum, nBins)
@@ -517,7 +600,9 @@ class CoupledEquations:
                 + self.planckBar(temperatureOffset),
                 (self.params.freqNum, self.sn),
             ).copy()
-        left, right = self.boundaryPlanck()
+        if self._boundaryCache is None:
+            self._boundaryCache = self.boundaryPlanck()
+        left, right = self._boundaryCache
         if side == "left":
             return left
         elif side == "right":
@@ -529,19 +614,26 @@ class CoupledEquations:
             return 0.0
         return 1.0 / (self.const.c * self.grid.dt[self.grid.timeStep])
 
-    # Start the step
+    # Start the iteration (and the time step on its first call). Called once per iteration from rhsUpdate.
     def startTimeStep(self):
+        # Latest iterate: used for the convergence check and the right reflective boundary.
+        # Sweeps rebind grid.fullTensor to a new array, so aliasing is safe and avoids two copies.
+        self.grid.fullTensOld = self.grid.fullTensor
+        self.fullTens = self.grid.fullTensor
         if self.time_step == self.grid.timeStep:
-            # Latest iterate: used for the convergence check and the right reflective boundary
-            self.grid.fullTensOld = self.grid.fullTensor.copy()
-            self.fullTens = self.grid.fullTensor.copy()
             return
 
         self.time_step = self.grid.timeStep
         self.psi_old = self.grid.fullTensor.copy()
-        self.fullTens = self.grid.fullTensor.copy()
         self.timeTerm = self.timeAbsorption()
-        self.sigmaStarVar = self.sigmaStar(self.grid.T_next)  # Update sigma* for the time step
+        self._manufacturedCache = None
+
+    # Group Planckian and opacity at T, reused from the latest rhsUpdate when T is unchanged
+    def materialState(self, T):
+        cache = self._materialStateCache
+        if cache is not None and np.array_equal(cache[0], T):
+            return cache[1], cache[2]
+        return self.planckBar(T), self.material.sigma_a(self.grid.freqGroups, T)
 
     def sigmaBar(self, T):     # Placeholder for group-averaged opacity, currently unnecessary since we are using a constant opacity
         lo = self.grid.freqGrid[:-1, None]
@@ -563,10 +655,9 @@ class CoupledEquations:
         T = self.grid.temperatureSet[:, self.grid.timeStep]  # Current temperature in all x cells (120,1)
         T_iterative = self.grid.T_next
         phi = self.getPhi()  # Compute scalar flux by integrating over angles
-        bbar = self.planckBar(T_iterative)  # Get the group-averaged Planckian for the material 
+        bbar, sa = self.materialState(T_iterative)  # Group-averaged Planckian and opacity (cached from rhsUpdate)
         dbbar = self.planckBarDeriv(T_iterative)
-        sa = self.material.sigma_a(self.grid.freqGroups, T_iterative)
-        
+
         # Newton step on the material equation with emission linearized about T_iterative
         residual = T - T_iterative + f * np.sum(sa * phi - 4*np.pi*sa * bbar, axis=0)
         if getattr(self.params, "MMSCompare", False):
@@ -580,12 +671,20 @@ class CoupledEquations:
     def rhsUpdate(self):
         self.startTimeStep()  # psi_old and timeTerm must belong to this step before building Q*
         T = self.grid.T_next
-        bbarNext = self.planckBar(T)  # Get the group-averaged Planckian for the next temperature
-        bbarNext = np.broadcast_to(bbarNext[:, None,:], (self.params.freqNum, self.sn, self.params.nBins))  # shape: (freqNum, sn, nBins)
-        sa = np.broadcast_to(self.material.sigma_a(self.grid.freqGroups, T)[:,None,:], (self.params.freqNum, self.sn, self.params.nBins))  # shape: (freqNum, sn, nBins)
-        sourceTerms = manufacturedSourceTerms(
-            self.params, self.grid, self.material, self.mu, self.grid.w
-        )
+        bbarGroup = self.planckBar(T)  # Get the group-averaged Planckian for the next temperature
+        saGroup = self.material.sigma_a(self.grid.freqGroups, T)
+        self._materialStateCache = (T.copy(), bbarGroup, saGroup)
+        shape = (self.params.freqNum, self.sn, self.params.nBins)
+        bbarNext = np.broadcast_to(bbarGroup[:, None, :], shape)  # shape: (freqNum, sn, nBins)
+        sa = np.broadcast_to(saGroup[:, None, :], shape)  # shape: (freqNum, sn, nBins)
+        sourceTerms = None
+        if getattr(self.params, "MMSCompare", False):
+            # Without a moving frequency scale the MMS material source depends only on the time step
+            if self._manufacturedCache is None:
+                self._manufacturedCache = manufacturedSourceTerms(
+                    self.params, self.grid, self.material, self.mu, self.grid.w
+                )
+            sourceTerms = self._manufacturedCache
         if sourceTerms is None:
             rhs = sa * bbarNext + self.timeTerm * self.psi_old
             self.manufacturedQ.fill(0.0)
@@ -604,86 +703,99 @@ class CoupledEquations:
                 + self.timeTerm * self.psi_old
                 + sourceS
             )
-        self.grid.rhs = rhs.copy()
-        self.sigmaStarVar = self.sigmaStar(self.grid.T_next)
+        self.grid.rhs = rhs
+        self.sigmaStarVar = self.sigmaStar(T, saGroup)
 
 
-    # Define modified opacity
-    def sigmaStar(self, T):
-        return self.material.sigma_a(self.grid.freqGroups, T) + 1/self.const.c*1/self.grid.dt[self.grid.timeStep]  # modified opacity
+    # Define modified opacity (pass sigmaA when it has already been evaluated at T)
+    def sigmaStar(self, T, sigmaA=None):
+        if sigmaA is None:
+            sigmaA = self.material.sigma_a(self.grid.freqGroups, T)
+        return sigmaA + 1/self.const.c*1/self.grid.dt[self.grid.timeStep]  # modified opacity
+
+    # Upwind sweep over one direction for a block of angles.
+    # rhs: (G, nAngles, nBins), sig_t: (G, nBins), speed: (nAngles,), incoming: (G, nAngles)
+    def sweepBlock(self, rhs, sig_t, speed, incoming, forward):
+        if useNumbaFor(self.params):
+            return sweepBlockNumba(
+                np.ascontiguousarray(rhs, dtype=np.float64),
+                np.ascontiguousarray(sig_t, dtype=np.float64),
+                np.ascontiguousarray(speed, dtype=np.float64),
+                np.ascontiguousarray(incoming, dtype=np.float64),
+                bool(forward),
+            )
+        return self.sweepBlockNumpy(rhs, sig_t, speed, incoming, forward)
+
+    # Same sweep vectorized over groups and angles with numpy (used when numba is off)
+    @staticmethod
+    def sweepBlockNumpy(rhs, sig_t, speed, incoming, forward):
+        out = np.empty_like(rhs)
+        nBins = rhs.shape[-1]
+        cells = range(nBins) if forward else range(nBins - 1, -1, -1)
+        upstream = incoming
+        for i in cells:
+            upstream = (rhs[:, :, i] + speed * upstream) / (speed + sig_t[:, i, None])
+            out[:, :, i] = upstream
+        return out
 
     def radiationSweep(self):
-        # Initialize time set assets
-        self.startTimeStep()
+        # rhsUpdate starts the step/iteration; only start here if it was skipped
+        if self.time_step != self.grid.timeStep:
+            self.startTimeStep()
 
         # Set up Boundary conditions at the time step (allows for variable boundary conditions)
-        boundaryTimeIndex = self.grid.timeStep + int(
-            getattr(self.params, "MMSCompare", False)
-        )
+        mms = getattr(self.params, "MMSCompare", False)
+        boundaryTimeIndex = self.grid.timeStep + int(mms)
         time = self.grid.timeSet[boundaryTimeIndex]
         phibl = self.boundaryCondition("left", time)
         phibr = self.boundaryCondition("right", time)
 
-        # if self.params.mms == True:
-        #     S, Q = 
-        # Initialize the next tensor
-        newFull = np.zeros_like(self.fullTens)
+        rhs = self.grid.rhs
+        sig_t = self.sigmaStarVar
+        newFull = np.empty_like(self.fullTens)
+        reflMatrix = np.asarray(self.reflMatrix)
 
-        # Loop through frequency
-        for f in range(self.freq):
+        # Angles are swept in the original order: mu <= 0 first (backward), then mu > 0 (forward),
+        # so the left reflective boundary can use this iteration's outgoing flux.
+        forward = self.mu > 0
+        backward = ~forward
 
-            rhs = self.grid.rhs[f]
-            phi = self.fullTens[f]
-            new_phi = np.zeros_like(self.fullTens[f])
-            sig_t = self.sigmaStarVar[f]
+        # Backward sweep
+        if np.any(backward):
+            if mms:
+                bVal = phibr[:, backward]
+            elif self.params.boundaryRight == "Reflective":
+                # Reflective BC: use the reflected angle's outgoing flux (previous iterate) as the incoming flux
+                bVal = self.fullTens[:, reflMatrix[backward], -1]
+            elif self.params.boundaryRight == "Vacuum":
+                bVal = np.zeros((self.freq, np.count_nonzero(backward)))
+            else:
+                bVal = phibr[:, backward]
+            newFull[:, backward, :] = self.sweepBlock(
+                rhs[:, backward, :], sig_t, np.abs(self.mu[backward]) / self.grid.dx, bVal, forward=False
+            )
 
-            # Loop through Angles
-            for m in range(self.sn):
+        # Forward sweep
+        if np.any(forward):
+            if mms:
+                bVal = phibl[:, forward]
+            elif self.params.boundaryLeft == "Reflective":
+                # Reflective BC: use the reflected angle's outgoing flux from this iteration
+                bVal = newFull[:, reflMatrix[forward], 0]
+            elif self.params.boundaryLeft == "Vacuum":
+                bVal = np.zeros((self.freq, np.count_nonzero(forward)))
+            else:
+                bVal = phibl[:, forward]
+            newFull[:, forward, :] = self.sweepBlock(
+                rhs[:, forward, :], sig_t, self.mu[forward] / self.grid.dx, bVal, forward=True
+            )
 
-                # Upwind 
-                if self.mu[m] > 0:
-                    # Forward sweep
-                    if getattr(self.params, "MMSCompare", False):
-                        bVal = phibl[f, m]
-                    elif self.params.boundaryLeft == "Reflective":
-                        # Reflective BC: use the reflected angle's outgoing flux as the incoming flux
-                        reflected_m = self.reflMatrix[m]
-                        bVal = new_phi[reflected_m, 0]  # Use the reflected angle's flux at the boundary
-                    elif self.params.boundaryLeft == "Vacuum":
-                        bVal = 0.0  # Vacuum boundary condition: incoming flux is zero
-                    else:
-                        bVal = phibl[f, m]  # Use the specified boundary condition if not reflective
-                    
-                    new_phi[m, 0] = (rhs[m, 0] + (self.mu[m] / self.grid.dx) * bVal) / (self.mu[m] / self.grid.dx + sig_t[0])
-                    for i in range(self.params.nBins - 1):
-                        new_phi[m, i + 1] = (
-                            rhs[m, i+1] + (self.mu[m] / self.grid.dx) * new_phi[m, i]
-                        ) / (self.mu[m] / self.grid.dx + sig_t[i+1])
-
-                else:
-                    # Backward sweep
-
-                    if getattr(self.params, "MMSCompare", False):
-                        bVal = phibr[f, m]
-                    elif self.params.boundaryRight == "Reflective":
-                        # Reflective BC: use the reflected angle's outgoing flux as the incoming flux
-                        reflected_m = self.reflMatrix[m]
-                        bVal = self.fullTens[f, reflected_m, -1]  # Use the reflected angle's flux at the boundary
-                    elif self.params.boundaryRight == "Vacuum":
-                        bVal = 0.0  # Vacuum boundary condition: incoming flux is zero
-                    else:
-                        bVal = phibr[f, m]  # Use the specified boundary condition if not reflective
-
-                    new_phi[m, -1] = (rhs[m, -1] + (abs(self.mu[m]) / self.grid.dx) * bVal) / (abs(self.mu[m]) / self.grid.dx + sig_t[-1])
-                    for i in range(self.params.nBins - 1, 0, -1):
-                        new_phi[m, i-1] = (
-                            rhs[m, i-1] + (abs(self.mu[m]) / self.grid.dx) * new_phi[m, i]
-                        ) / (abs(self.mu[m]) / self.grid.dx + sig_t[i-1])
-            # for each group update the tensor
-            newFull[f] = new_phi
+        # numba does not honour np.seterr, so check the result explicitly
+        if not np.all(np.isfinite(newFull)):
+            raise FloatingPointError("Non-finite intensity produced by the radiation sweep")
 
         # Set fullTensor to the updated Tensor
-        self.grid.fullTensor = newFull.copy()
+        self.grid.fullTensor = newFull
 
 
 
@@ -712,6 +824,10 @@ class MovingMeshEquations:
         self.frequencyReferenceTemperature = np.full(
             self.params.nBins, self.params.initialTemperature
         )
+
+        # Caches that remove repeated work inside one iteration / time step
+        self._materialStateCache = None       # (T, bbar, sigma_a) built by the latest rhsUpdate
+        self._previousFrequencyScale = None   # frequency scale of T^n, fixed for the time step
 
     def frequencyScale(self, temperature):
         """Return the physical-frequency scale for this VMG coordinate grid."""
@@ -900,7 +1016,7 @@ class MovingMeshEquations:
 
 
     # Incoming Planckians expressed in the boundary cells' current coordinates u = nu/T_cell
-    def boundaryPlanck(self):
+    def boundaryPlanck(self, frequencyScale=None):
         if getattr(self.params, "MMSCompare", False):
             time = self.grid.timeSet[self.grid.timeStep + 1]
             T0 = getattr(
@@ -938,10 +1054,15 @@ class MovingMeshEquations:
                 (self.params.freqNum, self.sn),
             ).copy()
             return left, right
+        # Only Planckian sides read these values, so skip the Planck integrals otherwise
         shape = (self.params.freqNum, self.sn)
-        frequencyScale = self.frequencyScale(self.grid.T_next)
-        planckLeft = np.broadcast_to(self.planckBarInit(self.params.setLeftBoundaryTemp, frequencyScale[0]), shape)
-        planckRight = np.broadcast_to(self.planckBarInit(self.params.setRightBoundaryTemp, frequencyScale[-1]), shape)
+        if frequencyScale is None:
+            frequencyScale = self.frequencyScale(self.grid.T_next)
+        planckLeft = planckRight = None
+        if self.params.boundaryLeft == "Planckian":
+            planckLeft = np.broadcast_to(self.planckBarInit(self.params.setLeftBoundaryTemp, frequencyScale[0]), shape)
+        if self.params.boundaryRight == "Planckian":
+            planckRight = np.broadcast_to(self.planckBarInit(self.params.setRightBoundaryTemp, frequencyScale[-1]), shape)
         return planckLeft, planckRight
 
     # Possible time varying Boundary condition
@@ -957,54 +1078,61 @@ class MovingMeshEquations:
             return 0.0
         return 1.0 / (self.const.c * self.grid.dt[self.grid.timeStep])
 
-    # Start the step
-    def startTimeStep(self):
-        if self.time_step == self.grid.timeStep:
-            self.sigmaStarVar = self.sigmaStar(self.grid.T_next)  # Update sigma* for the iteration
-            self.movingMeshConst = self.movingMeshConstant()  # Update moving mesh constant for the iteration
-            self.bcLeft, self.bcRight = self.boundaryPlanck()
-            self.grid.fullTensOld = self.grid.fullTensor
-            self.fullTens = self.grid.fullTensor.copy()
-            return
+    # Start the iteration (and the time step on its first call). Called once per iteration from rhsUpdate;
+    # sigma* is built in rhsUpdate from the opacity it already evaluates.
+    def startTimeStep(self, frequencyScale=None):
+        if self.time_step != self.grid.timeStep:
+            self.time_step = self.grid.timeStep
+            self.psi_old = self.grid.fullTensor.copy()
+            self.timeTerm = self.timeAbsorption()
+            self._previousFrequencyScale = None
 
-        self.time_step = self.grid.timeStep
-        self.psi_old = self.grid.fullTensor.copy()
-        self.timeTerm = self.timeAbsorption()
-        self.sigmaStarVar = self.sigmaStar(self.grid.T_next)  # Update sigma* for the time step
-        self.movingMeshConst = self.movingMeshConstant()  # Update moving mesh constant for the time step
-        self.bcLeft, self.bcRight = self.boundaryPlanck()
+        if frequencyScale is None:
+            frequencyScale = self.frequencyScale(self.grid.T_next)
+        # Sweeps rebind grid.fullTensor to a new array, so aliasing is safe and avoids a copy
+        self.grid.fullTensOld = self.grid.fullTensor
+        self.fullTens = self.grid.fullTensor
+        self.movingMeshConst = self.movingMeshConstant(frequencyScale)  # Update moving mesh constant for the iteration
+        self.bcLeft, self.bcRight = self.boundaryPlanck(frequencyScale)
 
 
     def polyPredict(self):
-        t2 = self.grid.temperatureSet[:, self.grid.timeStep - 2]
-        t1 = self.grid.temperatureSet[:, self.grid.timeStep - 1]
-        t = self.grid.temperatureSet[:, self.grid.timeStep]
-        T_guess = 3*t - 3*t1 + t2
+        # Quadratic (Lagrange) extrapolation of T to t^{n+1} from the last three stored levels.
+        # Valid for non-uniform steps; reduces to 3T^n - 3T^{n-1} + T^{n-2} for uniform dt.
+        k = self.grid.timeStep
+        times = self.grid.timeSet[k - 2:k + 1]
+        target = self.grid.timeSet[k + 1]
+        T_guess = np.zeros(self.params.nBins)
+        for j in range(3):
+            weight = 1.0
+            for m in range(3):
+                if m != j:
+                    weight *= (target - times[m]) / (times[j] - times[m])
+            T_guess += weight * self.grid.temperatureSet[:, k - 2 + j]
         return T_guess
+
+    # Initial iterate for a new time step: the extrapolated temperature (only a starting guess;
+    # the iteration then converges to the backward-Euler solution regardless of it)
+    def predictTemperature(self):
+        if not getattr(self.params, "extrapolateTemp", False) or self.grid.timeStep < 2:
+            return
+        predicted = self.polyPredict()
+        if np.all(np.isfinite(predicted)) and np.all(predicted > 0):
+            self.grid.T_next = predicted
+            self.T_next = predicted.copy()
 
     def materialEquation(self):
             # Outer constant calc
             dt = self.grid.dt[self.grid.timeStep]
             f = dt / self.material.C_v(self.grid.temperatureSet[:, self.grid.timeStep]) 
             
-            # Lagged temperature and phi
-            if self.grid.timeStep < 3:      
-                T_iterative = self.grid.T_next
-            elif self.params.extrapolateTemp == True: 
-                T_iterative = self.polyPredict()
-            else:
-                T_iterative = self.grid.T_next
+            # Newton step about the current iterate (the extrapolated predictor is only the step's first iterate)
+            T_iterative = self.grid.T_next
             T = self.grid.temperatureSet[:, self.grid.timeStep]
             phi = self.getPhi()  # Compute scalar flux by integrating over angles
-            frequencyScale = self.frequencyScale(T_iterative)
-            bbar = self.planckBar(T_iterative, frequencyScale)  # Get the group-averaged Planckian for the material
+            bbar, sa = self.materialState(T_iterative)  # Group-averaged Planckian and opacity (cached from rhsUpdate)
             dbbar = 4.0 * bbar / T_iterative  # B-hat_g scales as T^4 at fixed u
-            sa = self.material.sigma_a(
-                self.grid.freqGroups,
-                T_iterative,
-                frequencyScale=frequencyScale,
-            )
-            
+
             # Newton step on the material equation with emission linearized about T_iterative
             residual = T - T_iterative + f * np.sum(sa * phi - 4*np.pi*sa * bbar, axis=0)
             if getattr(self.params, "MMSCompare", False):
@@ -1015,18 +1143,37 @@ class MovingMeshEquations:
             self.T_next = T_next.copy()
             self.grid.T_next = T_next.copy()
 
-    # This function updates Q*
-    def rhsUpdate(self):
-        self.startTimeStep()  # psi_old and timeTerm must belong to this step before building Q*
-        T = self.grid.T_next
+    # Group Planckian and opacity at T, reused from the latest rhsUpdate when T is unchanged
+    def materialState(self, T):
+        cache = self._materialStateCache
+        if cache is not None and np.array_equal(cache[0], T):
+            return cache[1], cache[2]
         frequencyScale = self.frequencyScale(T)
-        bbarNext = self.planckBar(T, frequencyScale)  # Get the group-averaged Planckian for the next temperature
-        bbarNext = np.broadcast_to(bbarNext[:, None,:], (self.params.freqNum, self.sn, self.params.nBins))  # shape: (freqNum, sn, nBins)
-        sa = np.broadcast_to(self.material.sigma_a(
+        bbar = self.planckBar(T, frequencyScale)
+        sa = self.material.sigma_a(
             self.grid.freqGroups,
             T,
             frequencyScale=frequencyScale,
-        )[:,None,:], (self.params.freqNum, self.sn, self.params.nBins))  # shape: (freqNum, sn, nBins)
+        )
+        return bbar, sa
+
+    # This function updates Q*
+    def rhsUpdate(self):
+        if self.time_step != self.grid.timeStep:
+            self.predictTemperature()  # first iterate of a new step
+        T = self.grid.T_next
+        frequencyScale = self.frequencyScale(T)
+        self.startTimeStep(frequencyScale)  # psi_old and timeTerm must belong to this step before building Q*
+        bbarGroup = self.planckBar(T, frequencyScale)  # Get the group-averaged Planckian for the next temperature
+        saGroup = self.material.sigma_a(
+            self.grid.freqGroups,
+            T,
+            frequencyScale=frequencyScale,
+        )
+        self._materialStateCache = (T.copy(), bbarGroup, saGroup)
+        shape = (self.params.freqNum, self.sn, self.params.nBins)
+        bbarNext = np.broadcast_to(bbarGroup[:, None, :], shape)  # shape: (freqNum, sn, nBins)
+        sa = np.broadcast_to(saGroup[:, None, :], shape)  # shape: (freqNum, sn, nBins)
         sourceTerms = manufacturedSourceTerms(
             self.params,
             self.grid,
@@ -1055,190 +1202,171 @@ class MovingMeshEquations:
                 + self.timeTerm * self.psi_old
                 + sourceS
             )
-        self.sigmaStarVar = self.sigmaStar(T)
-        self.grid.rhs = rhs.copy()
+        self.sigmaStarVar = self.sigmaStar(T, saGroup)
+        self.grid.rhs = rhs
 
-    def movingMeshConstant(self):   # This function calculates the C hat constant for the moving mesh equations
+    def movingMeshConstant(self, frequencyScale=None):   # This function calculates the C hat constant for the moving mesh equations
         T = self.grid.T_next
-        Tminus = self.grid.temperatureSet[:, self.grid.timeStep] if self.grid.timeStep > 0 else T
+        if frequencyScale is None:
+            frequencyScale = self.frequencyScale(T)
         dt = self.grid.dt[self.grid.timeStep]
-        frequencyScale = self.frequencyScale(T)
-        previousFrequencyScale = self.frequencyScale(Tminus)
+        if self.grid.timeStep > 0:
+            # T^n is fixed for the whole step, so its scale is computed once per step
+            if self._previousFrequencyScale is None:
+                self._previousFrequencyScale = self.frequencyScale(
+                    self.grid.temperatureSet[:, self.grid.timeStep]
+                )
+            previousFrequencyScale = self._previousFrequencyScale
+        else:
+            previousFrequencyScale = frequencyScale
         dScaleDt = (frequencyScale - previousFrequencyScale) / dt
         dScaleDx = np.gradient(frequencyScale, self.grid.dx)
-        constSet = np.zeros((self.sn, self.params.nBins))
-        for m in range(self.sn):
-            constOut = 1/frequencyScale * (
-                1 / self.const.c * dScaleDt + self.mu[m] * dScaleDx
+        # shape: (sn, nBins)
+        return 1/frequencyScale[None, :] * (
+            (1 / self.const.c * dScaleDt)[None, :] + self.mu[:, None] * dScaleDx[None, :]
+        )
+
+
+    # Define modified opacity (pass sigmaA when it has already been evaluated at T)
+    def sigmaStar(self, T, sigmaA=None):
+        if sigmaA is None:
+            sigmaA = self.material.sigma_a(
+                self.grid.freqGroups,
+                T,
+                frequencyScale=self.frequencyScale(T),
             )
-            constSet[m] = constOut
-        return constSet
-
-
-    # Define modified opacity
-    def sigmaStar(self, T):
-        return self.material.sigma_a(
-            self.grid.freqGroups,
-            T,
-            frequencyScale=self.frequencyScale(T),
-        ) + 1/self.const.c*1/self.grid.dt[self.grid.timeStep]  # modified opacity
+        return sigmaA + 1/self.const.c*1/self.grid.dt[self.grid.timeStep]  # modified opacity
     
     # Here begins helper functions for the moving mesh radiation sweep
 
-
-    # Helper function to set boundary values based on the side and boundary condition type
-    def setBoundaryValues(self, f, m, c, newFull, time, side):
-        reflected_m = self.reflMatrix[m]
-        
-        # 1. Dynamically set spatial side configurations to eliminate copy-paste bugs
+    # Incoming spatial boundary intensity for every group of angle m on one side, shape (freqNum,)
+    def spatialBoundary(self, m, side):
         if side == "left":
             bc_type = self.params.boundaryLeft
-            # if bc_type != "Reflective" or "Vacuum":
-            #     phi_source = self.boundaryCondition("left", time)
             spatial_idx = 0
+            planck = self.bcLeft
         elif side == "right":
             bc_type = self.params.boundaryRight
-            # if bc_type != "Reflective" or "Vacuum":
-            #     phi_source = self.boundaryCondition("right", time)
             spatial_idx = -1
+            planck = self.bcRight
         else:
             raise ValueError("Side must be 'left' or 'right'")
 
         if getattr(self.params, "MMSCompare", False):
-            return self.boundaryCondition(side, time)[f, m]
+            return planck[:, m]
 
         # A missing boundary condition means no incoming flux.
         if bc_type == "Reflective":
-            bVal = self.fullTens[f, reflected_m, spatial_idx]
-        elif bc_type in ("Vacuum", "None", None):
-            bVal = 0.0
-        elif bc_type == "Planckian":
-            bVal = self.boundaryCondition(side, time)[f, m]
-        elif bc_type == "Delta":
-            if side == "left":
-                T0 = self.params.setLeftBoundaryTemp
-            else:
-                T0 = self.params.setRightBoundaryTemp
+            return self.fullTens[:, self.reflMatrix[m], spatial_idx]
+        if bc_type in ("Vacuum", "None", None):
+            return np.zeros(self.freq)
+        if bc_type == "Planckian":
+            return planck[:, m]
+        if bc_type == "Delta":
+            T0 = self.params.setLeftBoundaryTemp if side == "left" else self.params.setRightBoundaryTemp
             frequencyScale = self.frequencyScale(self.grid.T_next)
-            planckSpectrum = self.planckBarInit(
-                T0, frequencyScale[spatial_idx]
-            )[:, 0]
-            deltaSet = np.zeros((self.params.freqNum, self.sn))
-            totalFlux = np.sum(planckSpectrum)
+            planckSpectrum = self.planckBarInit(T0, frequencyScale[spatial_idx])[:, 0]
+            delta = np.zeros(self.freq)
             # PlanckBarInit is group-integrated; preserve its total without a width conversion.
-            deltaSet[self.params.freqNum//4, :] = totalFlux
-            bVal = deltaSet[f, m]
-        else:
-            raise ValueError(
-                f"Unsupported {side} boundary condition: {bc_type!r}"
-            )
-                
-        return bVal
-    
-    def setGroupBoundaryValues(self, f, m, c, newFull, time):
-        bValGroup = 0.0
-        return bValGroup
-    
-    def pickSweep(self, m, newWorkingSet, newFull):
-        c = self.movingMeshConst[m, :]  # shape: (nBins,)
+            delta[self.params.freqNum//4] = np.sum(planckSpectrum)
+            return delta
+        raise ValueError(f"Unsupported {side} boundary condition: {bc_type!r}")
 
-        if self.mu[m] >= 0:
-            for i in range(self.params.nBins):
-                spaceIndex = i - 1
-                newWorkingSet = self.radiationBase(c, m, i, newWorkingSet, spaceIndex, newFull)
-        elif self.mu[m] < 0:
-            for i in range(self.params.nBins-1, -1, -1):
-                spaceIndex = i + 1
-                newWorkingSet = self.radiationBase(c, m, i, newWorkingSet, spaceIndex, newFull)
+    # Sweep one angle through space; within each cell, sweep groups in the upwind direction of c.
+    # Pure-Python floats are used for the scalar recurrence (much faster than indexing numpy scalars).
+    # The arithmetic is in the same order as before, so results are unchanged.
+    # No flux enters through the top/bottom u faces (the old setGroupBoundaryValues always returned 0).
+    def sweepAngle(self, m, freqGrid, du, sigT):
+        G = self.freq
+        nBins = self.params.nBins
+        mu = self.mu[m]
+        forward = mu >= 0
+        spatial_speed = abs(mu) / self.grid.dx
+        upstream = self.spatialBoundary(m, "left" if forward else "right").tolist()
+        rhsM = self.grid.rhs[:, m, :].T.tolist()      # nBins x G
+        cM = self.movingMeshConst[m].tolist()         # nBins
+        descending = range(G - 1, -1, -1)
+        ascending = range(G)
+        out = [None] * nBins
+        cells = range(nBins) if forward else range(nBins - 1, -1, -1)
 
-        return newWorkingSet
-    
-    def radiationBase(self, c, m, i, newWorkingSet, spaceIndex, newFull):
-        rhs = self.grid.rhs[:, m, i]
-        sig_t = self.sigmaStarVar[:, i]
-        positive_c = c[i] > 0
-        frequency_order = range(self.freq - 1, -1, -1) if positive_c else range(self.freq)
-        spatial_speed = abs(self.mu[m]) / self.grid.dx
-        is_spatial_boundary = (
-            (self.mu[m] >= 0 and i == 0)
-            or (self.mu[m] < 0 and i == self.params.nBins - 1)
-        )
-        if is_spatial_boundary:
-            spatial_side = "left" if self.mu[m] >= 0 else "right"
-
-        for f in frequency_order:
-            denominator = sig_t[f]
-            numerator = rhs[f]
-
-            if is_spatial_boundary:
-                spatial_boundary = self.setBoundaryValues(
-                    f, m, c[i], newFull, self.grid.timeSet[self.grid.timeStep], spatial_side
-                )
-                numerator += spatial_speed * spatial_boundary
+        for i in cells:
+            rhs = rhsM[i]
+            sig_t = sigT[i]
+            c = cM[i]
+            cur = [0.0] * G
+            if c > 0:
+                for f in descending:
+                    denominator = sig_t[f]
+                    numerator = rhs[f]
+                    numerator += spatial_speed * upstream[f]
+                    denominator += spatial_speed
+                    # The tensor stores group-integrated intensity; divide by the donor width
+                    # to form the spectral density used in the frequency-face flux.
+                    denominator += c * freqGrid[f] / du[f]
+                    if f + 1 < G:
+                        numerator += c * freqGrid[f + 1] / du[f + 1] * cur[f + 1]
+                    cur[f] = numerator / denominator
+            elif c < 0:
+                frequency_speed = -c
+                for f in ascending:
+                    denominator = sig_t[f]
+                    numerator = rhs[f]
+                    numerator += spatial_speed * upstream[f]
+                    denominator += spatial_speed
+                    denominator += frequency_speed * freqGrid[f + 1] / du[f]
+                    if f > 0:
+                        numerator += frequency_speed * freqGrid[f] / du[f - 1] * cur[f - 1]
+                    cur[f] = numerator / denominator
             else:
-                numerator += spatial_speed * newWorkingSet[f, spaceIndex]
-            denominator += spatial_speed
-
-            # The tensor stores group-integrated intensity; divide by the donor width
-            # to form the spectral density used in the frequency-face flux.
-            if positive_c:
-                denominator += c[i] * self.grid.freqGrid[f] / self.grid.du[f]
-                if f + 1 < self.freq:
-                    donor_group = f + 1
-                    numerator += (
-                        c[i] * self.grid.freqGrid[f + 1]
-                        / self.grid.du[donor_group]
-                        * newWorkingSet[donor_group, i]
-                    )
-                else:
-                    boundary_value = self.setGroupBoundaryValues(
-                        f + 1, m, c[i], newFull, self.grid.timeSet[self.grid.timeStep]
-                    )
-                    numerator += c[i] * self.grid.freqGrid[f + 1] * boundary_value
-            elif c[i] < 0:
-                frequency_speed = -c[i]
-                denominator += (
-                    frequency_speed * self.grid.freqGrid[f + 1] / self.grid.du[f]
-                )
-                if f > 0:
-                    donor_group = f - 1
-                    numerator += (
-                        frequency_speed * self.grid.freqGrid[f]
-                        / self.grid.du[donor_group]
-                        * newWorkingSet[donor_group, i]
-                    )
-                else:
-                    boundary_value = self.setGroupBoundaryValues(
-                        f - 1, m, c[i], newFull, self.grid.timeSet[self.grid.timeStep]
-                    )
-                    numerator += frequency_speed * self.grid.freqGrid[f] * boundary_value
-
-            newWorkingSet[f, i] = numerator / denominator
-        return newWorkingSet
-    
+                for f in ascending:
+                    denominator = sig_t[f]
+                    numerator = rhs[f]
+                    numerator += spatial_speed * upstream[f]
+                    denominator += spatial_speed
+                    cur[f] = numerator / denominator
+            out[i] = cur
+            upstream = cur
+        return np.array(out).T   # (G, nBins)
 
     def radiationSweep(self):
-            # Initialize time set assets
-            self.startTimeStep()
+            # rhsUpdate starts the step/iteration; only start here if it was skipped
+            if self.time_step != self.grid.timeStep:
+                self.startTimeStep()
 
-            # Set up Boundary conditions at the time step (allows for variable boundary conditions)
-            boundaryTimeIndex = self.grid.timeStep + int(
-                getattr(self.params, "MMSCompare", False)
-            )
-            time = self.grid.timeSet[boundaryTimeIndex]
+            if useNumbaFor(self.params):
+                # Incoming spatial boundary for every angle on its upwind side, shape (freqNum, sn)
+                incoming = np.empty((self.freq, self.sn))
+                for m in range(self.sn):
+                    incoming[:, m] = self.spatialBoundary(m, "left" if self.mu[m] >= 0 else "right")
+                newFull = movingMeshSweepNumba(
+                    np.ascontiguousarray(self.grid.rhs, dtype=np.float64),
+                    np.ascontiguousarray(self.sigmaStarVar, dtype=np.float64),
+                    np.ascontiguousarray(self.movingMeshConst, dtype=np.float64),
+                    np.ascontiguousarray(self.mu, dtype=np.float64),
+                    float(self.grid.dx),
+                    np.ascontiguousarray(self.grid.freqGrid, dtype=np.float64),
+                    np.ascontiguousarray(self.grid.du, dtype=np.float64),
+                    incoming,
+                )
+            else:
+                freqGrid = self.grid.freqGrid.tolist()
+                du = self.grid.du.tolist()
+                sigT = self.sigmaStarVar.T.tolist()   # nBins x G
 
-            # Initialize the next tensor
-            newFull = np.zeros_like(self.fullTens)
+                # Initialize the next tensor
+                newFull = np.empty_like(self.fullTens)
 
-            # Loop through Angles
-            for m in range(self.sn):
-                newWorkingSet = newFull[:, m, :].copy()  # shape: (freqNum, nBins)
-                newWorkingSet = self.pickSweep(m, newWorkingSet, newFull)
-                newFull[:, m, :] = newWorkingSet
+                # Loop through Angles
+                for m in range(self.sn):
+                    newFull[:, m, :] = self.sweepAngle(m, freqGrid, du, sigT)
+
+            # Python floats and numba do not honour np.seterr, so check the result explicitly
+            if not np.all(np.isfinite(newFull)):
+                raise FloatingPointError("Non-finite intensity produced by the moving-mesh sweep")
 
             # Set fullTensor to the updated Tensor
-            self.grid.fullTensor = newFull.copy()
-
+            self.grid.fullTensor = newFull
 
 
 class Logic:

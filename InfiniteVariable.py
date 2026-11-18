@@ -2,6 +2,9 @@ import numpy as np
 import numpy.polynomial.legendre as leggauss
 import Logic as Log
 import Base as Base
+import NickelOpacity
+
+NI_DENSITY = 1.0  # g/cc; NickelOpacity loads only the rho = 1 g/cc TOPS table
 
 class Parameters:
     def __init__(self, tol=1e-8, maxIters=400, nSteps=400, Transient=True):
@@ -60,6 +63,9 @@ class Parameters:
         self.extrapolateTemp = False  # provides a better guess for the temperature by using a 2nd order polynomial fit before iteration
         self.energyCheckFreq = 200 # Check energy conservation every 200 time steps
         self.iterationCheck = False
+        self.andersonDepth = 5         # Anderson acceleration memory for the T iteration (0 = off)
+        self.opacityModel = "nickel"   # "nickel" (TOPS Planck table) or "test" (1/(2T))
+        self.useNumba = True           # numba sweeps (False = numpy/Python sweeps, identical results)
         self.runName = "Run"
         self.runLabel = "Run"
         self.fileFolder = "InfiniteVariable"
@@ -149,8 +155,22 @@ class Material:
         #     opacity, a_min=1.0e-4, a_max=1.0e8
         # )  # Avoid division by zero and ensure non-negative opacities
         # print(f"Calculated opacities with shape: {out.shape}, min: {np.min(out):3e}, max: {np.max(out):3e}")  # Debugging statement
-        out = np.ones((self.params.freqNum, self.params.nBins)) * 1 / 2 / T  # For testing purposes, set all opacities to a constant value
-        return out
+        temperature = np.broadcast_to(np.asarray(T, dtype=float), (self.params.nBins,))
+        if getattr(self.params, "opacityModel", "nickel") == "test":
+            return np.ones((self.params.freqNum, self.params.nBins)) * 1 / 2 / temperature  # 1/(2T) test opacity
+
+        # freq holds the VMG group-centre coordinates u; the opacity is evaluated at the group's physical
+        # centre nu = u * scale, using the same u -> nu map as the solver (Logic.frequencyScale).
+        # scale = T unless the grid is matched (matchNu), where scale = T0 * T / T_ref so that the VMG
+        # group edges coincide with the MG edges at the reference state.
+        if frequencyScale is None:
+            frequencyScale = temperature
+        scale = np.broadcast_to(np.asarray(frequencyScale, dtype=float), (self.params.nBins,))
+        energy = np.asarray(freq, dtype=float)[:, None] * scale[None, :]
+        # Interpolated TOPS nickel Planck opacity, cm^2/g at rho = 1 g/cc -> sigma_a [1/cm] = kappa * rho
+        return NI_DENSITY * NickelOpacity.interpolate_planck_opacity_pointwise(
+            temperature[None, :], energy
+        )
 
     def C_v(self, T):  # Placeholder constant heat capacity
         return .01

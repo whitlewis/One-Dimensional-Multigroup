@@ -209,6 +209,7 @@ def main():
 def mainMovingMesh():
     constants = Base.Constants()
     params = InfiniteVariable.Parameters()
+    params.storeAngular = True  # analyze_rank_psi needs the full angular history
     nSteps = params.nSteps
     plotSet = [0, nSteps//4, nSteps//2, nSteps-1]
     grid = Base.Grid(params, constants)
