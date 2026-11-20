@@ -49,7 +49,13 @@ def setRun(params, runName, config):
     # Debug params
     params.extrapolateTemp = config.get("extrapolateTemp", False)
     params.andersonDepth = config.get("Anderson Depth", getattr(params, "andersonDepth", 0))
+    if not config.get("Use Anderson", True):  # "Use Anderson": False turns acceleration off (plain iteration)
+        params.andersonDepth = 0
     params.useNumba = config.get("Use Numba", getattr(params, "useNumba", True))
+    # Bimodal boundary: fraction of the boundary Planckian's energy put in the delta spike, and the
+    # spike's physical photon energy (None = centre of MG group freqNum//4)
+    params.deltaFraction = config.get("Delta Fraction", getattr(params, "deltaFraction", 0.5))
+    params.deltaFrequency = config.get("Delta Frequency", getattr(params, "deltaFrequency", None))
     params.opacityModel = config.get("Opacity Model", getattr(params, "opacityModel", "nickel"))
     params.MMSCompare = config.get("MMSCompare", False)
     params.mmsT0 = config.get("MMS T0", params.radiationTemperature)
@@ -130,7 +136,8 @@ timeSplit = 0.15
 # groupSet = [10, 50, 100, 150]
 # stepSet = [2500, 5000]
 groupSet = [100]
-stepSet = [4000]
+stepSet = [500, 1000, 1500, 2000, 3000, 4000, 8000]
+tolSet = [1e-14]
 
 RunSet = {}
 s = 0
@@ -141,40 +148,44 @@ for step in stepSet:
     s += 1
     for group in groupSet:
         g += 1
-        runName = f"MMSLinear{s}_{g}"
-        RunSet[runName] = {
-            "runLabel": "MMSLinear",
-            "Steps": step,
-            "Iteration Tolerance": 1e-16,
-            "Maximum Time": 0.5,
-            "Max Frequency": 45,
-            "Min Frequency": 1e-4,
-            "Infinite Frequency": 125,
-            "Group Spacing": 'log',
-            "Match Grid" : True,
-            "Number of frequencies": group,
-            "Sn": 8,
-            "Number of Bins": 50,
-            "xMin": -1,
-            "xMax": 1,
-            "RadTemp": 0.5,
-            "MatTemp": 0.5,
-            "ColorTemp" : 0.5,
-            "leftBC": "Reflective",
-            "rightBC": "Planckian",
-            "leftTemp": 0.8,
-            "rightTemp": 0.8,
-            "timeScale": "log",
-            "TransTime": timeSplit,
-            "stepSplit": stepSplit,  # tells what proportion of time steps are log vs linear
-            "stepType": False, 
-            "extrapolateTemp": True,
-            "MMSCompare": True,  # Set True to add MMS S and Q in both methods.
-            "MMS T0": 1.0,
-            "MMS Sigma X": 1.0,
-            "MMS Tau": 2.0,
-            "MMS Temperature Offset": MMS.DEFAULT_TEMPERATURE_OFFSET,
-        }
+        for tol in tolSet:
+            runName = f"BimodalBC_{s}_{g}_{tol}"
+            RunSet[runName] = {
+                "runLabel": "Planck",
+                "Steps": step,
+                "Iteration Tolerance": tol,
+                "Maximum Time": 0.5,
+                "Max Frequency": 45,
+                "Min Frequency": 1e-4,
+                "Infinite Frequency": 125,
+                "Group Spacing": 'log',
+                "Match Grid" : True,
+                "Number of frequencies": group,
+                "Sn": 8,
+                "Number of Bins": 50,
+                "xMin": -1,
+                "xMax": 1,
+                "RadTemp": 0.1,
+                "MatTemp": 0.1,
+                "ColorTemp" : 0.1,
+                "leftBC": "Reflective",
+                "rightBC": "Bimodal",
+                "leftTemp": 0.8,
+                "rightTemp": 0.8,
+                "timeScale": "log",
+                "TransTime": timeSplit,
+                "stepSplit": stepSplit,  # tells what proportion of time steps are log vs linear
+                "stepType": False, 
+                "extrapolateTemp": True,
+                "Use Anderson": True,  # False = plain fixed-point iteration
+                "Anderson Depth": 5,   # history length when Anderson is on
+                "Use Numba": True,     # False = numpy/Python sweeps (identical results, slower)
+                "MMSCompare": False,  # Set True to add MMS S and Q in both methods.
+                "MMS T0": 1.0,
+                "MMS Sigma X": 1.0,
+                "MMS Tau": 2.0,
+                "MMS Temperature Offset": MMS.DEFAULT_TEMPERATURE_OFFSET,
+            }
         # runName = f"PlanckLinear{s}_{g}"
         # RunSet[runName] = {
         #     "runLabel": "MMSLinear",

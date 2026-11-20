@@ -16,6 +16,35 @@ def useNumbaFor(params):
     return NUMBA_AVAILABLE and bool(getattr(params, "useNumba", True))
 
 
+BOUNDARY_TYPES = ["Infinite", "Reflective", "Vacuum", "None", "Delta", "Planckian", "Bimodal"]
+
+
+def deltaPhysicalFrequency(params, grid):
+    """Physical photon energy of the bimodal delta spike (same units as the MG frequency grid).
+
+    params.deltaFrequency sets it; the default is the centre of group freqNum//4 of the MG grid
+    (the group the "Delta" boundary uses). VMG grids divided by T0 (matchNu) are mapped back.
+    """
+    value = getattr(params, "deltaFrequency", None)
+    if value is not None:
+        return float(value)
+    centre = grid.freqGroups[params.freqNum // 4]
+    if getattr(params, "movingCoordinates", False) and getattr(params, "matchNu", False):
+        centre = centre * params.initialTemperature
+    params.deltaFrequency = float(centre)   # record the value used (saved to the .h5)
+    return params.deltaFrequency
+
+
+def bimodalSpectrum(planckSpectrum, freqGrid, deltaCoordinate, fraction):
+    """(1 - fraction) of the energy as the given group-integrated Planckian, plus `fraction` of it
+    in the single group whose edges contain deltaCoordinate (clamped to the grid ends)."""
+    planckSpectrum = np.asarray(planckSpectrum, dtype=float)
+    out = (1.0 - fraction) * planckSpectrum
+    group = int(np.clip(np.searchsorted(freqGrid, deltaCoordinate, side="right") - 1, 0, planckSpectrum.shape[0] - 1))
+    out[group] += fraction * np.sum(planckSpectrum)
+    return out
+
+
 if NUMBA_AVAILABLE:
     @njit
     def sweepBlockNumba(rhs, sig_t, speed, incoming, forward):
@@ -566,19 +595,24 @@ class CoupledEquations:
         T1 = self.params.setRightBoundaryTemp if self.params.boundaryRight in ["Infinite", "Reflective", "Vacuum"] else self.params.setRightBoundaryTemp
         planckLeft = np.broadcast_to(self.planckBar(T0), (self.params.freqNum, self.sn)).copy()  # shape: (freqNum, sn)
         planckRight = np.broadcast_to(self.planckBar(T1), (self.params.freqNum, self.sn)).copy()  # shape: (freqNum, sn)
+        # Delta: all of the Planckian's energy in the group containing nu_delta (a Bimodal with fraction 1)
         if self.params.boundaryLeft == "Delta":
-            totalFlux = np.sum(self.planckBar(T0))
-            # PlanckBar is group-integrated; preserve its total without a width conversion.
-            planckLeft.fill(0.0)
-            planckLeft[self.params.freqNum//4, :] = totalFlux
+            spectrum = bimodalSpectrum(self.planckBar(T0)[:, 0], self.grid.freqGrid, deltaPhysicalFrequency(self.params, self.grid), 1.0)
+            planckLeft = np.broadcast_to(spectrum[:, None], (self.params.freqNum, self.sn)).copy()
         if self.params.boundaryRight == "Delta":
-            totalFlux = np.sum(self.planckBar(T1))
-            planckRight.fill(0.0)
-            planckRight[self.params.freqNum//4, :] = totalFlux
-        if self.params.boundaryLeft not in ["Infinite", "Reflective", "Vacuum", "Delta", "Planckian"]:
-            raise ValueError("Boundary must be one of: [Infinite, Reflective, Vacuum, Delta, Planckian]")
-        if self.params.boundaryRight not in ["Infinite", "Reflective", "Vacuum", "Delta", "Planckian"]:
-            raise ValueError("Boundary must be one of: [Infinite, Reflective, Vacuum, Delta, Planckian]")
+            spectrum = bimodalSpectrum(self.planckBar(T1)[:, 0], self.grid.freqGrid, deltaPhysicalFrequency(self.params, self.grid), 1.0)
+            planckRight = np.broadcast_to(spectrum[:, None], (self.params.freqNum, self.sn)).copy()
+        # Bimodal: half (params.deltaFraction) of the Planckian's energy moved into a delta spike
+        fraction = getattr(self.params, "deltaFraction", 0.5)
+        if self.params.boundaryLeft == "Bimodal":
+            spectrum = bimodalSpectrum(self.planckBar(T0)[:, 0], self.grid.freqGrid, deltaPhysicalFrequency(self.params, self.grid), fraction)
+            planckLeft = np.broadcast_to(spectrum[:, None], (self.params.freqNum, self.sn)).copy()
+        if self.params.boundaryRight == "Bimodal":
+            spectrum = bimodalSpectrum(self.planckBar(T1)[:, 0], self.grid.freqGrid, deltaPhysicalFrequency(self.params, self.grid), fraction)
+            planckRight = np.broadcast_to(spectrum[:, None], (self.params.freqNum, self.sn)).copy()
+        for side in (self.params.boundaryLeft, self.params.boundaryRight):
+            if side not in BOUNDARY_TYPES:
+                raise ValueError(f"Boundary must be one of: {BOUNDARY_TYPES}")
         return planckLeft, planckRight
 
     # Possible time varying Boundary condition
@@ -1063,7 +1097,21 @@ class MovingMeshEquations:
             planckLeft = np.broadcast_to(self.planckBarInit(self.params.setLeftBoundaryTemp, frequencyScale[0]), shape)
         if self.params.boundaryRight == "Planckian":
             planckRight = np.broadcast_to(self.planckBarInit(self.params.setRightBoundaryTemp, frequencyScale[-1]), shape)
+        if self.params.boundaryLeft in ("Bimodal", "Delta"):
+            planckLeft = np.broadcast_to(self.bimodalBoundary(self.params.setLeftBoundaryTemp, frequencyScale[0], self.params.boundaryLeft)[:, None], shape)
+        if self.params.boundaryRight in ("Bimodal", "Delta"):
+            planckRight = np.broadcast_to(self.bimodalBoundary(self.params.setRightBoundaryTemp, frequencyScale[-1], self.params.boundaryRight)[:, None], shape)
         return planckLeft, planckRight
+
+    # Bimodal incoming spectrum in the boundary cell's coordinates: the spike sits at a fixed physical
+    # energy nu_delta, i.e. in the group containing u = nu_delta / scale, so it moves through the
+    # VMG groups as the boundary cell's scale changes (MG keeps it in a fixed group).
+    # "Delta" is the same with all of the energy in the spike.
+    def bimodalBoundary(self, boundaryTemperature, cellScale, kind="Bimodal"):
+        planckSpectrum = self.planckBarInit(boundaryTemperature, cellScale)[:, 0]
+        deltaCoordinate = deltaPhysicalFrequency(self.params, self.grid) / cellScale
+        fraction = 1.0 if kind == "Delta" else getattr(self.params, "deltaFraction", 0.5)
+        return bimodalSpectrum(planckSpectrum, self.grid.freqGrid, deltaCoordinate, fraction)
 
     # Possible time varying Boundary condition
     def boundaryCondition(self, side, time):
@@ -1260,16 +1308,8 @@ class MovingMeshEquations:
             return self.fullTens[:, self.reflMatrix[m], spatial_idx]
         if bc_type in ("Vacuum", "None", None):
             return np.zeros(self.freq)
-        if bc_type == "Planckian":
+        if bc_type in ("Planckian", "Bimodal", "Delta"):
             return planck[:, m]
-        if bc_type == "Delta":
-            T0 = self.params.setLeftBoundaryTemp if side == "left" else self.params.setRightBoundaryTemp
-            frequencyScale = self.frequencyScale(self.grid.T_next)
-            planckSpectrum = self.planckBarInit(T0, frequencyScale[spatial_idx])[:, 0]
-            delta = np.zeros(self.freq)
-            # PlanckBarInit is group-integrated; preserve its total without a width conversion.
-            delta[self.params.freqNum//4] = np.sum(planckSpectrum)
-            return delta
         raise ValueError(f"Unsupported {side} boundary condition: {bc_type!r}")
 
     # Sweep one angle through space; within each cell, sweep groups in the upwind direction of c.

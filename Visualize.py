@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 from matplotlib.ticker import ScalarFormatter
 from datetime import datetime
 from matplotlib.animation import FuncAnimation
@@ -194,7 +195,7 @@ def plotTemperatureLoaded(dataSet, paramsSet, fileSet, folderSet, const):
         plt.plot(t, T, label="0-D Solve (reflective boundaries)", linestyle="--")
         plt.plot(t, Tr, label="0-D Rad Temperature (reflective boundaries)")
 
-    plt.ylim(0.25, 0.85)
+    plt.ylim(0, 0.8)
     plt.xlabel("t (ns)")
     plt.ylabel("Temperature (keV)")
     plt.minorticks_on()
@@ -430,93 +431,80 @@ def plotMaterialTemperatureMMSErrorLoaded(results, binIndex=20):
     return fig, axis
 
 
+# --- Temperature snapshots (radiation | material profiles at a few times) -------------------
+# Color = snapshot time (light -> dark blue), linestyle = run, gray dotted = exact MMS.
+SNAPSHOT_RUN_STYLES = ["-", "--", "-.", (0, (5, 1, 1, 1, 1, 1))]   # ":" is reserved for the MMS
+SNAPSHOT_REFERENCE = dict(color="0.2", linestyle=":", linewidth=1.3)
+
+
+def snapshotColors(count):
+    """Sequential single-hue ramp (light -> dark blue) for ordered snapshot times."""
+    if count <= 1:
+        return [plt.cm.Blues(0.85)]
+    return [plt.cm.Blues(v) for v in np.linspace(0.4, 0.95, count)]
+
+
+def progressIndices(temperatureSet, count=5):
+    """Time indices at equal fractions of the run's total change (0, 1/(n-1), ..., 1).
+
+    Change = mean over cells of |T(t) - T(0)| (running max), so snapshots land where the solution
+    is evolving instead of bunching in a quiet early period of a log time grid.
+    """
+    T = np.asarray(temperatureSet, dtype=float)
+    change = np.maximum.accumulate(np.mean(np.abs(T - T[:, :1]), axis=0))
+    nt = T.shape[1]
+    if change[-1] <= 0:
+        return np.unique(np.linspace(0, nt - 1, count, dtype=int))
+    targets = np.linspace(0, 1, count) * change[-1]
+    return np.unique([int(np.argmax(change >= target)) for target in targets])
+
+
 def plotMMSComparison(
-    grid, params, axes=None, labelPrefix=None, show=True, includeMMS=True
+    grid, params, axes=None, labelPrefix=None, show=True, includeMMS=True,
+    snapshotTimes=None, runIndex=None,
 ):
-    """Plot solved temperature snapshots, optionally against the 1-D MMS."""
+    """Radiation (left) and material (right) temperature profiles at a few times.
+
+    Called once per run on shared axes by the *Loaded wrappers, which then add one legend.
+    """
     createFigure = axes is None
-    snapshotCount = min(5, len(grid.timeSet))
-    referenceIndices = np.unique(
-        np.linspace(0, len(grid.timeSet) - 1, snapshotCount, dtype=int)
-    )
-    snapshotTimes = grid.timeSet[referenceIndices]
-    colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
-    if axes is None:
-        fig, axes = plt.subplots(
-            1, 2, figsize=(13, 5), sharex=True
-        )
-    else:
-        fig = axes[0].figure
+    if createFigure:
+        fig, axes = plt.subplots(1, 2, figsize=(13, 5), sharex=True)
+    fig = axes[0].figure
     radiationAxis, materialAxis = axes
+    meta = fig.__dict__.setdefault("_snapshotMeta", {"runs": [], "times": None, "mms": False})
+
+    if snapshotTimes is None:
+        snapshotTimes = grid.timeSet[progressIndices(grid.temperatureSet, min(5, len(grid.timeSet)))]
+    snapshotTimes = np.asarray(snapshotTimes)
+    if meta["times"] is None:
+        meta["times"] = snapshotTimes
+    colors = snapshotColors(len(snapshotTimes))
+    if runIndex is None:
+        runIndex = len(meta["runs"])
 
     x = grid.spaceMid
     methodName = "VMG" if params.movingCoordinates else "MG"
-    lineStyle = "-." if params.movingCoordinates else "-"
-    colorOffset = len(radiationAxis.lines) // (
-        2 if includeMMS else 1
-    )
-    if includeMMS:
-        spatial = np.exp(-(x**2) / (2 * params.mmsSigmaX**2)) / (
-            params.mmsSigmaX * np.sqrt(2 * np.pi)
-        )
-    for snapshotNumber, targetTime in enumerate(snapshotTimes):
-        timeIndex = int(np.argmin(np.abs(grid.timeSet - targetTime)))
-        time = grid.timeSet[timeIndex]
-        if includeMMS:
-            decay = np.exp(-params.mmsTau * time / 2)
-            temperatureOffset = getattr(
-                params,
-                "mmsTemperatureOffset",
-                MMS.DEFAULT_TEMPERATURE_OFFSET,
-            )
-            exactMaterial = MMS.temperatureFromFourthPowerProfile(
-                params.mmsT0,
-                (1 - decay) * spatial,
-                temperatureOffset,
-            )
-            exactRadiation = MMS.temperatureFromFourthPowerProfile(
-                params.mmsT0,
-                (1 + decay) * spatial,
-                temperatureOffset,
-            )
-        radiationEnergy = (
-            np.sum(grid.fullTensorPhiTime[timeIndex], axis=0)
-            / (grid.constants.a * grid.constants.c)
-        )
-        solvedRadiation = np.maximum(radiationEnergy, 0) ** 0.25
-        solvedMaterial = grid.temperatureSet[:, timeIndex]
-        color = colors[(colorOffset + snapshotNumber) % len(colors)]
-        if labelPrefix:
-            methodLabel = f"{labelPrefix}, t={time:.2e} ns"
-            mmsLabel = f"{labelPrefix} MMS, t={time:.2e} ns"
-        else:
-            groups = getattr(params, "freqNum", None)
-            groupLabel = f" ({groups} groups)" if groups is not None else ""
-            methodLabel = f"{methodName}{groupLabel}, t={time:.2e} ns"
-            mmsLabel = f"MMS, t={time:.2e} ns"
+    groups = getattr(params, "freqNum", None)
+    runName = labelPrefix or (f"{methodName} ({groups} groups)" if groups is not None else methodName)
+    style = dict(linestyle=SNAPSHOT_RUN_STYLES[runIndex % len(SNAPSHOT_RUN_STYLES)])
+    meta["runs"].append((runName, style))
 
-        radiationAxis.plot(
-            x, solvedRadiation, color=color, linestyle=lineStyle,
-            label=methodLabel
-        )
-        if includeMMS:
-            radiationAxis.plot(
-                x, exactRadiation, color=color, linestyle=":",
-                marker="o", markersize=4, markevery=max(1, len(x) // 30),
-                zorder=1,
-                label=mmsLabel
-            )
-        materialAxis.plot(
-            x, solvedMaterial, color=color, linestyle=lineStyle,
-            label=methodLabel
-        )
-        if includeMMS:
-            materialAxis.plot(
-                x, exactMaterial, color=color, linestyle=":",
-                marker="o", markersize=4, markevery=max(1, len(x) // 30),
-                zorder=1,
-                label=mmsLabel
-            )
+    for k, target in enumerate(snapshotTimes):
+        timeIndex = int(np.argmin(np.abs(grid.timeSet - target)))
+        time = grid.timeSet[timeIndex]
+        radiationEnergy = np.sum(grid.fullTensorPhiTime[timeIndex], axis=0) / (grid.constants.a * grid.constants.c)
+        radiationAxis.plot(x, np.maximum(radiationEnergy, 0) ** 0.25, color=colors[k], **style)
+        materialAxis.plot(x, grid.temperatureSet[:, timeIndex], color=colors[k], **style)
+        if includeMMS and runIndex == 0:
+            spatial = np.exp(-(x**2) / (2 * params.mmsSigmaX**2)) / (params.mmsSigmaX * np.sqrt(2 * np.pi))
+            decay = np.exp(-params.mmsTau * time / 2)
+            offset = getattr(params, "mmsTemperatureOffset", MMS.DEFAULT_TEMPERATURE_OFFSET)
+            radiationAxis.plot(x, MMS.temperatureFromFourthPowerProfile(params.mmsT0, (1 + decay) * spatial, offset),
+                               **SNAPSHOT_REFERENCE, zorder=3)
+            materialAxis.plot(x, MMS.temperatureFromFourthPowerProfile(params.mmsT0, (1 - decay) * spatial, offset),
+                              **SNAPSHOT_REFERENCE, zorder=3)
+            meta["mms"] = True
 
     radiationAxis.set_title("Radiation temperature")
     materialAxis.set_title("Material temperature")
@@ -525,64 +513,41 @@ def plotMMSComparison(
         axis.set_ylabel("Temperature (keV)")
         axis.minorticks_on()
         axis.tick_params(which="both", direction="in", top=True, right=True)
-    timesLabel = ", ".join(f"{time:.2e}" for time in snapshotTimes)
-    if labelPrefix is None and includeMMS:
-        fig.suptitle(
-            f"{methodName} compared with 1-D MMS "
-            f"(snapshot times: {timesLabel} ns)"
-        )
-    elif labelPrefix is None:
-        fig.suptitle(
-            f"{methodName} temperature snapshots "
-            f"(snapshot times: {timesLabel} ns)"
-        )
+        axis.grid(True, which="major", color="0.9", linewidth=0.6)
+        axis.set_axisbelow(True)
     if createFigure:
         _addMMSLegend(fig, axes)
-    if show:
-        plt.show()
+        if show:
+            plt.show()
     return fig, (radiationAxis, materialAxis)
 
 
 def _addMMSLegend(fig, axes, fontsize="small"):
-    handles, labels = axes[0].get_legend_handles_labels()
-    uniqueHandles = {}
-    for handle, label in zip(handles, labels):
-        if label and not label.startswith("_"):
-            uniqueHandles.setdefault(label, handle)
-
-    if not uniqueHandles:
+    """Legend below the panels: one row of snapshot times, one row of runs (+ exact MMS)."""
+    meta = getattr(fig, "_snapshotMeta", None)
+    if not meta or meta["times"] is None:
         return
+    proxy = lambda label, color="0.35", **kw: Line2D([], [], color=color, label=label, **kw)
+    timeRow = [proxy(f"t = {t:.3g} ns", c, linewidth=2.5)
+               for t, c in zip(meta["times"], snapshotColors(len(meta["times"])))]
+    styleRow = [proxy(name, **style) for name, style in meta["runs"]]
+    if meta["mms"]:
+        styleRow.append(proxy("exact MMS", **SNAPSHOT_REFERENCE))
+    rows = [row for row in (timeRow, styleRow) if row]
+    height = 0.06
+    fig.tight_layout(rect=(0, height * len(rows) + 0.02, 1, 1))
+    for r, row in enumerate(rows):
+        legend = fig.legend(handles=row, loc="lower center", ncol=len(row), frameon=False,
+                            fontsize=fontsize, bbox_to_anchor=(0.5, height * (len(rows) - 1 - r)))
+        fig.add_artist(legend)
 
-    ncol = min(4, len(uniqueHandles))
-    legendRows = (len(uniqueHandles) + ncol - 1) // ncol
-    bottom = min(0.5, 0.1 + 0.035 * legendRows)
-    fig.tight_layout(rect=(0, bottom, 1, 0.92))
-    fig.legend(
-        uniqueHandles.values(),
-        uniqueHandles.keys(),
-        frameon=False,
-        fontsize=fontsize,
-        ncol=ncol,
-        loc="lower center",
-        bbox_to_anchor=(0.5, 0.01),
-    )
 
-
-def plotMMSComparisonLoaded(
-    data, params, axes=None, labelPrefix=None, show=True, includeMMS=True
-):
-    """Plot temperature snapshots from one saved MG/VMG result."""
+def _loadedGrid(data, params):
     from types import SimpleNamespace
-
-    timeCount = min(
-        len(data["timeSet"]),
-        data["fullTensorPhi"].shape[0],
-        data["temperatureSet"].shape[1],
-    )
+    timeCount = min(len(data["timeSet"]), data["fullTensorPhi"].shape[0], data["temperatureSet"].shape[1])
     if timeCount == 0:
         raise ValueError("A saved result contains no time samples.")
-
-    grid = SimpleNamespace(
+    return SimpleNamespace(
         spaceMid=np.asarray(params["spaceMid"]),
         fullTensorPhiTime=data["fullTensorPhi"][:timeCount],
         temperatureSet=data["temperatureSet"][:, :timeCount],
@@ -590,56 +555,52 @@ def plotMMSComparisonLoaded(
         freqGrid=np.asarray(params["freqGrid"]),
         constants=SimpleNamespace(a=const.a, c=const.c),
     )
-    plotParams = SimpleNamespace(
-        movingCoordinates=params["movingCoordinates"],
-        freqNum=params.get("groups"),
-    )
+
+
+def plotMMSComparisonLoaded(
+    data, params, axes=None, labelPrefix=None, show=True, includeMMS=True,
+    snapshotTimes=None, runIndex=None,
+):
+    """Plot temperature snapshots from one saved MG/VMG result."""
+    from types import SimpleNamespace
+    plotParams = SimpleNamespace(movingCoordinates=params["movingCoordinates"], freqNum=params.get("groups"))
     if includeMMS:
         plotParams.mmsT0 = params["mmsT0"]
         plotParams.mmsSigmaX = params["mmsSigmaX"]
         plotParams.mmsTau = params["mmsTau"]
-        plotParams.mmsTemperatureOffset = params.get(
-            "mmsTemperatureOffset", MMS.DEFAULT_TEMPERATURE_OFFSET
-        )
+        plotParams.mmsTemperatureOffset = params.get("mmsTemperatureOffset", MMS.DEFAULT_TEMPERATURE_OFFSET)
     return plotMMSComparison(
-        grid, plotParams, axes=axes, labelPrefix=labelPrefix, show=show,
-        includeMMS=includeMMS,
+        _loadedGrid(data, params), plotParams, axes=axes, labelPrefix=labelPrefix, show=show,
+        includeMMS=includeMMS, snapshotTimes=snapshotTimes, runIndex=runIndex,
     )
+
+
+def _snapshotsLoaded(results, includeMMS):
+    """Common snapshot times (spread over the first run's evolution) so a color is the same time
+    for every run."""
+    fig, axes = plt.subplots(1, 2, figsize=(13, 5), sharex=True)
+    first = _loadedGrid(results[0][0], results[0][1])
+    targets = first.timeSet[progressIndices(first.temperatureSet, 5)]
+    for i, (data, params, label) in enumerate(results):
+        plotMMSComparisonLoaded(data, params, axes=axes, labelPrefix=label, show=False,
+                                includeMMS=includeMMS, snapshotTimes=targets, runIndex=i)
+    _addMMSLegend(fig, axes)
+    plt.show()
+    return fig, axes
 
 
 def plotMMSComparisonsLoaded(results):
-    """Overplot loaded MMS runs, identifying each run and snapshot in the legends."""
+    """Overplot loaded MMS runs at common snapshot times against the exact MMS."""
     if not results:
         return None
-
-    fig, axes = plt.subplots(
-        1, 2, figsize=(13, 5), sharex=True
-    )
-    for data, params, label in results:
-        plotMMSComparisonLoaded(
-            data, params, axes=axes, labelPrefix=label, show=False
-        )
-    fig.suptitle("Selected runs compared with 1-D MMS")
-    _addMMSLegend(fig, axes, fontsize="x-small")
-    plt.show()
-    return fig, axes
+    return _snapshotsLoaded(results, includeMMS=True)
 
 
 def plotTemperatureSnapshotsLoaded(results):
-    """Overplot loaded non-MMS temperature profiles at selected times."""
+    """Overplot loaded non-MMS temperature profiles at common snapshot times."""
     if not results:
         return None
-
-    fig, axes = plt.subplots(1, 2, figsize=(13, 5), sharex=True)
-    for data, params, label in results:
-        plotMMSComparisonLoaded(
-            data, params, axes=axes, labelPrefix=label, show=False,
-            includeMMS=False,
-        )
-    fig.suptitle("Selected runs: temperature snapshots")
-    _addMMSLegend(fig, axes, fontsize="x-small")
-    plt.show()
-    return fig, axes
+    return _snapshotsLoaded(results, includeMMS=False)
 
 
 def plotFinalFlux(grid, label="Final Scalar Flux"):
@@ -828,7 +789,7 @@ def plot_spectra_at_times(dataSet, time_indices, paramsSet, fileSet, folderSet, 
 
     plt.xlabel("Frequency" if freqs is not None else "Frequency Index")
     plt.ylabel("Spectrum Magnitude ($\Phi$)")
-    plt.xlim(0, maxFreq/2)  # Adjust x-axis limit based on your frequency range
+    plt.xlim(0, maxFreq/10)  # Adjust x-axis limit based on your frequency range
     plt.title(f"Spectra Comparison for Bin {bin_idx}")
     plt.minorticks_on()
 

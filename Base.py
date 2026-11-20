@@ -168,6 +168,11 @@ class Base:
         # Below this temperature residual, plain iteration finishes the step so it can settle
         # onto the floating-point fixed point (Anderson keeps mixing round-off otherwise)
         self.andersonMinResidual = getattr(params, "andersonMinResidual", 1e-13)
+        # Per-step convergence messages print only on every printEvery-th time step (fatal errors always print)
+        self.printEvery = max(1, int(getattr(params, "printEvery", 40)))
+
+    def printThisStep(self):
+        return getattr(self, "index", 0) % self.printEvery == 0
 
     def setTemperatureIterate(self, temperature):
         self.grid.T_next = temperature
@@ -274,7 +279,7 @@ class Base:
                 and temperatureErr < self.params.tol
                 and temperatureL2Err < self.params.tol
             ):
-                if it > 40: print(f"Converged in {it} iterations")
+                if it > 40 and self.printThisStep(): print(f"Converged in {it} iterations")
                 break
             # Converged to machine precision: the changes are round-off of the solution itself, so a
             # tolerance below that (e.g. 1e-16 on T ~ 1) can never be met by further iterating.
@@ -297,11 +302,11 @@ class Base:
                     self.params.fileFolder = self.params.fileFolder + "Failed"
                     self.params.runName = self.params.runName + "Failed"
                     print("Solve Failed")
-                    self.runTime = 1.0
+                    self.runTime = machineTime.perf_counter() - getattr(self, "solveStart", machineTime.perf_counter())  # time until failure
                     self.saveResults()
                     raise ValueError(f'Change Iteration is not converging to reasonable value, try a smaller time step. Final iteration difference: {err}')
                 self.stagnatedSteps += 1
-                if bestErr > self.stagnationWarnTol:
+                if bestErr > self.stagnationWarnTol and self.printThisStep():
                     print(
                         f"Not further trending toward convergence at time step {self.index}: "
                         f"no improvement in {self.stagnationWindow} iterations, moving on after "
@@ -315,7 +320,7 @@ class Base:
         self.iterationsPerStep.append(it + 1)
 
 
-        if it == self.params.maxIters - 1:
+        if it == self.params.maxIters - 1 and self.printThisStep():
             print(f"⚠️ WARNING: Did not converge in {self.params.maxIters} iterations, final error: {err:.2e}")
         if self.params.iterationCheck == True:
             assert 0
@@ -398,6 +403,7 @@ class Base:
     
     def solve(self):
         tick = machineTime.perf_counter()
+        self.solveStart = tick
         if self.grid.fullTensorTime is not None:
             self.grid.fullTensorTime[0] = self.grid.fullTensor    # Initialize 0'th step (Thanks to Johannes for this fix)
         self.grid.fullTensorPhiTime[0] = self.getPhi()
@@ -489,6 +495,9 @@ class Base:
             )
             f.attrs["boundaryLeft"] = self.params.boundaryLeft
             f.attrs["boundaryRight"] = self.params.boundaryRight
+            if {"Bimodal", "Delta"} & {self.params.boundaryLeft, self.params.boundaryRight}:
+                f.attrs["deltaFraction"] = getattr(self.params, "deltaFraction", 0.5)
+                f.attrs["deltaFrequency"] = getattr(self.params, "deltaFrequency", np.nan)
             f.attrs["movingCoordinates"] = bool(
                 self.params.movingCoordinates
             )
