@@ -1,14 +1,24 @@
-import Marshak
-from Marshak import Marshak as MarProblem
-import InfiniteVariable
-from InfiniteVariable import InfiniteVariable as IVM
-import InfiniteMedium
-import Reeds
-from Reeds import Reeds as ReedsProblem
-import Base as Base
+"""Single-run driver: one SM or VMG solve with plots, or the constant-opacity Gaussian MMS solve.
+
+    python driver/Run.py          # VMG (default)
+    python driver/Run.py sm       # SM
+    python driver/Run.py mms      # SM with manufactured sources and constant opacity
+"""
+import os
+import sys
+
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+for _folder in ("src", "postprocessing"):
+    if os.path.join(_ROOT, _folder) not in sys.path:
+        sys.path.insert(0, os.path.join(_ROOT, _folder))
+
+import numpy as np
+
+import AnalyzeData
+import Base
 import Logic as Log
 import MMS
-import numpy as np
+import Multigroup as MG
 import Visualize as Vis
 
 
@@ -177,7 +187,7 @@ class MMSProblem:
         self.equations.applyInitialConditions()
 
 
-class MMSMaterial(InfiniteMedium.Material):
+class MMSMaterial(MG.Material):
     def sigma_a(self, freq, temperature):
         return np.full(
             (self.params.freqNum, self.params.nBins),
@@ -188,62 +198,40 @@ class MMSMaterial(InfiniteMedium.Material):
         return self.params.mmsHeatCapacity
 
 
-def main():
+def mainSingle(method):
+    """Run one SM or VMG solve with the default Parameters, then plot it like a loaded result."""
     constants = Base.Constants()
-    params = Marshak.Parameters()
-    grid = Base.Grid(params, constants)
-    MarshakProblem = MarProblem(grid, constants)
-    BaseSolver = Base.Base(grid, MarshakProblem, params,  constants)
-    print(np.shape(grid.fullTensor))
-    print(f'Initial condition check: {grid.fullTensor[:, :, 0]}')  # Print the initial condition for the first spatial bin
-    fullTensor, grid = BaseSolver.solve()
-    fullPhi = np.squeeze(grid.fullTensorPhiTime)
-    Vis.plotSpaceTime(fullPhi[:,5,:], params, grid.timeSet)
-    Vis.plotFinalFlux(grid)
-    # Vis.animate_solution(fullPhi, params, grid)
-    Vis.plotTemperatureTime(grid)
-    return grid
-
-
-
-def mainMovingMesh():
-    constants = Base.Constants()
-    params = InfiniteVariable.Parameters()
+    params = MG.Parameters(method)
     params.storeAngular = True  # analyze_rank_psi needs the full angular history
-    nSteps = params.nSteps
-    plotSet = [0, nSteps//4, nSteps//2, nSteps-1]
     grid = Base.Grid(params, constants)
-    InfiniteVariableProblem = IVM(grid, constants, params)
-    BaseSolver = Base.Base(grid, InfiniteVariableProblem, params,  constants)
-    fullTensor, grid = BaseSolver.solve()
-    fullPhi = np.squeeze(grid.fullTensorPhiTime)[:-1,:,:]
+    problem = MG.Problem(grid, constants, params)
+    solver = Base.Base(grid, problem, params, constants)
+    fullTensor, grid = solver.solve()
+
     Vis.plotTemperatureTime(grid)
     Vis.plotTemperature(grid)
+    data, runParams, fileName, folder = AnalyzeData.resultFromGrid(grid, params)
+    AnalyzeData.plotResults([data], [runParams], [fileName], [folder])
+    rankInfo = Vis.analyzeRank([data], grid.timeSet, [runParams], [fileName], [folder],
+                               energy_threshold=[0.999, 0.99, 0.98, 0.95], plot=True)
+    Vis.analyzeRank([data], grid.timeSet, [runParams], [fileName], [folder],
+                    tol=[1e-8, 1e-14, 1e-16, 1e-18], plot=True)
+    Vis.analyze_rank_psi(fullTensor, grid.timeSet, plot=True)
+    return grid, rankInfo
 
-    Vis.plot_spectra_at_times(fullPhi, plotSet, 20, params.maxFreq, freqs=grid.freqGroups)
-    rankInfo = Vis.analyzeRank(fullPhi, BaseSolver.grid.timeSet, time_indices=None, energy_threshold=[0.999, 0.99, 0.98  ,0.95], tol=None, plot=True)
-    Vis.analyzeRank(fullPhi, BaseSolver.grid.timeSet, energy_threshold=None, tol = [1e-8, 1e-14, 1e-16, 1e-18], plot = True)
-    Vis.analyze_rank_psi(fullTensor, BaseSolver.grid.timeSet, time_indices=None, energy_threshold=None, tol=None, plot=True)
-    return grid, rankInfo, plotSet
 
-def mainReeds():
-    constants = Base.Constants()
-    params = Reeds.Parameters()
-    grid = Base.Grid(params, constants)
-    ReedsProb = ReedsProblem(grid, constants)
-    BaseSolver = Base.Base(grid, ReedsProb, params, constants)
-    fullTensor, grid = BaseSolver.solve()
-    fullPhi = np.squeeze(grid.fullTensorPhiTime)  # shape: (nSteps+1, nBins)
-    Vis.plotSpaceTime(fullPhi, params, grid.timeSet)
-    Vis.plotFinalFlux(grid)
-    Vis.animate_solution(fullPhi, params, grid)
-    return grid
+def mainSM():
+    return mainSingle("SM")
+
+
+def mainVMG():
+    return mainSingle("VMG")
 
 
 def mainMMS(nSteps=100, nBins=100, opacity=0.1):
     """Run the coupled Gaussian MMS solve and plot its scalar flux and temperature."""
     constants = Base.Constants()
-    params = InfiniteMedium.Parameters(nSteps=nSteps)
+    params = MG.Parameters("SM", nSteps=nSteps)
     params.fileFolder = "MMS"
     params.runName = "Gaussian1D_MMS"
     params.saveResults = False
@@ -283,20 +271,19 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="Run the existing moving-mesh solve or the Gaussian MMS solve."
+        description="Run one SM or VMG solve, or the Gaussian MMS solve."
     )
     parser.add_argument(
         "mode",
         nargs="?",
-        choices=("movingmesh", "no-mms", "mms"),
-        default="movingmesh",
-        help=(
-            "'movingmesh' and 'no-mms' use the existing solver and initial "
-            "conditions; 'mms' enables the manufactured sources."
-        ),
+        choices=("vmg", "sm", "mms"),
+        default="vmg",
+        help="'vmg' or 'sm' run that method with its default parameters; 'mms' runs the Gaussian MMS solve.",
     )
     runMode = parser.parse_args().mode
     if runMode == "mms":
         grid = mainMMS()
+    elif runMode == "sm":
+        grid, rankInfo = mainSM()
     else:
-        grid = mainMovingMesh()
+        grid, rankInfo = mainVMG()

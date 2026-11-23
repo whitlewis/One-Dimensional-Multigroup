@@ -4,7 +4,12 @@ import time as machineTime
 import h5py
 from datetime import datetime
 import os
-import matplotlib.pyplot as plt
+
+# Project folders (src/ lives one level below the project root), independent of the working directory
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DATA_DIR = os.path.join(PROJECT_ROOT, "dataStash")
+FIGURE_DIR = os.path.join(PROJECT_ROOT, "figures")
+
 
 class Constants:
     # all physical constants
@@ -35,7 +40,8 @@ class Grid:
             self.freqGrid = np.array([1e-3, parameters.maxFreq])  # single frequency case
 
 
-        if parameters.matchNu and parameters.fileFolder != "InfiniteMedium":
+        # VMG only: divide by T0 so the scaled u-group edges equal the SM edges at the initial state
+        if getattr(parameters, "matchNu", False) and parameters.movingCoordinates:
             T = parameters.initialTemperature
             print("Grid Matched")
             self.freqGrid = self.freqGrid / T
@@ -160,7 +166,7 @@ class Base:
         # Anderson acceleration of the radiation/material iteration (params.andersonDepth = 0 turns it off)
         self.andersonDepth = int(getattr(params, "andersonDepth", 0))
         self.anderson = None
-        if self.params.materialCoupled and self.andersonDepth > 0:
+        if self.andersonDepth > 0:
             self.anderson = AndersonAccelerator(
                 self.andersonDepth,
                 damping=getattr(params, "andersonDamping", 1.0),
@@ -186,12 +192,11 @@ class Base:
             return False
         if radiationL2Err > eps * np.linalg.norm(psi.ravel()):
             return False
-        if self.params.materialCoupled:
-            T = self.grid.T_next
-            if temperatureErr > eps * np.max(np.abs(T)):
-                return False
-            if temperatureL2Err > eps * np.linalg.norm(T):
-                return False
+        T = self.grid.T_next
+        if temperatureErr > eps * np.max(np.abs(T)):
+            return False
+        if temperatureL2Err > eps * np.linalg.norm(T):
+            return False
         return True
 
     def converge(self):
@@ -201,21 +206,17 @@ class Base:
         bestErr = np.inf
         iterationsSinceBest = 0
         for it in range(self.params.maxIters):
-            # update Temperature and get Q* if material coupled
-            if self.params.materialCoupled:
-                self.problem.equations.rhsUpdate()
+            # update Temperature and get Q*
+            self.problem.equations.rhsUpdate()
             # Perform the radiation sweep to get the new solution
             self.problem.equations.radiationSweep()
             if self.params.checkEnergy and self.index % self.params.energyCheckFreq == 0 and it==0:  # Check energy conservation every energyCheckFreq time steps
                 self.checkEnergyConservation()
-            if self.params.materialCoupled:
-                previousTemperatureIterate = self.grid.T_next  # materialEquation rebinds grid.T_next, so no copy is needed
-                self.problem.equations.materialEquation() # update material temperature after radiation sweep
-                temperatureDiff = np.abs(
-                    self.grid.T_next - previousTemperatureIterate
-                )
-            else:
-                temperatureDiff = np.zeros_like(self.grid.T_next)
+            previousTemperatureIterate = self.grid.T_next  # materialEquation rebinds grid.T_next, so no copy is needed
+            self.problem.equations.materialEquation() # update material temperature after radiation sweep
+            temperatureDiff = np.abs(
+                self.grid.T_next - previousTemperatureIterate
+            )
             diff = np.abs(
                 self.grid.fullTensor - self.grid.fullTensOld
             )
@@ -335,72 +336,37 @@ class Base:
             self.grid.fullTensorTime[index + 1] = self.grid.fullTensor
         self.grid.fullTensorPhiTime[index + 1] = self.getPhi()
         self.grid.timeStep += 1  # Increment time step counter
-        if self.params.materialCoupled:                      # update temperature for next step
-            self.grid.temperatureSet[:, self.grid.timeStep] = self.problem.equations.equations.T_next
+        self.grid.temperatureSet[:, self.grid.timeStep] = self.problem.equations.equations.T_next  # temperature for next step
 
     def setEnergy(self):
-        if self.params.materialCoupled:
-            Tmat = self.grid.temperatureSet[:, self.grid.timeStep]  
-            Emat = self.problem.material.C_v(Tmat) * Tmat  
-            Erad = np.sum(self.grid.fullTensorPhiTime[self.grid.timeStep], axis=0) / self.constants.c  
-            totalEnergy = np.sum((Emat + Erad) * self.grid.dx) 
-            self.params.totalEnergy = totalEnergy  
-            print("Initial energy set:")
-            print(f"Material energy: {np.sum(Emat * self.grid.dx):.4e}, Radiation energy: {np.sum(Erad * self.grid.dx):.4e}")
-            print(f"Total energy: {totalEnergy:.4e}") 
-        else:
-            Erad = np.sum(self.grid.fullTensorPhiTime[self.grid.timeStep], axis=0) / self.constants.c  
-            totalEnergy = np.sum(Erad * self.grid.dx)  
-            self.params.totalEnergy = totalEnergy  
-            print("Initial energy set:")
-            print(f"Radiation energy: {totalEnergy:.4e}")
-            print(f"Total energy: {totalEnergy:.4e}")
-        
-        
+        Tmat = self.grid.temperatureSet[:, self.grid.timeStep]
+        Emat = self.problem.material.C_v(Tmat) * Tmat
+        Erad = np.sum(self.grid.fullTensorPhiTime[self.grid.timeStep], axis=0) / self.constants.c
+        totalEnergy = np.sum((Emat + Erad) * self.grid.dx)
+        self.params.totalEnergy = totalEnergy
+        print("Initial energy set:")
+        print(f"Material energy: {np.sum(Emat * self.grid.dx):.4e}, Radiation energy: {np.sum(Erad * self.grid.dx):.4e}")
+        print(f"Total energy: {totalEnergy:.4e}")
+
     def checkEnergyConservation(self):
-        if not self.params.materialCoupled and self.grid.timeStep > 0:
-            Erad = np.sum(self.grid.fullTensorPhiTime[self.grid.timeStep], axis=0) / self.constants.c  
-            totalEnergy = np.sum(Erad * self.grid.dx)  
-            time = self.grid.timeSet[self.grid.timeStep]
-            dt = self.grid.dt[self.grid.timeStep]
-            sourceEnergy = np.sum(self.problem.material.source(self.grid.fullTensor) * self.grid.dx) * dt 
-            print(f"Energy from sources at time {time:.2e}: {sourceEnergy:.4e}")
-            self.params.totalEnergy += sourceEnergy  
-            print(f"Total energy after accounting for sources: {self.params.totalEnergy:.4e}")
-            diffEnergy = np.abs(totalEnergy - self.params.totalEnergy)  
-            if diffEnergy > self.params.energyTol:
-                print(f"⚠️ Energy conservation check failed at time step {self.grid.timeStep} (time={self.grid.timeSet[self.grid.timeStep]:.2e})")
-                print(f"Max energy difference: {diffEnergy:.2e}")
-                print(f"Radiation energy: {totalEnergy:.4e}")
-                print(f"Total energy: {totalEnergy:.4e}")
-                return False
-        elif self.params.materialCoupled and self.grid.timeStep > 0:
-            Tmat = self.grid.temperatureSet[:, self.grid.timeStep]  
-            Emat = self.problem.material.C_v(Tmat) * Tmat  
-            Erad = np.sum(self.grid.fullTensorPhiTime[self.grid.timeStep], axis=0) / self.constants.c  
-            Trad = (Erad / self.constants.a)**0.25  
-            totalEnergy = np.sum((Emat + Erad) * self.grid.dx)  
-            diffEnergy = np.abs(totalEnergy - self.params.totalEnergy)  
-            if diffEnergy > self.params.energyTol:
-                print(f"⚠️ Energy conservation check failed at time step {self.grid.timeStep} (time={self.grid.timeSet[self.grid.timeStep]:.2e})")
-                print(f"Max energy difference: {diffEnergy:.2e}")
-                print(f"Material energy: {np.sum(Emat * self.grid.dx):.4e}, Radiation energy: {np.sum(Erad * self.grid.dx):.4e}")
-                print(f'material temperature: {Tmat[20]:.4e}, radiation temperature: {Trad[20]:.4e}')
-                print(f"Total energy: {totalEnergy:.4e}")
-                return False
         if self.grid.timeStep == 0:
             print("Energy conservation check skipped for initial time step.")
             return True
-        
-        print(f"Energy conservation check passed at time step {self.grid.timeStep} (time={self.grid.timeSet[self.grid.timeStep]:.2e})")
+        Tmat = self.grid.temperatureSet[:, self.grid.timeStep]
+        Emat = self.problem.material.C_v(Tmat) * Tmat
+        Erad = np.sum(self.grid.fullTensorPhiTime[self.grid.timeStep], axis=0) / self.constants.c
+        Trad = (Erad / self.constants.a)**0.25
+        totalEnergy = np.sum((Emat + Erad) * self.grid.dx)
+        diffEnergy = np.abs(totalEnergy - self.params.totalEnergy)
+        status = "failed" if diffEnergy > self.params.energyTol else "passed"
+        print(f"Energy conservation check {status} at time step {self.grid.timeStep} (time={self.grid.timeSet[self.grid.timeStep]:.2e})")
         print(f"Max energy difference: {diffEnergy:.8e}")
-        if self.params.materialCoupled:
-            print(f"Material energy: {np.sum(Emat * self.grid.dx):.4e}, Radiation energy: {np.sum(Erad * self.grid.dx):.4e}")
-        else:
-            print(f"Radiation energy: {totalEnergy:.4e}")
+        print(f"Material energy: {np.sum(Emat * self.grid.dx):.4e}, Radiation energy: {np.sum(Erad * self.grid.dx):.4e}")
+        if status == "failed":
+            print(f'material temperature: {Tmat[20]:.4e}, radiation temperature: {Trad[20]:.4e}')
         print(f"Total energy: {totalEnergy:.4e}")
-        return True
-    
+        return status == "passed"
+
     def solve(self):
         tick = machineTime.perf_counter()
         self.solveStart = tick
@@ -453,9 +419,10 @@ class Base:
     def saveResults(self):
         filePrefix = self.params.fileFolder
         runName = self.params.runName
-        os.makedirs(f"dataStash/{filePrefix}", exist_ok=True)
+        folder = os.path.join(DATA_DIR, filePrefix)
+        os.makedirs(folder, exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filepath = f"dataStash/{filePrefix}/{runName}_{self.params.nSteps}_Steps_{self.params.freqNum}_groups{timestamp}.h5"
+        filepath = os.path.join(folder, f"{runName}_{self.params.nSteps}_Steps_{self.params.freqNum}_groups{timestamp}.h5")
         fullTensorPhiTime = self.grid.fullTensorPhiTime
         with h5py.File(filepath, "w") as f:
             f.create_dataset("fullTensorPhi", data=fullTensorPhiTime, compression="gzip")

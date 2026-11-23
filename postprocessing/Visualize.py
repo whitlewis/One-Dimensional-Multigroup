@@ -1,18 +1,23 @@
+"""Plotting for SM/VMG results: live grids from a solve and results loaded by AnalyzeData."""
+import os
+import sys
+
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+for _folder in ("src", "postprocessing"):
+    if os.path.join(_ROOT, _folder) not in sys.path:
+        sys.path.insert(0, os.path.join(_ROOT, _folder))
+
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 from matplotlib.ticker import ScalarFormatter
 from datetime import datetime
-from matplotlib.animation import FuncAnimation
+from cycler import cycler
+
+import Base
 from Base import Constants as const
 import DiffEqSolve as diffEq
 import MMS
-
-# Plot Stuff
-import os
-import tkinter as tk
-from tkinter import filedialog
-from cycler import cycler
 
 
 plt.rcParams.update({
@@ -50,6 +55,18 @@ plt.rcParams.update({
         "#000000",  # black
     ]),
 })
+
+
+def methodName(params, folder=None):
+    """'VMG' or 'SM' for a loaded result (older files without the flag fall back to their folder)."""
+    if params.get("movingCoordinates") or (folder or "").startswith("VMG"):
+        return "VMG"
+    return "SM"
+
+
+def figurePath(name):
+    os.makedirs(Base.FIGURE_DIR, exist_ok=True)
+    return os.path.join(Base.FIGURE_DIR, name)
 
 
 # Helpful equations for plot ref (from Logic.py)
@@ -92,7 +109,7 @@ def plotPhiStepFreq(grid, params, step, label="Initial Scalar Flux  accross Freq
     plt.legend()
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"figures/{label}_{timestamp}.pdf"
+    filename = figurePath(f"{label}_{timestamp}.pdf")
     # plt.savefig(filename)
     plt.show()
 
@@ -118,7 +135,7 @@ def plotTemperature(grid):
     plt.legend()
     plt.grid(True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"figures/Temperature_vs_Time_{timestamp}.pdf"
+    filename = figurePath(f"Temperature_vs_Time_{timestamp}.pdf")
     plt.savefig(filename)
     plt.show()
 
@@ -147,7 +164,7 @@ def getDiffeq(const, tmax):
     }
 
 
-    solution = diffEq.IMSolve(inputDictTest)
+    solution = diffEq.SMSolve(inputDictTest)
     t = solution.t
     T = solution.y[-1]
     Tr = (np.sum(solution.y[:-1],axis=0)/ const.a / const.c)**.25
@@ -158,10 +175,7 @@ def plotTemperatureLoaded(dataSet, paramsSet, fileSet, folderSet, const):
         params = paramsSet[i]
         file = fileSet[i]
         folder = folderSet[i]
-        if folder == "InfiniteMedium":
-            methodName = "MG"
-        else:
-            methodName = "VMG"
+        method = methodName(params, folder)
 
         timeCount = min(
             len(data["timeSet"]),
@@ -175,7 +189,7 @@ def plotTemperatureLoaded(dataSet, paramsSet, fileSet, folderSet, const):
             data["fullTensorPhi"][:timeCount, :, cellIndex], axis=1
         )
         Trad = (radiationFlux / const.a / const.c) ** 0.25
-        labelT = f'{file} using {methodName} for {params["groups"]} groups with {timeSteps} steps'
+        labelT = f'{file} using {method} for {params["groups"]} groups with {timeSteps} steps'
         T = data["temperatureSet"][cellIndex, :timeCount]
         plt.plot(t, T, label=f"{labelT} material")
         plt.plot(
@@ -212,7 +226,7 @@ def plotTemperatureLoaded(dataSet, paramsSet, fileSet, folderSet, const):
         loc="best"
     )
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"figures/TempPlot_{timestamp}.pdf"
+    filename = figurePath(f"TempPlot_{timestamp}.pdf")
     plt.savefig(filename)
     plt.show()
 
@@ -484,9 +498,9 @@ def plotMMSComparison(
         runIndex = len(meta["runs"])
 
     x = grid.spaceMid
-    methodName = "VMG" if params.movingCoordinates else "MG"
+    method = "VMG" if params.movingCoordinates else "SM"
     groups = getattr(params, "freqNum", None)
-    runName = labelPrefix or (f"{methodName} ({groups} groups)" if groups is not None else methodName)
+    runName = labelPrefix or (f"{method} ({groups} groups)" if groups is not None else method)
     style = dict(linestyle=SNAPSHOT_RUN_STYLES[runIndex % len(SNAPSHOT_RUN_STYLES)])
     meta["runs"].append((runName, style))
 
@@ -561,7 +575,7 @@ def plotMMSComparisonLoaded(
     data, params, axes=None, labelPrefix=None, show=True, includeMMS=True,
     snapshotTimes=None, runIndex=None,
 ):
-    """Plot temperature snapshots from one saved MG/VMG result."""
+    """Plot temperature snapshots from one saved SM/VMG result."""
     from types import SimpleNamespace
     plotParams = SimpleNamespace(movingCoordinates=params["movingCoordinates"], freqNum=params.get("groups"))
     if includeMMS:
@@ -603,51 +617,6 @@ def plotTemperatureSnapshotsLoaded(results):
     return _snapshotsLoaded(results, includeMMS=False)
 
 
-def plotFinalFlux(grid, label="Final Scalar Flux"):
-    x = grid.spaceMid
-    phi_by_group = grid.fullTensorPhiTime[-1]  # shape: (nFreq, nBins)
-
-    plt.figure()
-    for group, phi in enumerate(phi_by_group):
-        plt.plot(x, phi, label=f"Group {group + 1}")
-
-    # if phi_by_group.shape[0] > 1:
-    #     plt.plot(x, np.sum(phi_by_group, axis=0), "k--", label="Total")
-
-    plt.xlabel("Position x")
-    plt.ylabel("Scalar Flux")
-    plt.title(label)
-    plt.legend()
-    plt.show()
-
-
-def plotOutScalar(phil, grid, constants, label="Scalar Flux φ"):
-
-    x = 0.5 * (grid.grid[:-1] + grid.grid[1:])
-    scalar = np.sum(grid.w[:, None] * phil, axis=0)
-    split_idx = np.searchsorted(x, 0)
-
-    x = x[split_idx:]
-    sol_half = scalar[split_idx:] # Slice the spatial dimension (axis 1)
-
-    plt.plot(x, sol_half, label=label)
-    plt.xlabel("Position x")
-    plt.ylabel("Scalar Flux φ")
-    plt.legend()
-
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"figures/{label}_{timestamp}.pdf"
-    plt.savefig(filename)
-    plt.show()
-
-    #Plot T_r for comparison
-    T_r = (sol_half / constants.a / constants.c)**0.25
-    plt.plot(x, T_r, label=f"{label} T_r")  
-    plt.xlabel("Position x")
-    plt.ylabel("Radiation Temperature T_r")
-    plt.legend()
-    plt.show()
-
 def plotSpaceTime(phi, params, dt):
     plt.figure(figsize=(8, 5))
 
@@ -679,41 +648,6 @@ def plotSnapshot(sol, grid, title=None, label="Flux"):
         plt.title(title)
 
     plt.grid(True)
-    plt.show()
-
-def animate_solution(fullPhi, params, grid, interval=15):
-    sol = np.array(fullPhi)   # shape: (Nt, Nx)
-    x_full = np.linspace(params.xMin, params.xMax, sol.shape[1])
-
-    # 1. Find the index where x >= 0
-    # np.searchsorted finds the first index where x would be inserted to maintain order
-    split_idx = np.searchsorted(x_full, 0)
-
-    # 2. Slice the arrays to only include x >= 0
-    x = x_full[split_idx:]
-    sol_half = sol[:, split_idx:] # Slice the spatial dimension (axis 1)
-
-    fig, ax = plt.subplots()
-    line, = ax.plot(x, sol_half[0])
-
-    # 3. Update plot limits for the new range
-    ax.set_xlim(0, params.xMax)
-    ax.set_ylim(np.min(sol_half), np.max(sol_half))
-    ax.set_xlabel('x')
-    ax.set_ylabel('Scalar Flux')
-
-    def update(frame):
-        line.set_ydata(sol_half[frame])
-        # Using frame * dt if grid.timeSet isn't exactly matched to Nt
-        ax.set_title(f'Time: {frame * grid.dt[frame]:.2f}')
-        return line,
-
-    anim = FuncAnimation(
-        fig,
-        update,
-        frames=sol_half.shape[0],
-        interval=interval
-    )
     plt.show()
 
 def plotSelectSpectra(fullphi, grid, params, cell_idx=0, ax=None, save_path=None):
@@ -761,12 +695,8 @@ def plot_spectra_at_times(dataSet, time_indices, paramsSet, fileSet, folderSet, 
         temp = data["temperatureSet"]
         frequencies = params["freqGrid"]
         freqBase = 0.5 * (frequencies[:-1] + frequencies[1:])  # Midpoint of frequency groups for plotting
-        if folder == "InfiniteMedium":
-            methodName = "SM"
-            style = "-"
-        else:
-            style = "--"
-            methodName = "VCM"
+        method = methodName(params, folder)
+        style = "--" if method == "VMG" else "-"
         phi_tensor = data["fullTensorPhi"]
         n_steps, freq_num, n_bins = phi_tensor.shape
         if not (0 <= bin_idx < n_bins):
@@ -776,14 +706,14 @@ def plot_spectra_at_times(dataSet, time_indices, paramsSet, fileSet, folderSet, 
 
         for t_idx in time_indices:
             if 0 <= t_idx < n_steps:
-                if methodName == "VCM":
-                    freq = freqBase * temp[bin_idx, t_idx]  # Scale frequency by temperature for VCM method
+                if method == "VMG":
+                    freq = freqBase * temp[bin_idx, t_idx]  # Scale frequency by temperature for VMG
                     spectrum = phi_tensor[t_idx, :, bin_idx]
                 else:
                     spectrum = phi_tensor[t_idx, :, bin_idx]
                     print(f"Time {t_idx} - Min: {np.nanmin(spectrum)}, Max: {np.nanmax(spectrum)}, NaNs: {np.isnan(spectrum).sum()}")
                     freq = freqBase
-                plt.plot(freq, spectrum, linestyle=style, label=f'Time: {t_idx}, {methodName} with {file} init {params["groups"]} groups for {timeSteps} steps')
+                plt.plot(freq, spectrum, linestyle=style, label=f'Time: {t_idx}, {method} with {file} init {params["groups"]} groups for {timeSteps} steps')
             else:
                 print(f"Warning: Time step index {t_idx} is out of bounds (max {n_steps - 1}) and skipped.")
 
@@ -837,10 +767,7 @@ def analyzeRank(dataSet, time_set, paramsSet, fileSet, folderSet, time_indices=N
         params = paramsSet[i]
         file = fileSet[i]
         folder = folderSet[i]
-        if folder == "InfiniteMedium":
-            methodName = "SM"
-        else:
-            methodName = "VCM"
+        method = methodName(params, folder)
 
         phi_tensor = data["fullTensorPhi"]
 
@@ -910,11 +837,11 @@ def analyzeRank(dataSet, time_set, paramsSet, fileSet, folderSet, time_indices=N
             for i, ranks in enumerate(rankSet):
 
                 if energy_threshold is None and tol is None:
-                    ax1.plot(np.take(time_set, time_indices)[:-1], ranks[:-1], label=f'NP matrix_rank of {methodName} {params["groups"]} groups')
+                    ax1.plot(np.take(time_set, time_indices)[:-1], ranks[:-1], label=f'NP matrix_rank of {method} {params["groups"]} groups')
                 elif energy_threshold is None:
-                    ax1.plot(np.take(time_set, time_indices)[:-1], ranks[:-1], label=f'Rank at cutoff of {tol[i]} for {methodName} {params["groups"]} groups')
+                    ax1.plot(np.take(time_set, time_indices)[:-1], ranks[:-1], label=f'Rank at cutoff of {tol[i]} for {method} {params["groups"]} groups')
                 else:
-                    ax1.plot(np.take(time_set, time_indices)[:-1], ranks[:-1], label=f'Rank at cutoff of {100 * energy_threshold[i]} % for {methodName} {params["groups"]} groups' )
+                    ax1.plot(np.take(time_set, time_indices)[:-1], ranks[:-1], label=f'Rank at cutoff of {100 * energy_threshold[i]} % for {method} {params["groups"]} groups' )
         ax1.set_xlabel("Time Step Index")
         ax1.set_ylabel("Rank")
 
@@ -943,7 +870,7 @@ def analyzeRank(dataSet, time_set, paramsSet, fileSet, folderSet, time_indices=N
         saveName = params['runLabel']
         plt.tight_layout()
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"figures/{saveName}_{timestamp}.pdf"
+        filename = figurePath(f"{saveName}_{timestamp}.pdf")
         plt.savefig(filename)
         plt.show()
 
@@ -1001,12 +928,137 @@ def analyze_rank_psi(psi_tensor, time_set, time_indices=None, energy_threshold=N
     return ranks, s_matrix
 
 
-    def readResults(filepath, cls):
-        """Reads a text file and restores both the array and the class instance."""
-        with open(filepath, "r") as file:
-            data = json.load(file)
+# --- Manufactured solution (MMS) demonstration plots -------------------------------------------
+def MMSPlot():
+    tMin, tMax = 0, 1.0
+    tNum = 1000
+    T0 = 0.25
+    tSet = np.linspace(tMin, tMax, tNum)
+    tSet, Trad, Tmat = MMS.MMSBase(tSet, T0, 0)
+    plt.plot(tSet, Tmat, label="MMS Material")
+    plt.plot(tSet, Trad, label="MMS Radiation Temperature")
+    plt.xlabel("t (ns)")
+    plt.ylabel("Temperature (keV)")
+    plt.minorticks_on()
 
-        restored_array = data["array"]
-        restored_instance = cls(**data["object"])
+    plt.tick_params(
+        which="both",
+        direction="in",
+        top=True,
+        right=True
+    )
 
-        return restored_array, restored_instance
+    plt.legend(
+        frameon=False,
+        loc="best"
+    )
+    plt.show()
+
+def MMSPlot1D(
+    T0=0.25,
+    sigmaX=0.5,
+    t=0.2,
+    tau=2,
+    xMin=-2.0,
+    xMax=2.0,
+    xNum=500,
+    savePath=None,
+    temperatureOffset=MMS.DEFAULT_TEMPERATURE_OFFSET,
+):
+    """Plot the Gaussian 1-D manufactured temperatures and spatial profile."""
+    x = np.linspace(xMin, xMax, xNum)
+    expTerm = np.exp(-tau * t / 2)
+    spatial = np.exp(-(x**2) / (2 * sigmaX**2)) / (
+        sigmaX * np.sqrt(2 * np.pi)
+    )
+    Trad = MMS.temperatureFromFourthPowerProfile(
+        T0, (1 + expTerm) * spatial, temperatureOffset
+    )
+    Tmat = MMS.temperatureFromFourthPowerProfile(
+        T0, (1 - expTerm) * spatial, temperatureOffset
+    )
+
+    fig, (temperatureAxis, spatialAxis) = plt.subplots(
+        2, 1, sharex=True, figsize=(8, 7), constrained_layout=True
+    )
+    temperatureAxis.plot(x, Trad, label="Radiation temperature")
+    temperatureAxis.plot(x, Tmat, label="Material temperature")
+    temperatureAxis.set_ylabel("Temperature (keV)")
+    temperatureAxis.set_title(f"1-D Gaussian MMS solution at t = {t:g} ns")
+    temperatureAxis.legend(frameon=False, loc="best")
+    temperatureAxis.minorticks_on()
+    temperatureAxis.tick_params(
+        which="both", direction="in", top=True, right=True
+    )
+
+    spatialAxis.plot(x, spatial, color="black", label="Gaussian f(x)")
+    spatialAxis.set_xlabel("x (cm)")
+    spatialAxis.set_ylabel("f(x)")
+    spatialAxis.legend(frameon=False, loc="best")
+    spatialAxis.minorticks_on()
+    spatialAxis.tick_params(
+        which="both", direction="in", top=True, right=True
+    )
+    plt.show()
+
+
+def MMSPlot1DTimeEvolution(
+    T0=0.25,
+    sigmaX=0.5,
+    tau=2,
+    tMin=0.0,
+    tMax=1.0,
+    tNum=300,
+    xMin=-2.0,
+    xMax=2.0,
+    xNum=300,
+    savePath=None,
+    temperatureOffset=MMS.DEFAULT_TEMPERATURE_OFFSET,
+):
+    """Plot radiation and material temperature over space and time."""
+    x = np.linspace(xMin, xMax, xNum)
+    t = np.linspace(tMin, tMax, tNum)
+    spatial = np.exp(-(x**2) / (2 * sigmaX**2)) / (
+        sigmaX * np.sqrt(2 * np.pi)
+    )
+    expTerm = np.exp(-tau * t / 2)
+    Trad = MMS.temperatureFromFourthPowerProfile(
+        T0,
+        (1 + expTerm[:, None]) * spatial[None, :],
+        temperatureOffset,
+    )
+    Tmat = MMS.temperatureFromFourthPowerProfile(
+        T0,
+        (1 - expTerm[:, None]) * spatial[None, :],
+        temperatureOffset,
+    )
+
+    fig, (radiationAxis, materialAxis) = plt.subplots(
+        2, 1, sharex=True, sharey=True, figsize=(8, 7),
+        constrained_layout=True,
+    )
+    radiationPlot = radiationAxis.pcolormesh(
+        x, t, Trad, shading="auto", cmap="inferno"
+    )
+    materialPlot = materialAxis.pcolormesh(
+        x, t, Tmat, shading="auto", cmap="inferno"
+    )
+
+    radiationAxis.set_title("Radiation temperature")
+    materialAxis.set_title("Material temperature")
+    materialAxis.set_xlabel("x (cm)")
+    radiationAxis.set_ylabel("t (ns)")
+    materialAxis.set_ylabel("t (ns)")
+    fig.colorbar(radiationPlot, ax=radiationAxis, label="Temperature (keV)")
+    fig.colorbar(materialPlot, ax=materialAxis, label="Temperature (keV)")
+    fig.suptitle("1-D Gaussian MMS temperature evolution")
+
+    for axis in (radiationAxis, materialAxis):
+        axis.minorticks_on()
+        axis.tick_params(which="both", direction="in", top=True, right=True)
+    plt.show()
+
+
+if __name__ == "__main__":
+    MMSPlot1D()
+    MMSPlot1DTimeEvolution()

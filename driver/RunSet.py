@@ -1,21 +1,17 @@
+"""Batch driver: run a set of SM and/or VMG solves in parallel and save each to dataStash/."""
 import concurrent.futures
+import os
+import sys
 import time
 
-# Standard Imports
-import InfiniteMedium   
-from InfiniteMedium import InfiniteMedium as IM
-import Reeds
-from Reeds import Reeds as ReedsProblem
-import Base as Base
-import MMS
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+for _folder in ("src", "postprocessing"):
+    if os.path.join(_ROOT, _folder) not in sys.path:
+        sys.path.insert(0, os.path.join(_ROOT, _folder))
 
-# Variable Coordinate Imports
-import InfiniteVariable
-from InfiniteVariable import InfiniteVariable as IVM
-import Reeds
-from Reeds import Reeds as ReedsProblem
-import Base as Base
-import numpy as np
+import Base
+import MMS
+import Multigroup as MG
 
 
 def setRun(params, runName, config):
@@ -53,7 +49,7 @@ def setRun(params, runName, config):
         params.andersonDepth = 0
     params.useNumba = config.get("Use Numba", getattr(params, "useNumba", True))
     # Bimodal boundary: fraction of the boundary Planckian's energy put in the delta spike, and the
-    # spike's physical photon energy (None = centre of MG group freqNum//4)
+    # spike's physical photon energy (None = centre of SM group freqNum//4)
     params.deltaFraction = config.get("Delta Fraction", getattr(params, "deltaFraction", 0.5))
     params.deltaFrequency = config.get("Delta Frequency", getattr(params, "deltaFrequency", None))
     params.opacityModel = config.get("Opacity Model", getattr(params, "opacityModel", "nickel"))
@@ -73,41 +69,35 @@ def setRun(params, runName, config):
 
 
 # Single-run worker functions for parallel execution
-def run_single_standard(item):
+def run_single(method, item):
     runName, config = item
     constants = Base.Constants()
-    params = InfiniteMedium.Parameters()
-    params = setRun(params, runName, config)
-
+    params = setRun(MG.Parameters(method), runName, config)
     grid = Base.Grid(params, constants)
-    problem = IM(grid, constants, params)
+    problem = MG.Problem(grid, constants, params)
     solver = Base.Base(grid, problem, params, constants)
+    solver.solve()
+    return f"{runName}_{params.fileFolder}"
 
-    fullTensor, grid = solver.solve()
-    return f"{runName}_IM"
+
+def run_single_sm(item):
+    return run_single("SM", item)
 
 
-def run_single_variable(item):
-    runName, config = item
-    constants = Base.Constants()
-    params = InfiniteVariable.Parameters()
-    params = setRun(params, runName, config)
-
-    grid = Base.Grid(params, constants)
-    problem = IVM(grid, constants, params)
-    solver = Base.Base(grid, problem, params, constants)
-    fullTensor, grid = solver.solve()
-    return f"{runName}_IVM"
+def run_single_vmg(item):
+    return run_single("VMG", item)
 
 
 def ExecuteRunSetParallel(runSet):
-    methodChoice = input("Which method is desired? (IVM, IM, Both): ").strip().lower()
+    methodChoice = input("Which method is desired? (SM, VMG, Both): ").strip().lower()
 
     tasks = []
-    if methodChoice in ("im", "both"):
-        tasks.extend([(run_single_standard, item) for item in runSet.items()])
-    if methodChoice in ("ivm", "both"):
-        tasks.extend([(run_single_variable, item) for item in runSet.items()])
+    if methodChoice in ("sm", "both"):
+        tasks.extend([(run_single_sm, item) for item in runSet.items()])
+    if methodChoice in ("vmg", "both"):
+        tasks.extend([(run_single_vmg, item) for item in runSet.items()])
+    if not tasks:
+        print(f"Unknown method {methodChoice!r}: choose SM, VMG, or Both.")
 
     results = {}
 

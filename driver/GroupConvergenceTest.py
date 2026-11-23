@@ -1,4 +1,4 @@
-"""Group-convergence test: standard multigroup (MG) vs. variable-basis multigroup (VMG).
+"""Group-convergence test: standard multigroup (SM) vs. variable multigroup (VMG).
 
 Infinite, homogeneous medium (two cells, reflective on both sides) with a temperature-independent,
 frequency-dependent opacity sigma(nu) = SIGMA0 / (1 + (nu/NU0)^3). The radiation starts as a diluted
@@ -10,6 +10,13 @@ should approach the reference (down to the O(dt) backward-Euler floor) and there
 """
 import contextlib
 import io
+import os
+import sys
+
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+for _folder in ("src", "postprocessing"):
+    if os.path.join(_ROOT, _folder) not in sys.path:
+        sys.path.insert(0, os.path.join(_ROOT, _folder))
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -18,8 +25,7 @@ from scipy.integrate import solve_ivp
 from scipy.optimize import brentq
 
 import Base
-import InfiniteMedium
-import InfiniteVariable
+import Multigroup as MG
 import Logic as Log
 
 SIGMA0 = 10.0       # cm^-1
@@ -84,8 +90,7 @@ class Problem:
 
 
 def make_params(variable, G):
-    module = InfiniteVariable if variable else InfiniteMedium
-    p = module.Parameters(tol=1e-10, maxIters=200, nSteps=N_STEPS)
+    p = MG.Parameters("VMG" if variable else "SM", tol=1e-10, maxIters=200, nSteps=N_STEPS)
     p.sn = 2
     p.nBins = 2
     p.xMin, p.xMax = -1.0, 1.0
@@ -187,11 +192,11 @@ def main():
     ref_edges, ref = reference_solution()
     ref_phi_final = ref.y[:-1, -1]
 
-    results = {"MG": [], "VMG": []}
+    results = {"SM": [], "VMG": []}
     header = f"{'method':>5} {'G':>5} {'max|dT|':>10} {'spec err':>10} {'E drift':>10} {'T(x) spread':>12} {'unconv':>7}"
     print(header)
     for G in GROUP_SET:
-        for name, variable in (("MG", False), ("VMG", True)):
+        for name, variable in (("SM", False), ("VMG", True)):
             run = run_method(variable, G)
             T_ref = ref.sol(run["t"])[-1]
             run["Terr"] = np.max(np.abs(run["T"] - T_ref))
@@ -199,20 +204,20 @@ def main():
             results[name].append(run)
             print(f"{name:>5} {G:>5} {run['Terr']:10.3e} {run['specErr']:10.3e} "
                   f"{run['energyDrift']:10.3e} {run['nonuniform']:12.3e} {run['notConverged']:7d}")
-    for G, mg, vmg in zip(GROUP_SET, results["MG"], results["VMG"]):
-        print(f"G={G:4d}  max|T_MG - T_VMG| = {np.max(np.abs(mg['T'] - vmg['T'])):.3e}")
+    for G, sm, vmg in zip(GROUP_SET, results["SM"], results["VMG"]):
+        print(f"G={G:4d}  max|T_SM - T_VMG| = {np.max(np.abs(sm['T'] - vmg['T'])):.3e}")
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11, 4.5))
     t_fine = np.linspace(0.0, T_MAX, 500)
     ax1.plot(t_fine, ref.sol(t_fine)[-1], "k", lw=2, label="Reference")
-    for G, mg, vmg in zip(GROUP_SET, results["MG"], results["VMG"]):
-        line, = ax1.plot(mg["t"], mg["T"], lw=1, label=f"MG G={G}")
+    for G, sm, vmg in zip(GROUP_SET, results["SM"], results["VMG"]):
+        line, = ax1.plot(sm["t"], sm["T"], lw=1, label=f"SM G={G}")
         ax1.plot(vmg["t"], vmg["T"], "--", color=line.get_color(), lw=1, label=f"VMG G={G}")
     ax1.set_xlabel("t (ns)")
     ax1.set_ylabel("Material temperature (keV)")
     ax1.legend(fontsize=7, ncol=2)
 
-    for name, marker in (("MG", "o-"), ("VMG", "s--")):
+    for name, marker in (("SM", "o-"), ("VMG", "s--")):
         ax2.loglog(GROUP_SET, [r["Terr"] for r in results[name]], marker, label=f"{name}: max |T - T_ref|")
         ax2.loglog(GROUP_SET, [r["specErr"] for r in results[name]], marker, mfc="none",
                    label=f"{name}: final cumulative spectrum")
@@ -220,13 +225,13 @@ def main():
     ax2.set_ylabel("Error")
     ax2.legend(fontsize=8)
     fig.tight_layout()
-    fig.savefig("figures/GroupConvergence.pdf")
+    fig.savefig(os.path.join(Base.FIGURE_DIR, "GroupConvergence.pdf"))
     plt.show()
     return results
 
 
 def equilibrium_plot(G=128, t_max=50.0, dt_max=0.1):
-    """Material and radiation temperatures relaxing to equilibrium for MG and VMG vs. the reference."""
+    """Material and radiation temperatures relaxing to equilibrium for SM and VMG vs. the reference."""
     time_set = np.concatenate([[0.0], np.geomspace(1e-5, 1.0, 200), np.arange(1.0 + dt_max, t_max + 1e-9, dt_max)])
     _, ref = reference_solution(t_max)
     E0 = CV * T_MAT0 + np.sum(ref.y[:-1, 0]) / const.c
@@ -235,13 +240,13 @@ def equilibrium_plot(G=128, t_max=50.0, dt_max=0.1):
     t_ref = np.geomspace(1e-5, t_max, 1000)
     y_ref = ref.sol(t_ref)
     curves = {"Reference": (t_ref, y_ref[-1], (np.sum(y_ref[:-1], axis=0) / (const.a * const.c)) ** 0.25)}
-    for name, variable in (("MG", False), ("VMG", True)):
+    for name, variable in (("SM", False), ("VMG", True)):
         print(f"Running {name} with {G} groups...")
         run = run_method(variable, G, time_set)
         curves[name] = (run["t"][1:], run["T"][1:], run["Trad"][1:])
 
     styles = {"Reference": dict(lw=4, alpha=0.3, ls="-"),
-              "MG": dict(lw=1.2, ls="-"),
+              "SM": dict(lw=1.2, ls="-"),
               "VMG": dict(lw=1.2, ls="--")}
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(7, 8), sharex=True)
     for name, (t, Tm, Tr) in curves.items():
@@ -257,7 +262,7 @@ def equilibrium_plot(G=128, t_max=50.0, dt_max=0.1):
     ax2.set_ylim(1e-8, 1e-1)
     ax2.legend(fontsize=8, ncol=2)
     fig.tight_layout()
-    fig.savefig(f"figures/Equilibrium_{G}groups.pdf")
+    fig.savefig(os.path.join(Base.FIGURE_DIR, f"Equilibrium_{G}groups.pdf"))
     plt.show()
     return curves, T_eq
 

@@ -1,14 +1,5 @@
-import Marshak
-from Marshak import Marshak as MarProblem
-import InfiniteMedium   
-from InfiniteMedium import InfiniteMedium as IM
-import InfiniteVariable
-from InfiniteVariable import InfiniteVariable as IV
-import Reeds
-from Reeds import Reeds as ReedsProblem
-import Base as Base
+"""Compare the group-integrated SM Planckian with the VMG (variable-basis) Planckian, and their ranks."""
 import numpy as np
-import Visualize as Vis
 import matplotlib.pyplot as plt
 
 c = 29.9792458 # speed of light in cm/ns

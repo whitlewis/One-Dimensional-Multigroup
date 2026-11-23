@@ -1,9 +1,17 @@
+"""0-D (infinite, homogeneous) SM reference: the multigroup radiation/material ODEs solved with solve_ivp."""
+import os
+import sys
+
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+for _folder in ("src", "postprocessing"):
+    if os.path.join(_ROOT, _folder) not in sys.path:
+        sys.path.insert(0, os.path.join(_ROOT, _folder))
+
 import numpy as np
-from numba import njit, jit
 import matplotlib.pyplot as plt
 from scipy.integrate import solve_ivp
 
-import Base as Base
+import Base
 
 def simpson(integrand, lo, hi):
     h = (hi - lo) / 3
@@ -141,7 +149,7 @@ def sigma_aVCM(freqGrid, T):
     return out
 
 
-def IMProblem(t, y, freqGrid, sigmaFunction, inputDict):
+def SMProblem(t, y, freqGrid, sigmaFunction, inputDict):
     const = Base.Constants
 
     T = y[-1]
@@ -159,7 +167,7 @@ def IMProblem(t, y, freqGrid, sigmaFunction, inputDict):
 
 
 
-def IMSolve(inputDict):
+def SMSolve(inputDict):
     const = Base.Constants
     T = inputDict["initialTemperature"]
     Trad = inputDict["radiationTemperature"]
@@ -181,7 +189,7 @@ def IMSolve(inputDict):
 
     y0[:-1] = colorInit
     y0[-1] = T
-    solve_Clark = lambda t, y: IMProblem(t, y, freqGrid, sigma_a, inputDict)
+    solve_Clark = lambda t, y: SMProblem(t, y, freqGrid, sigma_a, inputDict)
     print("Starting Solve")
     solution = solve_ivp(solve_Clark, t_span, y0, method='BDF', t_eval=t_eval, rtol=1e-6,
     atol=1e-10)
@@ -226,7 +234,7 @@ def plotRad():
     }
 
     const = Base.Constants
-    solution = IMSolve(inputDictTest)
+    solution = SMSolve(inputDictTest)
 
     t = solution.t
     T = solution.y[-1]
@@ -254,8 +262,8 @@ def plotRad():
 # T = .5
 # uGrid = freqGrid
 # VCM = sigma_aVCM(freqGrid, T)
-# MG = sigma_a(uGrid, T, inputDict)
-# plt.plot(freqPlot, MG, label="MG")
+# SM = sigma_a(uGrid, T, inputDict)
+# plt.plot(freqPlot, SM, label="SM")
 # plt.plot(freqPlot, VCM, label="VMG", linestyle="--")
 # plt.legend(fontsize=12)
 # plt.xlim(0.1, 4)

@@ -1,13 +1,19 @@
-"""Test C: closed slab relaxing with a smooth material-temperature gradient, MG vs. VMG.
+"""Test C: closed slab relaxing with a smooth material-temperature gradient, SM vs. VMG.
 
 Reflective walls on x in [-1, 1], material T0(x) = 0.4 + 0.1 sin(pi x / 2), spatially uniform dilute Planckian
 radiation, and the opacity/C_v of GroupConvergenceTest. All runs share the spatial mesh, angular quadrature, and
-time steps; the reference is MG with many groups. Unlike the infinite-medium test, VMG's mu*dT/dx stretching term
+time steps; the reference is SM with many groups. Unlike the infinite-medium test, VMG's mu*dT/dx stretching term
 and the mismatch of u-grids between neighboring cells are active here.
 """
 import contextlib
 import io
 import os
+import sys
+
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+for _folder in ("src", "postprocessing"):
+    if os.path.join(_ROOT, _folder) not in sys.path:
+        sys.path.insert(0, os.path.join(_ROOT, _folder))
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -21,7 +27,7 @@ T_MAX = 0.5
 N_STEPS = 200
 GROUP_SET = [8, 16, 32, 64, 128]
 N_REF_GROUPS = 512
-REF_FILE = f"dataStash/GradientRelaxation_MG{N_REF_GROUPS}_{N_BINS}cells.npz"
+REF_FILE = os.path.join(Base.DATA_DIR, f"GradientRelaxation_SM{N_REF_GROUPS}_{N_BINS}cells.npz")
 
 
 def initial_temperature(x):
@@ -73,7 +79,7 @@ def run(variable, G, n_bins=N_BINS):
 def reference():
     if os.path.exists(REF_FILE):
         return dict(np.load(REF_FILE))
-    print(f"Computing MG reference with {N_REF_GROUPS} groups (cached to {REF_FILE})...")
+    print(f"Computing SM reference with {N_REF_GROUPS} groups (cached to {REF_FILE})...")
     ref = run(False, N_REF_GROUPS)
     os.makedirs(os.path.dirname(REF_FILE), exist_ok=True)
     np.savez(REF_FILE, **ref)
@@ -93,10 +99,10 @@ def spectrum_error(run_out, ref):
 
 def main(plot_groups=16):
     ref = reference()
-    results = {"MG": {}, "VMG": {}}
+    results = {"SM": {}, "VMG": {}}
     print(f"{'method':>5} {'G':>5} {'max|dTm|':>10} {'max|dTr|':>10} {'spec err':>10} {'E drift':>10} {'unconv':>7}")
     for G in GROUP_SET:
-        for name, variable in (("MG", False), ("VMG", True)):
+        for name, variable in (("SM", False), ("VMG", True)):
             r = run(variable, G)
             r["Terr"] = np.max(np.abs(r["T"] - ref["T"]))
             r["Trerr"] = np.max(np.abs(r["Trad"] - ref["Trad"]))
@@ -105,7 +111,7 @@ def main(plot_groups=16):
             print(f"{name:>5} {G:>5} {r['Terr']:10.3e} {r['Trerr']:10.3e} {r['specErr']:10.3e} "
                   f"{r['energyDrift']:10.3e} {r['notConverged']:7d}")
     for G in GROUP_SET:
-        print(f"G={G:4d}  max|T_MG - T_VMG| = {np.max(np.abs(results['MG'][G]['T'] - results['VMG'][G]['T'])):.3e}")
+        print(f"G={G:4d}  max|T_SM - T_VMG| = {np.max(np.abs(results['SM'][G]['T'] - results['VMG'][G]['T'])):.3e}")
 
     fig, axes = plt.subplots(1, 3, figsize=(15, 4.5))
     t = ref["t"]
@@ -114,15 +120,15 @@ def main(plot_groups=16):
         for k, n in enumerate(snap):
             color = f"C{k}"
             ax.plot(ref["x"], ref[key][n], color=color, lw=4, alpha=0.3,
-                    label=f"t = {t[n]:.2g} ns, MG {N_REF_GROUPS}")
-            ax.plot(ref["x"], results["MG"][plot_groups][key][n], color=color, lw=1, label=f"MG {plot_groups}")
+                    label=f"t = {t[n]:.2g} ns, SM {N_REF_GROUPS}")
+            ax.plot(ref["x"], results["SM"][plot_groups][key][n], color=color, lw=1, label=f"SM {plot_groups}")
             ax.plot(ref["x"], results["VMG"][plot_groups][key][n], color=color, lw=1, ls="--",
                     label=f"VMG {plot_groups}")
         ax.set_xlabel("x (cm)")
         ax.set_ylabel(f"{label} temperature (keV)")
     axes[0].legend(fontsize=7, ncol=2)
 
-    for name, marker in (("MG", "o-"), ("VMG", "s--")):
+    for name, marker in (("SM", "o-"), ("VMG", "s--")):
         axes[2].loglog(GROUP_SET, [results[name][G]["Terr"] for G in GROUP_SET], marker,
                        label=f"{name}: max $|T_m - T_{{ref}}|$")
         axes[2].loglog(GROUP_SET, [results[name][G]["Trerr"] for G in GROUP_SET], marker, mfc="none",
@@ -131,7 +137,7 @@ def main(plot_groups=16):
     axes[2].set_ylabel("Error vs. reference (keV)")
     axes[2].legend(fontsize=8)
     fig.tight_layout()
-    fig.savefig("figures/GradientRelaxation.pdf")
+    fig.savefig(os.path.join(Base.FIGURE_DIR, "GradientRelaxation.pdf"))
     plt.show()
     return results, ref
 

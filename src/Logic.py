@@ -1,6 +1,5 @@
 import numpy as np
 np.seterr(divide='raise', invalid='raise', over='raise')
-import matplotlib.pyplot as plt
 import MMS
 
 # Optional numba kernels for the transport sweeps. Set params.useNumba = False to force the
@@ -20,9 +19,9 @@ BOUNDARY_TYPES = ["Infinite", "Reflective", "Vacuum", "None", "Delta", "Planckia
 
 
 def deltaPhysicalFrequency(params, grid):
-    """Physical photon energy of the bimodal delta spike (same units as the MG frequency grid).
+    """Physical photon energy of the bimodal delta spike (same units as the SM frequency grid).
 
-    params.deltaFrequency sets it; the default is the centre of group freqNum//4 of the MG grid
+    params.deltaFrequency sets it; the default is the centre of group freqNum//4 of the SM grid
     (the group the "Delta" boundary uses). VMG grids divided by T0 (matchNu) are mapped back.
     """
     value = getattr(params, "deltaFrequency", None)
@@ -312,113 +311,7 @@ def manufacturedSourceTerms(params, grid, material, mu, w, frequencyScale=None):
     )
 
 
-# Non coupled equations
-class Equations:
-
-    def __init__(self, params, grid, material, constants):
-        # Add passed classes
-        self.params = params
-        self.grid = grid
-        self.material = material
-        self.const = constants
-
-        # Init tensor for calculation
-        self.fullTens = grid.fullTensor.copy()  # shape: (freqNum, sn, nBins)
-        self.mu = self.grid.muSet
-
-        # Init parameters
-        self.freq = params.freqNum
-        self.sn = params.sn
-        self.dx = grid.dx
-        self.time_step = None
-        self.timeTerm = 0.0
-
-
-    # Define initial conditions here
-    def initialCondition(self):
-        return np.zeros_like(self.grid.fullTensor)
-    
-    # Helper function to define initial conditions
-    def applyInitialConditions(self):
-        self.grid.fullTensor = self.initialCondition()
-        self.fullTens = self.grid.fullTensor.copy()
-        self.psi_old = self.grid.fullTensor.copy()
-
-    # Possible time varying Boundary condition
-    def boundaryCondition(self, side, time):
-        return np.zeros((self.freq, self.sn))
-
-    # Time term from discretization
-    def timeAbsorption(self):
-        if not self.params.transient:
-            return 0.0
-        return 1.0 / (self.const.c * self.grid.dt[self.grid.timeStep])
-    
-    def getPhi(self):
-        # Integrate over angles to get scalar flux
-        fullTensorPhi = 4*np.pi*np.sum(self.grid.w[:, None] * self.grid.fullTensor, axis=1)  # shape: (freqNum, nBins)
-        return fullTensorPhi
-
-    # Start the step
-    def startTimeStep(self):
-        if self.time_step == self.grid.timeStep:
-            self.grid.fullTensOld = self.grid.fullTensor.copy()
-            return
-
-        self.time_step = self.grid.timeStep
-        self.psi_old = self.grid.fullTensor.copy()
-        self.fullTens = self.grid.fullTensor.copy()
-        self.timeTerm = self.timeAbsorption()
-
-    def radiationSweep(self):
-        # Initialize time set assets
-        self.startTimeStep()
-
-        # Add time term to sigma* and Q*
-        sig_tSet = self.material.sig_tAngle + self.timeTerm
-        rhsfull = self.material.source(self.fullTens) + self.timeTerm * self.psi_old # shape (freq, sn, nBins)
-
-        # Set up Boundary conditions at the time step (allows for variable boundary conditions)
-        time = self.grid.timeSet[self.grid.timeStep]
-        phibl = self.boundaryCondition("left", time)
-        phibr = self.boundaryCondition("right", time)
-
-        # Initialize the next tensor
-        newFull = np.zeros_like(self.fullTens)
-
-        # Loop through frequency
-        for f in range(self.freq):
-            rhs = rhsfull[f]
-            phi = self.fullTens[f]
-            new_phi = self.fullTens[f]
-            sig_t = sig_tSet[f]
-
-            # Loop through Angles
-            for m in range(self.sn):
-                # Upwind 
-                if self.mu[m] > 0:
-                    # Forward sweep
-                    new_phi[m, 0] = (rhs[m, 0] + (self.mu[m] / self.grid.dx) * phibl[f, m]) / (self.mu[m] / self.grid.dx + sig_t[0])
-                    for i in range(self.params.nBins-1):
-                        new_phi[m, i + 1] = (
-                            rhs[m, i+1] + (self.mu[m] / self.grid.dx) * new_phi[m, i]
-                        ) / (self.mu[m] / self.grid.dx + sig_t[i+1])
-
-                else:
-                    # Backward sweep
-                    new_phi[m, -1] = (rhs[m, -1] + (abs(self.mu[m]) / self.grid.dx) * phibr[f, m]) / (abs(self.mu[m]) / self.grid.dx + sig_t[-1])
-                    for i in range(self.params.nBins - 1, 0, -1):
-                        new_phi[m, i-1] = (
-                            rhs[m, i-1] + (abs(self.mu[m]) / self.grid.dx) * new_phi[m, i]
-                        ) / (abs(self.mu[m]) / self.grid.dx + sig_t[i-1])
-            # for each group update the tensor
-            newFull[f] = new_phi
-
-        # Set fullTensor to the updated Tensor
-        self.grid.fullTensor = newFull.copy()
-
-
-
+# Standard multigroup (SM): fixed physical frequency groups
 class CoupledEquations:
     def __init__(self, params, grid, material, constants):
         # Init classes
@@ -833,6 +726,7 @@ class CoupledEquations:
 
 
 
+# Variable multigroup (VMG): groups in u = nu / scale(T), moving with the local temperature
 class MovingMeshEquations:
     def __init__(self, params, grid, material, constants):
         # Init classes
@@ -870,7 +764,7 @@ class MovingMeshEquations:
             reference = np.maximum(
                 self.frequencyReferenceTemperature, 1e-12
             )
-            # At the reference state, scaled VMG edges equal the MG physical edges.
+            # At the reference state, scaled VMG edges equal the SM physical edges.
             return self.params.initialTemperature * temperature / reference
         return temperature
 
@@ -1105,7 +999,7 @@ class MovingMeshEquations:
 
     # Bimodal incoming spectrum in the boundary cell's coordinates: the spike sits at a fixed physical
     # energy nu_delta, i.e. in the group containing u = nu_delta / scale, so it moves through the
-    # VMG groups as the boundary cell's scale changes (MG keeps it in a fixed group).
+    # VMG groups as the boundary cell's scale changes (SM keeps it in a fixed group).
     # "Delta" is the same with all of the energy in the spike.
     def bimodalBoundary(self, boundaryTemperature, cellScale, kind="Bimodal"):
         planckSpectrum = self.planckBarInit(boundaryTemperature, cellScale)[:, 0]
@@ -1417,16 +1311,12 @@ class Logic:
         self.material = material
         
     
-        if not self.params.materialCoupled:
-            self.equations = Equations(params, grid, material, constants)
-
-        elif self.params.materialCoupled and not self.params.movingCoordinates:
-            self.equations = CoupledEquations(params, grid, material, constants)
-            self.materialEquation = self.equations.materialEquation  # Expose material equation for coupled problems
-        
-        elif self.params.materialCoupled and self.params.movingCoordinates:
+        # SM (fixed groups) or VMG (moving groups)
+        if self.params.movingCoordinates:
             self.equations = MovingMeshEquations(params, grid, material, constants)
-            self.materialEquation = self.equations.materialEquation  # Expose material equation for coupled problems with moving mesh
+        else:
+            self.equations = CoupledEquations(params, grid, material, constants)
+        self.materialEquation = self.equations.materialEquation
 
     def applyInitialConditions(self):
         self.equations.applyInitialConditions()

@@ -1,24 +1,75 @@
-from pdb import main
+"""Load saved SM/VMG results (.h5 in dataStash/) and make the standard comparison plots.
+
+    python postprocessing/AnalyzeData.py     # pick files in a dialog
+"""
+import os
+import sys
+
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+for _folder in ("src", "postprocessing"):
+    if os.path.join(_ROOT, _folder) not in sys.path:
+        sys.path.insert(0, os.path.join(_ROOT, _folder))
+
 import tkinter as tk
 from tkinter import messagebox
 from tkinter import filedialog
 import h5py
-import Visualize as Vis
-import Base as Base
-from Base import Constants as const
-import os
 import numpy as np
+
+import Base
+from Base import Constants as const
+import Visualize as Vis
 
 def fileLoad():
         root = tk.Tk()
         root.withdraw()
         filepaths = filedialog.askopenfilenames(
             title="Select HDF5 Results File",
-            initialdir="dataStash",
+            initialdir=Base.DATA_DIR,
             filetypes=[("HDF5 Files", "*.h5 *.hdf5"), ("All Files", "*.*")],
         )
         root.destroy()
         return filepaths
+
+def plotLabel(movingCoordinates, groups, fileName):
+    methodName = "VMG" if movingCoordinates else "SM"
+    groupLabel = f" ({groups} groups)" if groups is not None else ""
+    return f"{methodName}{groupLabel} | {fileName}"
+
+
+def resultFromGrid(grid, params, fileName=None):
+    """Package an in-memory solve like one loaded .h5 result: (data, params, fileName, folder)."""
+    fileName = fileName or getattr(params, "runName", "Run")
+    data = {
+        "fullTensorPhi": grid.fullTensorPhiTime,
+        "temperatureSet": grid.temperatureSet,
+        "timeSet": grid.timeSet,
+    }
+    runParams = {
+        "spaceGrid": grid.spaceGrid,
+        "spaceMid": grid.spaceMid,
+        "freqGrid": grid.freqGrid,
+        "dt": grid.dt,
+        "dx": grid.dx,
+        "nBins": grid.nBins,
+        "nSteps": params.nSteps,
+        "sn": params.sn,
+        "maxFreq": params.maxFreq,
+        "runLabel": getattr(params, "runLabel", "Run"),
+        "groups": params.freqNum,
+        "solveType": params.fileFolder,
+        "MMSCompare": bool(getattr(params, "MMSCompare", False)),
+        "mmsT0": getattr(params, "mmsT0", None),
+        "mmsSigmaX": getattr(params, "mmsSigmaX", None),
+        "mmsTau": getattr(params, "mmsTau", None),
+        "mmsTemperatureOffset": getattr(params, "mmsTemperatureOffset", 0.4),
+        "boundaryLeft": params.boundaryLeft,
+        "boundaryRight": params.boundaryRight,
+        "movingCoordinates": bool(params.movingCoordinates),
+        "plotLabel": plotLabel(params.movingCoordinates, params.freqNum, fileName),
+    }
+    return data, runParams, fileName, params.fileFolder
+
 
 def loadResults(filepaths=None):
     """Loads datasets and grid/solver metadata from a saved HDF5 results file."""
@@ -76,11 +127,10 @@ def loadResults(filepaths=None):
             folder = os.path.basename(os.path.dirname(filepath))
             nSteps = f.attrs.get("nSteps", None)
             groups = f.attrs.get("groups", None)
+            # Older VMG files predate the movingCoordinates attribute; their folder identifies them
             movingCoordinates = bool(
-                f.attrs.get("movingCoordinates", False)
+                f.attrs.get("movingCoordinates", folder.startswith("VMG"))
             )
-            methodName = "VMG" if movingCoordinates else "MG"
-            groupLabel = f" ({groups} groups)" if groups is not None else ""
             params = {
             "spaceGrid": spaceGrid,
             "spaceMid": spaceMid,
@@ -104,7 +154,7 @@ def loadResults(filepaths=None):
             "boundaryLeft": f.attrs.get("boundaryLeft", ""),
             "boundaryRight": f.attrs.get("boundaryRight", ""),
             "movingCoordinates": movingCoordinates,
-            "plotLabel": f"{methodName}{groupLabel} | {fileName}",
+            "plotLabel": plotLabel(movingCoordinates, groups, fileName),
             }
             all_data.append(data)
             all_params.append(params)
@@ -116,9 +166,16 @@ def loadResults(filepaths=None):
     return all_data, all_params, fileSet, folderSet
 
 def plotSet(filepaths=None):
+    """Load results (file dialog if no paths are given) and plot them."""
     data, params, fileSet, folderSet = loadResults(filepaths)
     if data is None:
         return
+    plotResults(data, params, fileSet, folderSet)
+
+
+def plotResults(data, params, fileSet, folderSet):
+    """MMS runs: snapshots, single-cell temperature, and error vs. the exact MMS.
+    Other runs: snapshots, single-cell temperature, space-time map, and spectra."""
     mmsResults = [
         (runData, runParams, runParams["plotLabel"])
         for runData, runParams in zip(data, params)
