@@ -48,7 +48,7 @@ Several errors in the write-up (*Multigroup First Crack*) do **not** appear in t
 
 **Fix:** The solution is now stored in slot `index+1`. `checkEnergyConservation` and `Visualize.plotFinalFlux` were adjusted to match.
 
-> **Data in `dataStash/` was produced before these fixes.** Its radiation history is shifted by one step and it may contain unconverged steps. Comparisons built from it should be regenerated.
+> **Data in `datastash/` was produced before these fixes.** Its radiation history is shifted by one step and it may contain unconverged steps. Comparisons built from it should be regenerated.
 
 ### 5. Material update was an unlinearized fixed-point iteration (MG and VMG)
 
@@ -205,7 +205,7 @@ This test exercises what the infinite medium cannot: VMG's $\mu\,\partial_x T$ t
 - 200 log-spaced steps to 0.5 ns.
 
 **Method**
-- The reference is MG with 512 groups on the same mesh, angular quadrature, and time steps. It is cached in `dataStash/`. Differences from it are therefore due to the treatment of frequency, plus VMG's different spatial and time discretization of the grid-motion terms.
+- The reference is MG with 512 groups on the same mesh, angular quadrature, and time steps. It is cached in `datastash/`. Differences from it are therefore due to the treatment of frequency, plus VMG's different spatial and time discretization of the grid-motion terms.
 - Run with `python driver/GradientRelaxationTest.py` (about 4.5 minutes including the reference).
 
 **Results** (after fixes 1–6)

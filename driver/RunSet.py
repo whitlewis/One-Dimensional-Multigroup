@@ -1,4 +1,4 @@
-"""Batch driver: run a set of SM and/or VMG solves in parallel and save each to dataStash/."""
+"""Batch driver: run a set of SM and/or VMG solves in parallel and save each to datastash/."""
 import concurrent.futures
 import os
 import sys

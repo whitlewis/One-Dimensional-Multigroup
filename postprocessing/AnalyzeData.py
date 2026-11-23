@@ -1,4 +1,4 @@
-"""Load saved SM/VMG results (.h5 in dataStash/) and make the standard comparison plots.
+"""Load saved SM/VMG results (.h5 in datastash/) and make the standard comparison plots.
 
     python postprocessing/AnalyzeData.py     # pick files in a dialog
 """
@@ -129,7 +129,7 @@ def loadResults(filepaths=None):
             groups = f.attrs.get("groups", None)
             # Older VMG files predate the movingCoordinates attribute; their folder identifies them
             movingCoordinates = bool(
-                f.attrs.get("movingCoordinates", folder.startswith("VMG"))
+                f.attrs.get("movingCoordinates", folder.lower().startswith("vmg"))
             )
             params = {
             "spaceGrid": spaceGrid,

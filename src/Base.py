@@ -7,7 +7,7 @@ import os
 
 # Project folders (src/ lives one level below the project root), independent of the working directory
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DATA_DIR = os.path.join(PROJECT_ROOT, "dataStash")
+DATA_DIR = os.path.join(PROJECT_ROOT, "datastash")
 FIGURE_DIR = os.path.join(PROJECT_ROOT, "figures")
 
 
@@ -419,7 +419,7 @@ class Base:
     def saveResults(self):
         filePrefix = self.params.fileFolder
         runName = self.params.runName
-        folder = os.path.join(DATA_DIR, filePrefix)
+        folder = os.path.join(DATA_DIR, filePrefix.lower())  # folders are lowercase: sm, vmg, smfailed, ...
         os.makedirs(folder, exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filepath = os.path.join(folder, f"{runName}_{self.params.nSteps}_Steps_{self.params.freqNum}_groups{timestamp}.h5")

@@ -80,7 +80,7 @@ class Parameters:
         self.useNumba = True           # numba sweeps (False = numpy/Python sweeps, identical results)
         self.runName = "Run"
         self.runLabel = "Run"
-        self.fileFolder = method       # results go to dataStash/SM or dataStash/VMG
+        self.fileFolder = method       # results go to datastash/sm or datastash/vmg
         self.saveResults = False       # False asks after the simulation
 
 

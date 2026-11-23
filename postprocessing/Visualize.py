@@ -59,7 +59,7 @@ plt.rcParams.update({
 
 def methodName(params, folder=None):
     """'VMG' or 'SM' for a loaded result (older files without the flag fall back to their folder)."""
-    if params.get("movingCoordinates") or (folder or "").startswith("VMG"):
+    if params.get("movingCoordinates") or (folder or "").lower().startswith("vmg"):
         return "VMG"
     return "SM"
 
