@@ -64,9 +64,9 @@ def methodName(params, folder=None):
     return "SM"
 
 
-def figurePath(name):
-    os.makedirs(Base.FIGURE_DIR, exist_ok=True)
-    return os.path.join(Base.FIGURE_DIR, name)
+def figurePath(category, name):
+    """figures/<category>/<name>; see Base.figurePath."""
+    return Base.figurePath(category, name)
 
 
 # Helpful equations for plot ref (from Logic.py)
@@ -109,7 +109,7 @@ def plotPhiStepFreq(grid, params, step, label="Initial Scalar Flux  accross Freq
     plt.legend()
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = figurePath(f"{label}_{timestamp}.pdf")
+    filename = figurePath("spectra", f"{label}_{timestamp}.pdf")
     # plt.savefig(filename)
     plt.show()
 
@@ -135,7 +135,7 @@ def plotTemperature(grid):
     plt.legend()
     plt.grid(True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = figurePath(f"Temperature_vs_Time_{timestamp}.pdf")
+    filename = figurePath("temperature", f"Temperature_vs_Time_{timestamp}.pdf")
     plt.savefig(filename)
     plt.show()
 
@@ -226,7 +226,7 @@ def plotTemperatureLoaded(dataSet, paramsSet, fileSet, folderSet, const):
         loc="best"
     )
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = figurePath(f"TempPlot_{timestamp}.pdf")
+    filename = figurePath("temperature", f"TempPlot_{timestamp}.pdf")
     plt.savefig(filename)
     plt.show()
 
@@ -870,7 +870,7 @@ def analyzeRank(dataSet, time_set, paramsSet, fileSet, folderSet, time_indices=N
         saveName = params['runLabel']
         plt.tight_layout()
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = figurePath(f"{saveName}_{timestamp}.pdf")
+        filename = figurePath("rank", f"{saveName}_{timestamp}.pdf")
         plt.savefig(filename)
         plt.show()
 

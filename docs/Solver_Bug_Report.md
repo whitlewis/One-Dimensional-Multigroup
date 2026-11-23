@@ -181,7 +181,7 @@ These are the results after fixes 1–4. Re-running after fixes 5–6 gives the 
 - VMG spectra converge only at first order, as expected from first-order upwinding of the transfer between $u$-groups.
 - Energy is conserved to the iteration tolerance, and the infinite medium stays uniform.
 
-![Group convergence](../figures/GroupConvergence.png)
+![Group convergence](../figures/groupconvergence/GroupConvergence.png)
 
 ### Relaxation to equilibrium (128 groups)
 
@@ -192,7 +192,7 @@ These are the results after fixes 1–4. Re-running after fixes 5–6 gives the 
 - Both reach the equilibrium temperature $T_{eq} = 0.43612$ keV to within about $10^{-6}$ keV.
 - Full equilibration takes about 50 ns because the high-frequency tail is only weakly absorbed ($\sigma\sim10^{-3}$ cm$^{-1}$).
 
-![Equilibrium, 128 groups](../figures/Equilibrium_128groups.png)
+![Equilibrium, 128 groups](../figures/groupconvergence/Equilibrium_128groups.png)
 
 ## Verification test 2 (Test C): `GradientRelaxationTest.py` (1-D slab with a temperature gradient)
 
@@ -221,4 +221,4 @@ This test exercises what the infinite medium cannot: VMG's $\mu\,\partial_x T$ t
 - MG converges at second order and conserves energy.
 - VMG is more accurate than MG for $G\le 32$. Beyond that it converges at only about first order, and it loses energy through the top of the $u$-grid (issue 12).
 
-![Gradient relaxation](../figures/GradientRelaxation.png)
+![Gradient relaxation](../figures/gradientrelaxation/GradientRelaxation.png)

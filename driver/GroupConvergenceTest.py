@@ -225,7 +225,7 @@ def main():
     ax2.set_ylabel("Error")
     ax2.legend(fontsize=8)
     fig.tight_layout()
-    fig.savefig(os.path.join(Base.FIGURE_DIR, "GroupConvergence.pdf"))
+    fig.savefig(Base.figurePath("groupconvergence", "GroupConvergence.pdf"))
     plt.show()
     return results
 
@@ -262,7 +262,7 @@ def equilibrium_plot(G=128, t_max=50.0, dt_max=0.1):
     ax2.set_ylim(1e-8, 1e-1)
     ax2.legend(fontsize=8, ncol=2)
     fig.tight_layout()
-    fig.savefig(os.path.join(Base.FIGURE_DIR, f"Equilibrium_{G}groups.pdf"))
+    fig.savefig(Base.figurePath("groupconvergence", f"Equilibrium_{G}groups.pdf"))
     plt.show()
     return curves, T_eq
 

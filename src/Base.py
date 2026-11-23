@@ -11,6 +11,18 @@ DATA_DIR = os.path.join(PROJECT_ROOT, "datastash")
 FIGURE_DIR = os.path.join(PROJECT_ROOT, "figures")
 
 
+def figureDir(category):
+    """Subfolder of figures/ for one kind of plot (e.g. "temperature", "rank"), created if missing."""
+    folder = os.path.join(FIGURE_DIR, category)
+    os.makedirs(folder, exist_ok=True)
+    return folder
+
+
+def figurePath(category, name):
+    """Full path for a figure file inside figures/<category>/."""
+    return os.path.join(figureDir(category), name)
+
+
 class Constants:
     # all physical constants
     c = 29.9792458 # speed of light in cm/ns

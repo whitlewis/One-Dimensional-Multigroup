@@ -137,7 +137,7 @@ def main(plot_groups=16):
     axes[2].set_ylabel("Error vs. reference (keV)")
     axes[2].legend(fontsize=8)
     fig.tight_layout()
-    fig.savefig(os.path.join(Base.FIGURE_DIR, "GradientRelaxation.pdf"))
+    fig.savefig(Base.figurePath("gradientrelaxation", "GradientRelaxation.pdf"))
     plt.show()
     return results, ref
 
