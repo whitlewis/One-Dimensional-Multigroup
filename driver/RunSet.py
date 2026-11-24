@@ -1,5 +1,15 @@
-"""Batch driver: run a set of SM and/or VMG solves in parallel and save each to datastash/."""
+"""Batch driver: run every combination of a parameter sweep with SM and/or VMG, in parallel.
+
+    python driver/RunSet.py            # asks which method(s)
+    python driver/RunSet.py both       # or: sm, vmg
+
+Edit RUN_SET, BASE and SWEEP below. Keys are Multigroup.Parameters attribute names. Each run is
+saved to datastash/<RUN_SET>/<sm|vmg>/<runName>_<timestamp>.h5, where runName lists the swept
+values (e.g. G100_Nt4000_Nx200_tol1e-14), and every parameter is stored in the file.
+Analyse with postprocessing/AnalyzeData.py --set <RUN_SET> or MMSError.py --set <RUN_SET>.
+"""
 import concurrent.futures
+import itertools
 import os
 import sys
 import time
@@ -13,207 +23,121 @@ import Base
 import MMS
 import Multigroup as MG
 
+# --- Run set -------------------------------------------------------------------------------------
+RUN_SET = "MMSRuns"   # folder under datastash/
 
-def setRun(params, runName, config):
+BASE = dict(
+    runLabel="MMSErrorSweep",
+    # Space and angle
+    xMin=-1, xMax=1, nBins=50, sn=8,
+    # Frequency groups
+    freqNum=100, groupSpace="log", minFreq=1e-4, maxFreq=45, infFreq=125,
+    matchNu=True,                     # VMG: u edges match the SM edges at the initial temperature
+    # Time stepping
+    nSteps=1000, timeMax=0.5, timeScale="log",
+    splitStepsBool=False, stepSplit=0.88, timeSplit=0.15,   # optional log-then-linear steps
+    # Initial state
+    initialTemperature=0.1, radiationTemperature=0.1, colorTemperature=0.1,
+    # Boundaries: Reflective, Vacuum, Planckian, Bimodal, Delta, ...
+    boundaryLeft="Reflective", boundaryRight="Reflective",
+    setLeftBoundaryTemp=0.8, setRightBoundaryTemp=0.8,
+    deltaFraction=0.5,                # Bimodal: fraction of the energy in the delta spike
+    deltaFrequency=None,              # Bimodal: spike photon energy (None = centre of SM group freqNum//4)
+    # Solver
+    tol=1e-14,
+    extrapolateTemp=True,
+    andersonDepth=5,                  # 0 = plain fixed-point iteration
+    useNumba=True,                    # False = numpy sweeps (identical results, slower)
+    opacityModel="nickel",            # "nickel" (TOPS table) or "test" (1/(2T))
+    # Manufactured solution (MMSCompare=True adds the MMS sources in both methods)
+    MMSCompare=True,
+    mmsT0=1.0, mmsSigmaX=1.0, mmsTau=2.0,
+    mmsTemperatureOffset=MMS.DEFAULT_TEMPERATURE_OFFSET,
+)
+
+SWEEP = dict(              # every combination is run
+    nSteps=[500, 1000, 1500, 2000, 3000, 4000, 8000],
+    freqNum=[10, 25, 50, 100, 150],
+    tol=[1e-14],
+    nBins=[50, 100, 200, 400],
+)
+
+# Short names used in run names (others use the parameter name)
+SHORT_NAMES = {"freqNum": "G", "nSteps": "Nt", "nBins": "Nx", "sn": "S", "timeMax": "tmax"}
+
+# Parameters that are not in Multigroup.Parameters but are read by the solver
+EXTRA_KEYS = {"deltaFraction", "deltaFrequency", "MMSCompare", "mmsT0", "mmsSigmaX", "mmsTau",
+              "mmsTemperatureOffset"}
+
+
+# --- Building and running ------------------------------------------------------------------------
+def buildRunSet(base=BASE, sweep=SWEEP):
+    """{runName: config} for every combination of the sweep values."""
+    keys = list(sweep)
+    runs = {}
+    for values in itertools.product(*(sweep[k] for k in keys)):
+        config = dict(base, **dict(zip(keys, values)))
+        name = "_".join(f"{SHORT_NAMES.get(k, k)}{v:g}" if isinstance(v, float) else f"{SHORT_NAMES.get(k, k)}{v}"
+                        for k, v in zip(keys, values))
+        runs[name or "run"] = config
+    return runs
+
+
+def setRun(params, runName, config, runSet=RUN_SET):
+    """Copy a config onto Parameters; unknown keys raise so a typo cannot be silently ignored."""
+    unknown = [k for k in config if not hasattr(params, k) and k not in EXTRA_KEYS]
+    if unknown:
+        raise KeyError(f"Unknown run parameters {unknown} in run {runName!r}")
+    for key, value in config.items():
+        setattr(params, key, value)
     params.runName = runName
-    params.tol = config.get("Iteration Tolerance", params.tol)
-    params.runLabel = config["runLabel"]
-    params.groupSpace = config["Group Spacing"] # log or linear
-    params.matchNu = config["Match Grid"]
-    params.minFreq = config["Min Frequency"]
-    params.infFreq = config["Infinite Frequency"]
-    params.nSteps = config["Steps"]
-    params.timeMax = config["Maximum Time"]
-    params.timeSplit = config["TransTime"]
-    params.stepSplit = config["stepSplit"]  # tells what proportion of time steps are log vs linear
-    params.splitStepsBool = config["stepType"]  # tells whether to split time stepping
-    params.timeScale = config["timeScale"]
-    params.maxFreq = config["Max Frequency"]
-    params.freqNum = config["Number of frequencies"]
-    params.sn = config["Sn"]
-    params.boundaryLeft = config["leftBC"]
-    params.boundaryRight = config["rightBC"]
-    params.setLeftBoundaryTemp = config["leftTemp"]
-    params.setRightBoundaryTemp = config["rightTemp"]
-    params.nBins = config["Number of Bins"]
-    params.xMin = config["xMin"]
-    params.xMax = config["xMax"]
-    params.initialTemperature = config["MatTemp"]
-    params.radiationTemperature = config["RadTemp"]
-    params.colorTemperature = config["ColorTemp"]
-
-    # Debug params
-    params.extrapolateTemp = config.get("extrapolateTemp", False)
-    params.andersonDepth = config.get("Anderson Depth", getattr(params, "andersonDepth", 0))
-    if not config.get("Use Anderson", True):  # "Use Anderson": False turns acceleration off (plain iteration)
-        params.andersonDepth = 0
-    params.useNumba = config.get("Use Numba", getattr(params, "useNumba", True))
-    # Bimodal boundary: fraction of the boundary Planckian's energy put in the delta spike, and the
-    # spike's physical photon energy (None = centre of SM group freqNum//4)
-    params.deltaFraction = config.get("Delta Fraction", getattr(params, "deltaFraction", 0.5))
-    params.deltaFrequency = config.get("Delta Frequency", getattr(params, "deltaFrequency", None))
-    params.opacityModel = config.get("Opacity Model", getattr(params, "opacityModel", "nickel"))
-    params.MMSCompare = config.get("MMSCompare", False)
-    params.mmsT0 = config.get("MMS T0", params.radiationTemperature)
-    params.mmsSigmaX = config.get("MMS Sigma X", 0.5)
-    params.mmsTau = config.get("MMS Tau", 2.0)
-    params.mmsTemperatureOffset = config.get(
-        "MMS Temperature Offset", MMS.DEFAULT_TEMPERATURE_OFFSET
-    )
-
-
-    # Choose to save
+    params.runSet = runSet
     params.saveResults = True
     return params
 
 
-
-# Single-run worker functions for parallel execution
-def run_single(method, item):
-    runName, config = item
+def runSingle(method, runName, config, runSet=RUN_SET):
+    """One solve in a worker process; returns the run's id."""
     constants = Base.Constants()
-    params = setRun(MG.Parameters(method), runName, config)
+    params = setRun(MG.Parameters(method), runName, config, runSet)
     grid = Base.Grid(params, constants)
-    problem = MG.Problem(grid, constants, params)
-    solver = Base.Base(grid, problem, params, constants)
+    solver = Base.Base(grid, MG.Problem(grid, constants, params), params, constants)
     solver.solve()
-    return f"{runName}_{params.fileFolder}"
+    return f"{method} {runName}"
 
 
-def run_single_sm(item):
-    return run_single("SM", item)
+def chooseMethods(argv):
+    choice = (argv[1] if len(argv) > 1 else input("Which method(s)? (SM, VMG, Both): ")).strip().upper()
+    methods = {"SM": ["SM"], "VMG": ["VMG"], "BOTH": ["SM", "VMG"]}.get(choice)
+    if methods is None:
+        raise SystemExit(f"Unknown method {choice!r}: choose SM, VMG, or Both.")
+    return methods
 
 
-def run_single_vmg(item):
-    return run_single("VMG", item)
-
-
-def ExecuteRunSetParallel(runSet):
-    methodChoice = input("Which method is desired? (SM, VMG, Both): ").strip().lower()
-
-    tasks = []
-    if methodChoice in ("sm", "both"):
-        tasks.extend([(run_single_sm, item) for item in runSet.items()])
-    if methodChoice in ("vmg", "both"):
-        tasks.extend([(run_single_vmg, item) for item in runSet.items()])
-    if not tasks:
-        print(f"Unknown method {methodChoice!r}: choose SM, VMG, or Both.")
-
-    results = {}
-
-    # Distribute tasks across CPU cores
+def executeRunSet(runs, methods, runSet=RUN_SET):
+    """Run every (method, run) pair across the CPU cores; returns the ids of failed runs."""
+    tasks = [(method, name, config) for method in methods for name, config in runs.items()]
+    print(f"Run set {runSet!r}: {len(tasks)} solves ({', '.join(methods)} x {len(runs)} runs)")
+    failed = []
     with concurrent.futures.ProcessPoolExecutor() as executor:
-        # Submit tasks: worker_func(item)
-        future_to_task = {
-            executor.submit(worker, item): item[0] for worker, item in tasks
-        }
-
-        for future in concurrent.futures.as_completed(future_to_task):
-            task_name = future_to_task[future]
+        futures = {executor.submit(runSingle, method, name, config, runSet): f"{method} {name}"
+                   for method, name, config in tasks}
+        for done, future in enumerate(concurrent.futures.as_completed(futures), 1):
+            runId = futures[future]
             try:
-                run_id = future.result()
-                print(f"Completed: {run_id}")
+                future.result()
+                print(f"[{done}/{len(tasks)}] Completed: {runId}")
             except Exception as exc:
-                print(f"Task '{task_name}' generated an exception: {exc}")
+                failed.append(runId)
+                print(f"[{done}/{len(tasks)}] FAILED: {runId}: {exc}")
+    return failed
 
-    return results
-
-
-
-stepSplit = 0.88
-timeSplit = 0.15
-
-# groupSet = [10, 50, 100, 150]
-# stepSet = [2500, 5000]
-groupSet = [100]
-stepSet = [500, 1000, 1500, 2000, 3000, 4000, 8000]
-tolSet = [1e-14]
-
-RunSet = {}
-s = 0
-g = 0
-
-
-for step in stepSet:
-    s += 1
-    for group in groupSet:
-        g += 1
-        for tol in tolSet:
-            runName = f"BimodalBC_{s}_{g}_{tol}"
-            RunSet[runName] = {
-                "runLabel": "Planck",
-                "Steps": step,
-                "Iteration Tolerance": tol,
-                "Maximum Time": 0.5,
-                "Max Frequency": 45,
-                "Min Frequency": 1e-4,
-                "Infinite Frequency": 125,
-                "Group Spacing": 'log',
-                "Match Grid" : True,
-                "Number of frequencies": group,
-                "Sn": 8,
-                "Number of Bins": 50,
-                "xMin": -1,
-                "xMax": 1,
-                "RadTemp": 0.1,
-                "MatTemp": 0.1,
-                "ColorTemp" : 0.1,
-                "leftBC": "Reflective",
-                "rightBC": "Bimodal",
-                "leftTemp": 0.8,
-                "rightTemp": 0.8,
-                "timeScale": "log",
-                "TransTime": timeSplit,
-                "stepSplit": stepSplit,  # tells what proportion of time steps are log vs linear
-                "stepType": False, 
-                "extrapolateTemp": True,
-                "Use Anderson": True,  # False = plain fixed-point iteration
-                "Anderson Depth": 5,   # history length when Anderson is on
-                "Use Numba": True,     # False = numpy/Python sweeps (identical results, slower)
-                "MMSCompare": False,  # Set True to add MMS S and Q in both methods.
-                "MMS T0": 1.0,
-                "MMS Sigma X": 1.0,
-                "MMS Tau": 2.0,
-                "MMS Temperature Offset": MMS.DEFAULT_TEMPERATURE_OFFSET,
-            }
-        # runName = f"PlanckLinear{s}_{g}"
-        # RunSet[runName] = {
-        #     "runLabel": "MMSLinear",
-        #     "Steps": step,
-        #     "Iteration Tolerance": 1e-20,
-        #     "Maximum Time": 0.5,
-        #     "Max Frequency": 45,
-        #     "Min Frequency": 1e-4,
-        #     "Infinite Frequency": 125,
-        #     "Group Spacing": 'log',
-        #     "Match Grid" : True,
-        #     "Number of frequencies": group,
-        #     "Sn": 10,
-        #     "Number of Bins": 100,
-        #     "xMin": -1,
-        #     "xMax": 1,
-        #     "RadTemp": 0.5,
-        #     "MatTemp": 0.5,
-        #     "ColorTemp" : 0.5,
-        #     "leftBC": "Reflective",
-        #     "rightBC": "Planckian",
-        #     "leftTemp": 0.8,
-        #     "rightTemp": 0.8,
-        #     "timeScale": "linear",
-        #     "TransTime": timeSplit,
-        #     "stepSplit": stepSplit,  # tells what proportion of time steps are log vs linear
-        #     "stepType": False, 
-        #     "extrapolateTemp": True,
-        #     "MMSCompare": False,  # Set True to add MMS S and Q in both methods.
-        #     "MMS T0": 1.0,
-        #     "MMS Sigma X": 1.0,
-        #     "MMS Tau": 2.0,
-        #     "MMS Temperature Offset": MMS.DEFAULT_TEMPERATURE_OFFSET,
-        # }
 
 # Entry point protection required for multiprocessing
 if __name__ == "__main__":
+    methods = chooseMethods(sys.argv)
     tick = time.perf_counter()
-    completed_results = ExecuteRunSetParallel(RunSet)
-    tock = time.perf_counter()
-    print(f"Set of solves completed in {tock - tick:.2f} seconds.")    
+    failed = executeRunSet(buildRunSet(), methods)
+    print(f"Set of solves completed in {time.perf_counter() - tick:.2f} seconds.")
+    if failed:
+        print(f"{len(failed)} failed: " + ", ".join(failed))

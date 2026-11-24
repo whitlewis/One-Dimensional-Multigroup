@@ -57,13 +57,6 @@ plt.rcParams.update({
 })
 
 
-def methodName(params, folder=None):
-    """'VMG' or 'SM' for a loaded result (older files without the flag fall back to their folder)."""
-    if params.get("movingCoordinates") or (folder or "").lower().startswith("vmg"):
-        return "VMG"
-    return "SM"
-
-
 def figurePath(category, name):
     """figures/<category>/<name>; see Base.figurePath."""
     return Base.figurePath(category, name)
@@ -170,69 +163,63 @@ def getDiffeq(const, tmax):
     Tr = (np.sum(solution.y[:-1],axis=0)/ const.a / const.c)**.25
     return t, T, Tr
 
-def plotTemperatureLoaded(dataSet, paramsSet, fileSet, folderSet, const):
-    for i, data in enumerate(dataSet):
-        params = paramsSet[i]
-        file = fileSet[i]
-        folder = folderSet[i]
-        method = methodName(params, folder)
+def _styleAxis(axis):
+    axis.minorticks_on()
+    axis.tick_params(which="both", direction="in", top=True, right=True)
 
-        timeCount = min(
-            len(data["timeSet"]),
-            len(data["fullTensorPhi"]),
-            data["temperatureSet"].shape[1],
-        )
-        t = data["timeSet"][:timeCount]
-        timeSteps = timeCount - 1
-        cellIndex = params["nBins"] // 2
-        radiationFlux = np.sum(
-            data["fullTensorPhi"][:timeCount, :, cellIndex], axis=1
-        )
-        Trad = (radiationFlux / const.a / const.c) ** 0.25
-        labelT = f'{file} using {method} for {params["groups"]} groups with {timeSteps} steps'
-        T = data["temperatureSet"][cellIndex, :timeCount]
-        plt.plot(t, T, label=f"{labelT} material")
-        plt.plot(
-            t, Trad, linestyle='--',
-            label=f"{labelT} radiation",
-        )
 
-    reflectiveResults = [
-        (data, params)
-        for data, params in zip(dataSet, paramsSet)
-        if params.get("boundaryLeft") == "Reflective"
-        and params.get("boundaryRight") == "Reflective"
-    ]
-    if reflectiveResults:
-        maxTime = max(np.max(data["timeSet"]) for data, _ in reflectiveResults)
-        t, T, Tr = getDiffeq(const, maxTime)
-        plt.plot(t, T, label="0-D Solve (reflective boundaries)", linestyle="--")
-        plt.plot(t, Tr, label="0-D Rad Temperature (reflective boundaries)")
+def _defaultPosition(results, binIndex=None):
+    """x (cm) used for single-cell plots: the centre of cell binIndex of the first run (the
+    middle cell if None). Every run then uses its own cell nearest that x, so runs with different
+    dx are compared at the same place."""
+    x = results[0].x
+    return float(x[len(x) // 2 if binIndex is None else min(binIndex, len(x) - 1)])
 
-    plt.ylim(0, 0.8)
-    plt.xlabel("t (ns)")
-    plt.ylabel("Temperature (keV)")
-    plt.minorticks_on()
 
-    plt.tick_params(
-        which="both",
-        direction="in",
-        top=True,
-        right=True
-    )
+def _exactMMS(params, position, time):
+    """Exact MMS (material, radiation) temperatures at one position."""
+    sigmaX = params["mmsSigmaX"]
+    spatial = np.exp(-(position ** 2) / (2 * sigmaX**2)) / (sigmaX * np.sqrt(2 * np.pi))
+    decay = np.exp(-params["mmsTau"] * time / 2)
+    offset = params.get("mmsTemperatureOffset", MMS.DEFAULT_TEMPERATURE_OFFSET)
+    return (MMS.temperatureFromFourthPowerProfile(params["mmsT0"], (1 - decay) * spatial, offset),
+            MMS.temperatureFromFourthPowerProfile(params["mmsT0"], (1 + decay) * spatial, offset))
 
-    plt.legend(
-        frameon=False,
-        loc="best"
-    )
+
+def plotTemperatureLoaded(results, position=None):
+    """Material (solid) and radiation (dashed) temperature vs. time in one cell, for every run,
+    plus the 0-D reference when the run has reflective walls."""
+    if not results:
+        return None
+    position = _defaultPosition(results) if position is None else position
+    fig, axis = plt.subplots(figsize=(8, 5))
+    colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
+    for i, result in enumerate(results):
+        cell = result.cellAt(position)
+        color = colors[i % len(colors)]
+        axis.plot(result.time, result.materialTemperature()[cell], color=color, label=f"{result.label} material")
+        axis.plot(result.time, result.radiationTemperature()[cell], color=color, linestyle="--",
+                  label=f"{result.label} radiation")
+
+    reflective = [r for r in results
+                  if r.params["boundaryLeft"] == "Reflective" and r.params["boundaryRight"] == "Reflective"]
+    if reflective:
+        t, T, Tr = getDiffeq(const, max(r.time[-1] for r in reflective))
+        axis.plot(t, T, color="0.2", linestyle="--", label="0-D reference material")
+        axis.plot(t, Tr, color="0.2", label="0-D reference radiation")
+
+    axis.set_ylim(0, 0.8)
+    axis.set_xlabel("t (ns)")
+    axis.set_ylabel("Temperature (keV)")
+    axis.set_title(f"Temperature at x = {position:.3g} cm")
+    _styleAxis(axis)
+    axis.legend(frameon=False, loc="best", fontsize="small")
+    fig.tight_layout()
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = figurePath("temperature", f"TempPlot_{timestamp}.pdf")
-    plt.savefig(filename)
+    fig.savefig(figurePath("temperature", f"TempPlot_{timestamp}.pdf"))
     plt.show()
+    return fig, axis
 
-    # plt.plot(np.linspace(0, 1, timeSteps-1), dt)
-    # plt.show
-  
 
 def plotTemperatureTime(grid):
     x = grid.spaceMid  # cell centers
@@ -261,184 +248,78 @@ def plotTemperatureTime(grid):
     plt.tight_layout()
     plt.show()
 
-def plotTemperatureTimeLoaded(dataSet, paramsSet, fileSet, folderSet):
-    data, params = dataSet[0], paramsSet[0]
-    x = params["spaceMid"]  # cell centers
-    time = data["timeSet"]
-    T_time = data["temperatureSet"]  # shape: (nBins, nSteps+1)
-
+def plotTemperatureTimeLoaded(results):
+    """Space-time map of the material temperature of the first run."""
+    result = results[0]
     fig, ax = plt.subplots(figsize=(8, 5))
-    pcm = ax.pcolormesh(
-        x,
-        time,
-        T_time.T,
-        shading='auto',
-        cmap='viridis'
-    )
-    fig.colorbar(pcm, label='Temperature T', ax=ax)
-    ax.set_xlabel('Position x')
-    ax.set_ylabel('Time')
-    ax.set_title('Space-Time Temperature Distribution')
-    ax.xaxis.set_major_formatter(ScalarFormatter(useOffset=False, useMathText=False))
-    ax.yaxis.set_major_formatter(ScalarFormatter(useOffset=False, useMathText=False))
-    ax.ticklabel_format(style='plain', axis='both', useOffset=False)
-    ax.xaxis.get_offset_text().set_visible(False)
-    ax.yaxis.get_offset_text().set_visible(False)
-    plt.minorticks_on()
-
-    plt.tick_params(
-        which="both",
-        direction="in",
-        top=True,
-        right=True
-    )
-
-    plt.legend(
-        frameon=False,
-        loc="best"
-    )
-    plt.tight_layout()
+    pcm = ax.pcolormesh(result.x, result.time, result.materialTemperature().T, shading="auto", cmap="viridis")
+    fig.colorbar(pcm, label="Temperature (keV)", ax=ax)
+    ax.set_xlabel("x (cm)")
+    ax.set_ylabel("t (ns)")
+    ax.set_title(f"Material temperature, {result.label}")
+    _styleAxis(ax)
+    fig.tight_layout()
     plt.show()
+    return fig, ax
 
 
-def plotTemperatureMMSLoaded(results, binIndex=20):
-    """Compare loaded MMS material and radiation temperatures at one spatial bin."""
+def plotTemperatureMMSLoaded(results, position=None, binIndex=20):
+    """Material and radiation temperature vs. time in one cell, against the exact MMS.
+
+    position (cm) defaults to the centre of cell binIndex of the first run; each run uses its own
+    cell nearest that x."""
     if not results:
         return None
-
+    position = _defaultPosition(results, binIndex) if position is None else position
     fig, axis = plt.subplots(figsize=(8, 5))
     colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
 
-    for runIndex, (data, params, label) in enumerate(results):
-        x = np.asarray(params["spaceMid"])
-        if not 0 <= binIndex < len(x):
-            raise IndexError(
-                f"Bin index {binIndex} is outside the saved spatial grid "
-                f"of {len(x)} bins."
-            )
-
-        timeCount = min(
-            len(data["timeSet"]),
-            data["fullTensorPhi"].shape[0],
-            data["temperatureSet"].shape[1],
-        )
-        if timeCount == 0:
-            raise ValueError(f"Saved MMS result {label!r} contains no time samples.")
-
-        time = np.asarray(data["timeSet"])[:timeCount]
-        materialTemperature = data["temperatureSet"][binIndex, :timeCount]
-        radiationEnergy = (
-            np.sum(data["fullTensorPhi"][:timeCount, :, binIndex], axis=1)
-            / (const.a * const.c)
-        )
-        radiationTemperature = np.maximum(radiationEnergy, 0) ** 0.25
-
-        t0 = params["mmsT0"]
-        sigmaX = params["mmsSigmaX"]
-        tau = params["mmsTau"]
-        temperatureOffset = params.get(
-            "mmsTemperatureOffset", MMS.DEFAULT_TEMPERATURE_OFFSET
-        )
-        spatial = np.exp(-(x[binIndex] ** 2) / (2 * sigmaX**2)) / (
-            sigmaX * np.sqrt(2 * np.pi)
-        )
-        decay = np.exp(-tau * time / 2)
-        exactMaterial = MMS.temperatureFromFourthPowerProfile(
-            t0, (1 - decay) * spatial, temperatureOffset
-        )
-        exactRadiation = MMS.temperatureFromFourthPowerProfile(
-            t0, (1 + decay) * spatial, temperatureOffset
-        )
-        color = colors[runIndex % len(colors)]
-        markEvery = max(1, timeCount // 30)
-
-        axis.plot(
-            time, materialTemperature, color=color,
-            label=f"{label} material",
-        )
-        axis.plot(
-            time, radiationTemperature, color=color, linestyle="--",
-            label=f"{label} radiation",
-        )
-        axis.plot(
-            time, exactMaterial, color=color, linestyle=":",
-            marker="o", markersize=4, markevery=markEvery,
-            label=f"{label} MMS material",
-        )
-        axis.plot(
-            time, exactRadiation, color=color, linestyle=":",
-            marker="s", markersize=4, markevery=markEvery,
-            label=f"{label} MMS radiation",
-        )
+    for i, result in enumerate(results):
+        cell = result.cellAt(position)
+        time = result.time
+        exactMaterial, exactRadiation = _exactMMS(result.params, result.x[cell], time)
+        color = colors[i % len(colors)]
+        markEvery = max(1, len(time) // 30)
+        axis.plot(time, result.materialTemperature()[cell], color=color, label=f"{result.label} material")
+        axis.plot(time, result.radiationTemperature()[cell], color=color, linestyle="--",
+                  label=f"{result.label} radiation")
+        axis.plot(time, exactMaterial, color=color, linestyle=":", marker="o", markersize=4,
+                  markevery=markEvery, label=f"{result.label} MMS material")
+        axis.plot(time, exactRadiation, color=color, linestyle=":", marker="s", markersize=4,
+                  markevery=markEvery, label=f"{result.label} MMS radiation")
 
     axis.set_xlabel("Time (ns)")
     axis.set_ylim(0.25, 0.85)
     axis.set_ylabel("Temperature (keV)")
-    axis.set_title(f"Temperature at spatial bin {binIndex}: solution vs. MMS")
-    axis.minorticks_on()
-    axis.tick_params(which="both", direction="in", top=True, right=True)
+    axis.set_title(f"Temperature at x = {position:.3g} cm: solution vs. MMS")
+    _styleAxis(axis)
     axis.legend(frameon=False, fontsize="small")
     fig.tight_layout()
     plt.show()
     return fig, axis
 
 
-def plotMaterialTemperatureMMSErrorLoaded(results, binIndex=20):
-    """Plot solved-minus-MMS material-temperature error at one spatial bin."""
+def plotMaterialTemperatureMMSErrorLoaded(results, position=None, binIndex=20):
+    """Solved-minus-MMS material temperature vs. time in one cell (same position rule as above)."""
     if not results:
         return None
-
+    position = _defaultPosition(results, binIndex) if position is None else position
     fig, axis = plt.subplots(figsize=(8, 5))
     colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
 
-    for runIndex, (data, params, label) in enumerate(results):
-        x = np.asarray(params["spaceMid"])
-        if not 0 <= binIndex < len(x):
-            raise IndexError(
-                f"Bin index {binIndex} is outside the saved spatial grid "
-                f"of {len(x)} bins."
-            )
-
-        timeCount = min(
-            len(data["timeSet"]),
-            data["temperatureSet"].shape[1],
-        )
-        if timeCount == 0:
-            raise ValueError(f"Saved MMS result {label!r} contains no time samples.")
-
-        time = np.asarray(data["timeSet"])[:timeCount]
-        materialTemperature = data["temperatureSet"][binIndex, :timeCount]
-        t0 = params["mmsT0"]
-        sigmaX = params["mmsSigmaX"]
-        tau = params["mmsTau"]
-        temperatureOffset = params.get(
-            "mmsTemperatureOffset", MMS.DEFAULT_TEMPERATURE_OFFSET
-        )
-        spatial = np.exp(-(x[binIndex] ** 2) / (2 * sigmaX**2)) / (
-            sigmaX * np.sqrt(2 * np.pi)
-        )
-        exactMaterial = MMS.temperatureFromFourthPowerProfile(
-            t0,
-            (1 - np.exp(-tau * time / 2)) * spatial,
-            temperatureOffset,
-        )
-
-        axis.plot(
-            time,
-            materialTemperature - exactMaterial,
-            color=colors[runIndex % len(colors)],
-            linestyle="--" if params.get("movingCoordinates", False) else ":",
-            label=label,
-        )
+    for i, result in enumerate(results):
+        cell = result.cellAt(position)
+        exactMaterial, _ = _exactMMS(result.params, result.x[cell], result.time)
+        axis.plot(result.time, result.materialTemperature()[cell] - exactMaterial,
+                  color=colors[i % len(colors)],
+                  linestyle="--" if result.method == "VMG" else ":",
+                  label=result.label)
 
     axis.axhline(0.0, color="black", linewidth=0.8, linestyle="-")
     axis.set_xlabel("Time (ns)")
     axis.set_ylabel("Material temperature error (keV)")
-    axis.set_title(
-        f"Material temperature error from MMS at spatial bin {binIndex}"
-    )
-    axis.minorticks_on()
-    axis.tick_params(which="both", direction="in", top=True, right=True)
+    axis.set_title(f"Material temperature error from MMS at x = {position:.3g} cm")
+    _styleAxis(axis)
     axis.legend(frameon=False, fontsize="small")
     fig.tight_layout()
     plt.show()
@@ -556,35 +437,35 @@ def _addMMSLegend(fig, axes, fontsize="small"):
         fig.add_artist(legend)
 
 
-def _loadedGrid(data, params):
+def _loadedGrid(result):
     from types import SimpleNamespace
-    timeCount = min(len(data["timeSet"]), data["fullTensorPhi"].shape[0], data["temperatureSet"].shape[1])
-    if timeCount == 0:
-        raise ValueError("A saved result contains no time samples.")
+    n = result.timeCount
+    if n == 0:
+        raise ValueError(f"{result} contains no time samples.")
     return SimpleNamespace(
-        spaceMid=np.asarray(params["spaceMid"]),
-        fullTensorPhiTime=data["fullTensorPhi"][:timeCount],
-        temperatureSet=data["temperatureSet"][:, :timeCount],
-        timeSet=np.asarray(data["timeSet"])[:timeCount],
-        freqGrid=np.asarray(params["freqGrid"]),
+        spaceMid=result.x,
+        fullTensorPhiTime=result.data["fullTensorPhi"][:n],
+        temperatureSet=result.materialTemperature(),
+        timeSet=result.time,
+        freqGrid=np.asarray(result.params["freqGrid"]),
         constants=SimpleNamespace(a=const.a, c=const.c),
     )
 
 
 def plotMMSComparisonLoaded(
-    data, params, axes=None, labelPrefix=None, show=True, includeMMS=True,
-    snapshotTimes=None, runIndex=None,
+    result, axes=None, show=True, includeMMS=True, snapshotTimes=None, runIndex=None,
 ):
     """Plot temperature snapshots from one saved SM/VMG result."""
     from types import SimpleNamespace
-    plotParams = SimpleNamespace(movingCoordinates=params["movingCoordinates"], freqNum=params.get("groups"))
+    params = result.params
+    plotParams = SimpleNamespace(movingCoordinates=params["movingCoordinates"], freqNum=params["groups"])
     if includeMMS:
         plotParams.mmsT0 = params["mmsT0"]
         plotParams.mmsSigmaX = params["mmsSigmaX"]
         plotParams.mmsTau = params["mmsTau"]
-        plotParams.mmsTemperatureOffset = params.get("mmsTemperatureOffset", MMS.DEFAULT_TEMPERATURE_OFFSET)
+        plotParams.mmsTemperatureOffset = params["mmsTemperatureOffset"]
     return plotMMSComparison(
-        _loadedGrid(data, params), plotParams, axes=axes, labelPrefix=labelPrefix, show=show,
+        _loadedGrid(result), plotParams, axes=axes, labelPrefix=result.label, show=show,
         includeMMS=includeMMS, snapshotTimes=snapshotTimes, runIndex=runIndex,
     )
 
@@ -593,11 +474,11 @@ def _snapshotsLoaded(results, includeMMS):
     """Common snapshot times (spread over the first run's evolution) so a color is the same time
     for every run."""
     fig, axes = plt.subplots(1, 2, figsize=(13, 5), sharex=True)
-    first = _loadedGrid(results[0][0], results[0][1])
+    first = _loadedGrid(results[0])
     targets = first.timeSet[progressIndices(first.temperatureSet, 5)]
-    for i, (data, params, label) in enumerate(results):
-        plotMMSComparisonLoaded(data, params, axes=axes, labelPrefix=label, show=False,
-                                includeMMS=includeMMS, snapshotTimes=targets, runIndex=i)
+    for i, result in enumerate(results):
+        plotMMSComparisonLoaded(result, axes=axes, show=False, includeMMS=includeMMS,
+                                snapshotTimes=targets, runIndex=i)
     _addMMSLegend(fig, axes)
     plt.show()
     return fig, axes
@@ -686,195 +567,87 @@ def plotSelectSpectra(fullphi, grid, params, cell_idx=0, ax=None, save_path=None
 
     return ax
 
-def plot_spectra_at_times(dataSet, time_indices, paramsSet, fileSet, folderSet, bin_idx, maxFreq, freqs=None):
-    plt.figure(figsize=(8, 5))
-    for i, data in enumerate(dataSet):
-        params = paramsSet[i]
-        file = fileSet[i]
-        folder = folderSet[i]
-        temp = data["temperatureSet"]
-        frequencies = params["freqGrid"]
-        freqBase = 0.5 * (frequencies[:-1] + frequencies[1:])  # Midpoint of frequency groups for plotting
-        method = methodName(params, folder)
-        style = "--" if method == "VMG" else "-"
-        phi_tensor = data["fullTensorPhi"]
-        n_steps, freq_num, n_bins = phi_tensor.shape
-        if not (0 <= bin_idx < n_bins):
-            raise ValueError(f"bin_idx {bin_idx} out of bounds for array with {n_bins} bins.")
-
-        timeSteps = np.shape(data["timeSet"])[0]
-
+def plot_spectra_at_times(results, time_indices, position=None, maxFreq=None, binIndex=20):
+    """Group scalar flux vs. physical frequency in one cell at a few time indices (VMG groups are
+    mapped to nu = u * T). position (cm) defaults to the centre of cell binIndex of the first run."""
+    if not results:
+        return None
+    position = _defaultPosition(results, binIndex) if position is None else position
+    fig, axis = plt.subplots(figsize=(8, 5))
+    for result in results:
+        cell = result.cellAt(position)
+        frequencies = np.asarray(result.params["freqGrid"])
+        centres = 0.5 * (frequencies[:-1] + frequencies[1:])
+        phi = result.data["fullTensorPhi"]
+        style = "--" if result.method == "VMG" else "-"
         for t_idx in time_indices:
-            if 0 <= t_idx < n_steps:
-                if method == "VMG":
-                    freq = freqBase * temp[bin_idx, t_idx]  # Scale frequency by temperature for VMG
-                    spectrum = phi_tensor[t_idx, :, bin_idx]
-                else:
-                    spectrum = phi_tensor[t_idx, :, bin_idx]
-                    print(f"Time {t_idx} - Min: {np.nanmin(spectrum)}, Max: {np.nanmax(spectrum)}, NaNs: {np.isnan(spectrum).sum()}")
-                    freq = freqBase
-                plt.plot(freq, spectrum, linestyle=style, label=f'Time: {t_idx}, {method} with {file} init {params["groups"]} groups for {timeSteps} steps')
-            else:
-                print(f"Warning: Time step index {t_idx} is out of bounds (max {n_steps - 1}) and skipped.")
+            if not 0 <= t_idx < result.timeCount:
+                print(f"Warning: time index {t_idx} is out of range for {result} and was skipped.")
+                continue
+            freq = centres * result.materialTemperature()[cell, t_idx] if result.method == "VMG" else centres
+            axis.plot(freq, phi[t_idx, :, cell], linestyle=style,
+                      label=f"{result.label}, t = {result.time[t_idx]:.3g} ns")
 
-    plt.xlabel("Frequency" if freqs is not None else "Frequency Index")
-    plt.ylabel("Spectrum Magnitude ($\Phi$)")
-    plt.xlim(0, maxFreq/10)  # Adjust x-axis limit based on your frequency range
-    plt.title(f"Spectra Comparison for Bin {bin_idx}")
-    plt.minorticks_on()
-
-    plt.tick_params(
-        which="both",
-        direction="in",
-        top=True,
-        right=True
-    )
-
-    plt.legend(
-        frameon=False,
-        loc="best"
-    )
-    plt.tight_layout()
+    maxFreq = maxFreq if maxFreq is not None else results[0].params.get("maxFreq", 45)
+    axis.set_xlim(0, maxFreq / 10)
+    axis.set_xlabel("Photon energy (keV)")
+    axis.set_ylabel(r"Group scalar flux $\phi_g$")
+    axis.set_title(f"Spectra at x = {position:.3g} cm")
+    _styleAxis(axis)
+    axis.legend(frameon=False, loc="best", fontsize="small")
+    fig.tight_layout()
     plt.show()
+    return fig, axis
 
-def analyzeRank(dataSet, time_set, paramsSet, fileSet, folderSet, time_indices=None, energy_threshold=None, tol=None, plot=True):
+
+def analyzeRank(results, time_indices=None, energy_threshold=None, tol=None, plot=True):
+    """Rank over time of the (groups x nBins) scalar-flux matrix of each run, from its SVD.
+
+    energy_threshold : list of fractions of the energy sum(s^2) to keep (e.g. [0.99]) on the
+                       time-centred data, or
+    tol              : list of absolute singular-value cutoffs, or
+    neither          : numpy's matrix_rank.
+    Returns {result.label: (rankSet, singularValues)}.
     """
-    Performs SVD on slices of shape (freqNum, nBins) at specified time steps to compute rank.
+    out = {}
+    for result in results:
+        phi = result.data["fullTensorPhi"][: result.timeCount]
+        indices = np.arange(phi.shape[0] - 1) if time_indices is None else np.asarray(time_indices)
+        sub = phi[indices]
+        times = result.time[indices]
 
-    Parameters:
-    -----------
-    phi_tensor : np.ndarray
-        3D solution tensor of shape (nSteps + 1, freqNum, nBins).
-    time_indices : list or array-like, optional
-        Time step indices to analyze. If None, analyzes all time steps.
-    energy_threshold : float or None, optional
-        Fraction of cumulative variance/energy (sum(s^2)) to define effective rank (e.g., 0.99 for 99%).
-        Set to None to use numerical tolerance instead.
-    tol : float or None, optional
-        Absolute singular value threshold (s > tol). If both energy_threshold and tol are None,
-        uses numpy's default matrix_rank tolerance.
-    plot : bool
-        If True, plots effective rank over time and the singular value spectra.
-
-    Returns:
-    --------
-    ranks : np.ndarray
-        Computed ranks for each evaluated time step.
-    s_matrix : np.ndarray
-        Singular values for each analyzed time step, shape (len(time_indices), min(freqNum, nBins)).
-    """
-    for i, data in enumerate(dataSet):
-        params = paramsSet[i]
-        file = fileSet[i]
-        folder = folderSet[i]
-        method = methodName(params, folder)
-
-        phi_tensor = data["fullTensorPhi"]
-
-
-        if time_indices is None:
-            time_indices = np.arange(phi_tensor.shape[0]-1)
+        if energy_threshold is not None:
+            singular = np.linalg.svd(sub - np.mean(sub, axis=0), compute_uv=False)
+            energy = np.cumsum(singular**2, axis=1)
+            total = energy[:, -1:]
+            fraction = np.divide(energy, total, out=np.ones_like(energy), where=total > 0)
+            rankSet = [np.array([np.searchsorted(f, level) + 1 for f in fraction]) for level in energy_threshold]
+            names = [f"{100 * level:g}% energy" for level in energy_threshold]
+        elif tol is not None:
+            singular = np.linalg.svd(sub, compute_uv=False)
+            rankSet = [np.sum(singular > cutoff, axis=1) for cutoff in tol]
+            names = [f"cutoff {cutoff:g}" for cutoff in tol]
         else:
-            time_indices = np.array(time_indices)
-
-        # Extract sub-tensor at requested times and compute SVD in batch
-
-        sub_tensor = phi_tensor[time_indices, :, :]
-        s_matrix = np.linalg.svd(sub_tensor, compute_uv=False)  # shape: (n_selected_times, min(freqNum, nBins))
-
-
-        if energy_threshold is None and tol is not None:
-            label = 'Tol Threshold'
-            rankSet = []
-            for t in tol:
-                ranks = []
-                for idx, s in enumerate(s_matrix):
-                    r = np.sum(s > t)
-                    ranks.append(r)
-                rankSet.append(ranks)
-
-
-
-        if energy_threshold is not None and tol is None:
-            array = sub_tensor - np.mean(sub_tensor, axis=0)  # Center the data by subtracting the mean across time
-            s_matrix = np.linalg.svd(array, compute_uv=False)  # shape: (n_selected_times, min(freqNum, nBins))
-            rankSet = []
-            label = 'Percentage Threshold'
-            for energy in energy_threshold:
-                ranks = []
-                for idx, s in enumerate(s_matrix):
-                    try:
-                        with np.errstate(divide='raise', invalid='raise', over='raise'):
-                            cum_energy = np.cumsum(s**2) / np.sum(s**2)
-                            r = np.searchsorted(cum_energy, energy) + 1
-                            ranks.append(r)
-                    except FloatingPointError:
-                        print("Floating-point error during SVD truncation")
-                        print(f' Numerator: {np.cumsum(s**2)}')
-                        print(f' Denominator: {np.sum(s**2)}')
-
-                ranks = np.array(ranks)
-                rankSet.append(ranks)
-        
-        if energy_threshold is None and tol is None:
-            label = 'Numpy calc'
-            rankSet = []
-            ranks = []
-            if energy_threshold is None and tol is None:
-                label = 'Numpy calc'
-                ranks = [np.linalg.matrix_rank(s) for s in sub_tensor]
-                rankSet = [np.array(ranks)] # Now a 1D array of ranks over time
-        
-
+            singular = np.linalg.svd(sub, compute_uv=False)
+            rankSet = [np.array([np.linalg.matrix_rank(m) for m in sub])]
+            names = ["numpy matrix_rank"]
+        out[result.label] = (rankSet, singular)
 
         if plot:
+            fig, axis = plt.subplots(figsize=(12, 4.5))
+            for ranks, name in zip(rankSet, names):
+                axis.plot(times[:-1], ranks[:-1], label=name)
+            axis.set_xlabel("t (ns)")
+            axis.set_ylabel("Rank")
+            axis.set_title(f"Rank of the scalar flux, {result.label}")
+            _styleAxis(axis)
+            axis.legend(frameon=False, loc="best")
+            fig.tight_layout()
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            fig.savefig(figurePath("rank", f"{result.params['runLabel']}_{timestamp}.pdf"))
+            plt.show()
+    return out
 
-            fig, ax1 = plt.subplots(figsize=(12, 4.5))
-
-            # Rank vs. Time
-            if time_indices is None:
-                time_indices = np.arange(phi_tensor.shape[0])
-            for i, ranks in enumerate(rankSet):
-
-                if energy_threshold is None and tol is None:
-                    ax1.plot(np.take(time_set, time_indices)[:-1], ranks[:-1], label=f'NP matrix_rank of {method} {params["groups"]} groups')
-                elif energy_threshold is None:
-                    ax1.plot(np.take(time_set, time_indices)[:-1], ranks[:-1], label=f'Rank at cutoff of {tol[i]} for {method} {params["groups"]} groups')
-                else:
-                    ax1.plot(np.take(time_set, time_indices)[:-1], ranks[:-1], label=f'Rank at cutoff of {100 * energy_threshold[i]} % for {method} {params["groups"]} groups' )
-        ax1.set_xlabel("Time Step Index")
-        ax1.set_ylabel("Rank")
-
-
-            # # Singular Value Decay
-            # for idx, t_idx in enumerate(time_indices):
-            #     ax2.semilogy(s_matrix[idx], label=f"t = {t_idx}")
-            # ax2.set_xlabel("Singular Value Index")
-            # ax2.set_ylabel("Singular Value Magnitude (log scale)")
-            # ax2.grid(True, linestyle="--", alpha=0.6)
-            # if len(time_indices) <= 5:
-            #     ax2.legend()
-        plt.minorticks_on()
-
-        plt.tick_params(
-            which="both",
-            direction="in",
-            top=True,
-            right=True
-        )
-
-        plt.legend(
-            frameon=False,
-            loc="best"
-        )
-        saveName = params['runLabel']
-        plt.tight_layout()
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = figurePath("rank", f"{saveName}_{timestamp}.pdf")
-        plt.savefig(filename)
-        plt.show()
-
-        return rankSet, s_matrix
 
 def analyze_rank_psi(psi_tensor, time_set, time_indices=None, energy_threshold=None, tol=None, plot=True):
 

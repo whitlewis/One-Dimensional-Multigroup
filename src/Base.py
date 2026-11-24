@@ -429,64 +429,60 @@ class Base:
         return self.grid.fullTensorTime, self.grid  # Full angular history (None unless params.storeAngular)
     
     def saveResults(self):
-        filePrefix = self.params.fileFolder
-        runName = self.params.runName
-        folder = os.path.join(DATA_DIR, filePrefix.lower())  # folders are lowercase: sm, vmg, smfailed, ...
+        """Write the run to datastash/<runSet>/<sm|vmg|smfailed|vmgfailed>/<runName>_<timestamp>.h5.
+
+        Arrays are datasets; every run parameter (Parameters + RunSet config) is a file attribute,
+        plus derived values (method, dx, maxDt, run time, iteration statistics).
+        """
+        params = self.params
+        runSet = getattr(params, "runSet", None) or "single"
+        folder = os.path.join(DATA_DIR, runSet, params.fileFolder.lower())
         os.makedirs(folder, exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filepath = os.path.join(folder, f"{runName}_{self.params.nSteps}_Steps_{self.params.freqNum}_groups{timestamp}.h5")
-        fullTensorPhiTime = self.grid.fullTensorPhiTime
+        filepath = os.path.join(folder, f"{params.runName}_{timestamp}.h5")
+
         with h5py.File(filepath, "w") as f:
-            f.create_dataset("fullTensorPhi", data=fullTensorPhiTime, compression="gzip")
+            f.create_dataset("fullTensorPhi", data=self.grid.fullTensorPhiTime, compression="gzip")
             f.create_dataset("temperatureSet", data=self.grid.temperatureSet, compression="gzip")
             f.create_dataset("timeSet", data=self.grid.timeSet, compression="gzip")
             f.create_dataset("spaceGrid", data=self.grid.spaceGrid, compression="gzip")
             f.create_dataset("spaceMid", data=self.grid.spaceMid, compression="gzip")
             f.create_dataset("dt", data=self.grid.dt, compression="gzip")
+            f.create_dataset("freqGrid", data=self.grid.freqGrid)
             f.create_dataset("iterationsPerStep", data=np.asarray(self.iterationsPerStep, dtype=np.int32))
-            f.attrs["andersonDepth"] = self.andersonDepth
-            f.attrs["stagnatedSteps"] = self.stagnatedSteps
-            f.attrs["dx"] = self.grid.dx
-            f.attrs["freqGrid"] = self.grid.freqGrid
-            f.attrs["nBins"] = self.grid.nBins
-            f.attrs["nSteps"] = self.params.nSteps
-            f.attrs["sn"] = self.params.sn
-            f.attrs["maxFreq"] = self.params.maxFreq
-            f.attrs['runTime'] = self.runTime
-            f.attrs["runLabel"] = self.params.runLabel
-            f.attrs["groups"] = self.params.freqNum
-            f.attrs["solveType"] = self.params.fileFolder
-            f.attrs["solveTime"] = self.runTime
-            f.attrs["MMSCompare"] = bool(
-                getattr(self.params, "MMSCompare", False)
-            )
-            f.attrs["mmsT0"] = getattr(
-                self.params, "mmsT0", self.params.radiationTemperature
-            )
-            f.attrs["mmsSigmaX"] = getattr(self.params, "mmsSigmaX", 0.5)
-            f.attrs["mmsTau"] = getattr(self.params, "mmsTau", 2.0)
-            f.attrs["mmsTemperatureOffset"] = getattr(
-                self.params, "mmsTemperatureOffset", 0.4
-            )
-            f.attrs["iterationTolerance"] = self.params.tol
-            f.attrs["extrapolateTemp"] = bool(
-                getattr(self.params, "extrapolateTemp", False)
-            )
-            f.attrs["boundaryLeft"] = self.params.boundaryLeft
-            f.attrs["boundaryRight"] = self.params.boundaryRight
-            if {"Bimodal", "Delta"} & {self.params.boundaryLeft, self.params.boundaryRight}:
-                f.attrs["deltaFraction"] = getattr(self.params, "deltaFraction", 0.5)
-                f.attrs["deltaFrequency"] = getattr(self.params, "deltaFrequency", np.nan)
-            f.attrs["movingCoordinates"] = bool(
-                self.params.movingCoordinates
-            )
 
-    
+            f.attrs.update(parameterAttributes(params))
+            failed = params.fileFolder.lower().endswith("failed")
+            f.attrs.update({
+                "method": "VMG" if params.movingCoordinates else "SM",
+                "runSet": runSet,
+                "failed": failed,
+                "savedAt": timestamp,
+                # grid and solver results
+                "dx": float(self.grid.dx),
+                "maxDt": float(np.max(self.grid.dt)),
+                "groups": params.freqNum,
+                "freqGrid": self.grid.freqGrid,          # also an attribute, for older loaders
+                "runTime": self.runTime,
+                "solveTime": self.runTime,
+                "andersonDepth": self.andersonDepth,
+                "stagnatedSteps": self.stagnatedSteps,
+                "meanIterations": float(np.mean(self.iterationsPerStep)) if self.iterationsPerStep else 0.0,
+                # names older postprocessing reads
+                "solveType": params.fileFolder,
+                "iterationTolerance": params.tol,
+            })
+        print(f"Saved {os.path.relpath(filepath, PROJECT_ROOT)}")
+        return filepath
 
 
+def parameterAttributes(params):
+    """Every simple run parameter (numbers, strings, bools) as a dict for .h5 attributes.
 
-
-    
-
-
-    
+    Unset optional values (None) are skipped; arrays and objects are left to the datasets.
+    """
+    attrs = {}
+    for key, value in vars(params).items():
+        if isinstance(value, (bool, int, float, str, np.integer, np.floating, np.bool_)):
+            attrs[key] = value
+    return attrs
