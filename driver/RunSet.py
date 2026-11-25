@@ -1,13 +1,15 @@
 """Batch driver: run every combination of a parameter sweep with SM and/or VMG, in parallel.
 
-    python driver/RunSet.py            # asks which method(s)
-    python driver/RunSet.py both       # or: sm, vmg
+    python driver/RunSet.py --both     # SM and VMG
+    python driver/RunSet.py --sm       # or --vmg
+    python driver/RunSet.py            # asks which method(s)  (a bare "both"/"sm"/"vmg" also works)
 
 Edit RUN_SET, BASE and SWEEP below. Keys are Multigroup.Parameters attribute names. Each run is
 saved to datastash/<RUN_SET>/<sm|vmg>/<runName>_<timestamp>.h5, where runName lists the swept
 values (e.g. G100_Nt4000_Nx200_tol1e-14), and every parameter is stored in the file.
 Analyse with postprocessing/AnalyzeData.py --set <RUN_SET> or MMSError.py --set <RUN_SET>.
 """
+import argparse
 import concurrent.futures
 import itertools
 import os
@@ -24,10 +26,10 @@ import MMS
 import Multigroup as MG
 
 # --- Run set -------------------------------------------------------------------------------------
-RUN_SET = "MMSRuns"   # folder under datastash/
+RUN_SET = "BimodalMarshak"   # folder under datastash/
 
 BASE = dict(
-    runLabel="MMSErrorSweep",
+    runLabel="BimodalMarshak",
     # Space and angle
     xMin=-1, xMax=1, nBins=50, sn=8,
     # Frequency groups
@@ -39,7 +41,7 @@ BASE = dict(
     # Initial state
     initialTemperature=0.1, radiationTemperature=0.1, colorTemperature=0.1,
     # Boundaries: Reflective, Vacuum, Planckian, Bimodal, Delta, ...
-    boundaryLeft="Reflective", boundaryRight="Reflective",
+    boundaryLeft="Reflective", boundaryRight="Delta",
     setLeftBoundaryTemp=0.8, setRightBoundaryTemp=0.8,
     deltaFraction=0.5,                # Bimodal: fraction of the energy in the delta spike
     deltaFrequency=None,              # Bimodal: spike photon energy (None = centre of SM group freqNum//4)
@@ -50,16 +52,16 @@ BASE = dict(
     useNumba=True,                    # False = numpy sweeps (identical results, slower)
     opacityModel="nickel",            # "nickel" (TOPS table) or "test" (1/(2T))
     # Manufactured solution (MMSCompare=True adds the MMS sources in both methods)
-    MMSCompare=True,
+    MMSCompare=False,
     mmsT0=1.0, mmsSigmaX=1.0, mmsTau=2.0,
     mmsTemperatureOffset=MMS.DEFAULT_TEMPERATURE_OFFSET,
 )
 
 SWEEP = dict(              # every combination is run
-    nSteps=[500, 1000, 1500, 2000, 3000, 4000, 8000],
-    freqNum=[10, 25, 50, 100, 150],
-    tol=[1e-14],
-    nBins=[50, 100, 200, 400],
+    nSteps=[2000],
+    freqNum=[10, 20, 40, 60, 80, 100, 150],
+    tol=[1e-16],
+    nBins=[100],
 )
 
 # Short names used in run names (others use the parameter name)
@@ -106,12 +108,25 @@ def runSingle(method, runName, config, runSet=RUN_SET):
     return f"{method} {runName}"
 
 
+METHOD_CHOICES = {"SM": ["SM"], "VMG": ["VMG"], "BOTH": ["SM", "VMG"]}
+
+
 def chooseMethods(argv):
-    choice = (argv[1] if len(argv) > 1 else input("Which method(s)? (SM, VMG, Both): ")).strip().upper()
-    methods = {"SM": ["SM"], "VMG": ["VMG"], "BOTH": ["SM", "VMG"]}.get(choice)
-    if methods is None:
-        raise SystemExit(f"Unknown method {choice!r}: choose SM, VMG, or Both.")
-    return methods
+    """Methods from --sm / --vmg / --both (or a bare sm / vmg / both); asks if none is given."""
+    parser = argparse.ArgumentParser(description="Run the parameter sweep with SM and/or VMG.")
+    group = parser.add_mutually_exclusive_group()
+    for name in METHOD_CHOICES:
+        group.add_argument(f"--{name.lower()}", dest="choice", action="store_const", const=name,
+                           help=f"run {'SM and VMG' if name == 'BOTH' else name}")
+    parser.add_argument("method", nargs="?", type=str.upper, choices=list(METHOD_CHOICES),
+                        help="same as the flags: sm, vmg or both")
+    args = parser.parse_args(argv[1:])
+    if args.choice and args.method and args.choice != args.method:
+        parser.error(f"--{args.choice.lower()} conflicts with {args.method.lower()}")
+    choice = args.choice or args.method
+    while choice not in METHOD_CHOICES:
+        choice = input("Which method(s)? (SM, VMG, Both): ").strip().upper()
+    return METHOD_CHOICES[choice]
 
 
 def executeRunSet(runs, methods, runSet=RUN_SET):

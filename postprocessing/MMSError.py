@@ -6,22 +6,22 @@
     python postprocessing/MMSError.py --set MMSRuns     # every MMS run in datastash/MMSRuns/
 
 Writes three files to figures/mmserror/ (or --out DIR), sharing one timestamped stem:
-    MMSError_<stamp>.txt   plain-text error table
-    MMSError_<stamp>.tex   LaTeX table (booktabs)
-    MMSError_<stamp>.pdf   plots: error vs. time, error vs. x at the final time, temporal
-                           convergence (runs differing only in dt) and spatial convergence
-                           (runs differing only in dx)
+    MMSError_<stamp>.txt   plain-text error tables
+    MMSError_<stamp>.tex   LaTeX tables (booktabs)
+    MMSError_<stamp>.pdf   plots: error vs. time, error vs. x at the final time, then one page per
+                           refinement study (SM dotted with markers, VMG dashed)
 
-Errors are absolute, in keV, for the material temperature T and the radiation temperature
-T_r = (sum_g phi_g / (a c))^(1/4), compared with the exact MMS profiles
-    T^4   = offset^4 + T0^4 (1 - e^{-tau t/2}) G(x)
-    T_r^4 = offset^4 + T0^4 (1 + e^{-tau t/2}) G(x),   G = Gaussian of width sigma_x.
-L2 is the cell-width-weighted RMS over x; Linf is the max over x. Observed orders p_t and p_x
-compare a run with the next coarser run of the same family (same method and groups, and the same
-dx for p_t or the same time steps for p_x).
+There are three refinement studies, each with its own table and plot: dx varies (at the most time
+steps and groups), dt varies (at Nx=100, G=100) and the group count varies (at Nx=100, Nt=2000).
+The fixed values are set in STUDY_FIXED; any not set there use the finest available.
+
+Errors are absolute, in keV, for the material temperature T, compared with the exact MMS profile
+    T^4 = offset^4 + T0^4 (1 - e^{-tau t/2}) G(x),   G = Gaussian of width sigma_x.
+The radiation temperature T_r = (sum_g phi_g / (a c))^(1/4) (exact: 1 + e^{-tau t/2} in place of
+1 - e^{-tau t/2}) is also computed; add it to QUANTITIES to report it in the plots.
+L2 is the cell-width-weighted RMS over x; Linf is the max over x, both at the final time.
 """
 import argparse
-import glob
 import os
 import sys
 from datetime import datetime
@@ -40,9 +40,10 @@ import Results
 import Visualize  # noqa: F401  (applies the project's matplotlib style)
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
+from matplotlib.ticker import FormatStrFormatter, NullFormatter
 
 
-QUANTITIES = (("material", "T"), ("radiation", "T_r"))
+QUANTITIES = (("material", "T"),)   # add ("radiation", "T_r") to also report T_r
 OUTPUT_DIR = os.path.join(Base.FIGURE_DIR, "mmserror")
 
 
@@ -112,27 +113,42 @@ def pickFiles():
     return Results.pickFiles("Select MMS HDF5 results")
 
 
-# --- Summary table -------------------------------------------------------------------------
-def _observedOrders(rows, familyKeys, stepKey, suffix):
-    """Order of the final-time L2 error vs. the next coarser run (larger stepKey) in each family."""
-    families = {}
-    for row in rows:
-        families.setdefault(tuple(row[k] for k in familyKeys), []).append(row)
-    for family in families.values():
-        family.sort(key=lambda r: -r[stepKey])
-        for coarse, fine in zip(family, family[1:]):
-            if not fine[stepKey] < coarse[stepKey]:
-                continue
-            for name, _ in QUANTITIES:
-                ratio = coarse[f"{name}_l2"] / fine[f"{name}_l2"]
-                if ratio > 0 and np.isfinite(ratio):
-                    order = np.log(ratio) / np.log(coarse[stepKey] / fine[stepKey])
-                    fine[f"{name}_{suffix}"] = round(order, 2) + 0.0  # + 0.0 turns -0.0 into 0.0
+# --- Refinement studies -------------------------------------------------------------------
+# Each study varies one resolution and holds the other two fixed. The values held fixed are set
+# here (nBins = Nx, nSteps = Nt, groups = G); any not given use the finest available for each
+# method (most cells, most time steps = smallest dt, most groups).
+STUDY_FIXED = {
+    "dx": {},                                   # finest Nt and G
+    "dt": {"nBins": 100, "groups": 100},
+    "groups": {"nBins": 100, "nSteps": 2000},
+}
+
+STUDIES = (
+    dict(key="dx", vary="nBins", axis="dx", title="Spatial refinement",
+         columns=(("Nx", "nBins"), ("dx", "dx")),
+         texColumns=(("$N_x$", "nBins"), ("$\\Delta x$ (cm)", "dx")),
+         xLabel=r"$\Delta x$ (cm)", reference=1),
+    dict(key="dt", vary="nSteps", axis="maxDt", title="Temporal refinement",
+         columns=(("Nt", "nSteps"), ("max dt", "maxDt")),
+         texColumns=(("$N_t$", "nSteps"), ("$\\Delta t_{\\max}$ (ns)", "maxDt")),
+         xLabel=r"$\Delta t_{\max}$ (ns)", reference=1),
+    dict(key="groups", vary="groups", axis="groups", title="Group refinement",
+         columns=(("G", "groups"),), texColumns=(("$G$", "groups"),),
+         xLabel="Groups $G$", reference=None),
+)
+RESOLUTION_KEYS = ("nBins", "nSteps", "groups")
+FIXED_TEXT = {"nBins": lambda r: f"Nx={r['nBins']} (dx={r['dx']:.3g} cm)",
+              "nSteps": lambda r: f"Nt={r['nSteps']} (max dt={r['maxDt']:.3g} ns)",
+              "groups": lambda r: f"G={r['groups']}"}
+FIXED_TEX = {"nBins": lambda r: f"$\\Delta x = {r['dx']:.3g}$~cm",
+             "nSteps": lambda r: f"$\\Delta t_{{\\max}} = {r['maxDt']:.3g}$~ns",
+             "groups": lambda r: f"$G = {r['groups']}$"}
 
 
 def summarize(runs):
-    """One row per run, sorted by method, groups, dx then dt, with observed orders in t and x."""
-    rows = []
+    """One row per run with its final-time L2 and Linf errors. Repeated runs (same method and
+    resolution) keep the newest file."""
+    rows = {}
     for data, params, errors in runs:
         row = {
             "method": params["method"],
@@ -141,50 +157,93 @@ def summarize(runs):
             "nBins": int(params["nBins"]),
             "dx": float(params["dx"]),
             "maxDt": float(params["maxDt"]),
+            "runTime": float(params.get("runTime", np.nan)),   # wall-clock solve time (s)
             "fileName": params["fileName"],
         }
         for name, _ in QUANTITIES:
             row[f"{name}_l2"] = errors[name]["l2"][-1]
             row[f"{name}_linf"] = errors[name]["linf"][-1]
-            row[f"{name}_peak"] = np.max(errors[name]["linf"])
-            row[f"{name}_pt"] = np.nan
-            row[f"{name}_px"] = np.nan
-        rows.append(row)
-
-    _observedOrders(rows, ("method", "groups", "dx"), "maxDt", "pt")
-    _observedOrders(rows, ("method", "groups", "nSteps"), "dx", "px")
-    rows.sort(key=lambda r: (r["method"], r["groups"], -r["dx"], -r["maxDt"]))
-    return rows
+        key = (row["method"],) + tuple(row[k] for k in RESOLUTION_KEYS)
+        if key not in rows or row["fileName"] > rows[key]["fileName"]:
+            rows[key] = row
+    return list(rows.values())
 
 
-def _orderCell(value, width):
-    return f"{value:>{width}.2f}" if np.isfinite(value) else f"{'--':>{width}}"
+def buildStudies(rows):
+    """{study key: (study, {method: (row with the fixed values, [rows coarse -> fine])})}."""
+    studies = {}
+    for study in STUDIES:
+        fixedKeys = [k for k in RESOLUTION_KEYS if k != study["vary"]]
+        chosen = STUDY_FIXED.get(study["key"], {})
+        byMethod = {}
+        for method in sorted({r["method"] for r in rows}):
+            mine = [r for r in rows if r["method"] == method]
+            fixed = {k: chosen.get(k, max(r[k] for r in mine)) for k in fixedKeys}
+            members = sorted((r for r in mine if all(r[k] == fixed[k] for k in fixedKeys)),
+                             key=lambda r: r[study["vary"]])
+            if members:
+                byMethod[method] = (members[-1], members)
+            else:
+                print(f"{study['title']}: no {method} runs with "
+                      + ", ".join(f"{k}={v}" for k, v in fixed.items()))
+        studies[study["key"]] = (study, byMethod)
+    return studies
 
 
-def writeText(rows, path):
-    header = (
-        f"{'Method':<6} {'Groups':>6} {'Bins':>5} {'dx':>9} {'Steps':>6} {'max dt':>10} | "
-        f"{'T L2':>10} {'T Linf':>10} {'T peak':>10} {'T p_t':>6} {'T p_x':>6} | "
-        f"{'Tr L2':>10} {'Tr Linf':>10} {'Tr peak':>10} {'Tr p_t':>6} {'Tr p_x':>6}  File"
-    )
-    lines = [
-        "Absolute MMS error (keV). L2 and Linf over x at the final time; peak = max over all",
-        "times of Linf; p_t / p_x = observed order of the L2 error in dt / dx (see module docstring).",
-        "",
-        header,
-        "-" * len(header),
-    ]
-    for r in rows:
-        cells = [f"{r['method']:<6} {r['groups']:>6d} {r['nBins']:>5d} {r['dx']:>9.3e} "
-                 f"{r['nSteps']:>6d} {r['maxDt']:>10.3e}"]
-        for name, _ in QUANTITIES:
-            cells.append(
-                f"{r[f'{name}_l2']:>10.3e} {r[f'{name}_linf']:>10.3e} {r[f'{name}_peak']:>10.3e} "
-                + _orderCell(r[f"{name}_pt"], 6) + " " + _orderCell(r[f"{name}_px"], 6)
-            )
-        lines.append(" | ".join(cells) + f"  {r['fileName']}")
+def fixedDescription(study, byMethod, formats, joiner="; "):
+    """The values held fixed in a study; listed per method only when the methods differ."""
+    fixedKeys = [k for k in RESOLUTION_KEYS if k != study["vary"]]
+    texts = {m: ", ".join(formats[k](fixed) for k in fixedKeys) for m, (fixed, _) in byMethod.items()}
+    if len(set(texts.values())) == 1:
+        return next(iter(texts.values()))
+    return joiner.join(f"{m}: {t}" for m, t in texts.items())
+
+
+def percentChange(previous, row, key):
+    """Signed % change of row[key] from the previous (coarser) row; nan for the first row."""
+    if previous is None or not (np.isfinite(previous[key]) and previous[key] != 0):
+        return np.nan
+    return round(100.0 * (row[key] - previous[key]) / previous[key], 1) + 0.0   # + 0.0: no "-0.0%"
+
+
+def _percentText(value, width):
+    return f"{value:>+{width}.1f}%" if np.isfinite(value) else f"{'--':>{width + 1}}"
+
+
+def _percentTex(value):
+    return f"${value:+.1f}\\%$" if np.isfinite(value) else "--"
+
+
+def _textValue(value):
+    return f"{value:>10.3e}" if isinstance(value, float) else f"{value:>10d}"
+
+
+def writeText(studies, path):
+    lines = ["Absolute material-temperature MMS error (keV): L2 and Linf over x at the final time;",
+             "runtime = wall-clock solve time (s). Each table varies one resolution with the other two",
+             "fixed (values in brackets). chg = signed % change (L2 error, runtime) from the previous",
+             "(coarser) row of the same method; negative = decrease.",
+             ""]
+    for study, byMethod in studies.values():
+        if not byMethod:
+            continue
+        header = (f"{'Method':<6} " + " ".join(f"{label:>10}" for label, _ in study["columns"])
+                  + f" | {'T L2':>10} {'T Linf':>10} {'chg':>8} | {'Runtime (s)':>11} {'chg':>8}")
+        lines += [f"{study['title']}  [{fixedDescription(study, byMethod, FIXED_TEXT)}]",
+                  header, "-" * len(header)]
+        for method, (_, members) in byMethod.items():
+            previous = None
+            for r in members:
+                cells = [f"{method:<6} " + " ".join(_textValue(r[k]) for _, k in study["columns"])]
+                cells.append(f"{r['material_l2']:>10.3e} {r['material_linf']:>10.3e} "
+                             + _percentText(percentChange(previous, r, "material_l2"), 7))
+                runTime = f"{r['runTime']:>11.1f}" if np.isfinite(r["runTime"]) else f"{'--':>11}"
+                cells.append(runTime + " " + _percentText(percentChange(previous, r, "runTime"), 7))
+                lines.append(" | ".join(cells))
+                previous = r
+        lines.append("")
     with open(path, "w", encoding="utf-8") as f:
-        f.write("\n".join(lines) + "\n")
+        f.write("\n".join(lines))
 
 
 def latexNumber(value):
@@ -194,30 +253,44 @@ def latexNumber(value):
     return f"${mantissa}\\times10^{{{int(exponent)}}}$"
 
 
-def writeLatex(rows, path):
-    lines = [
-        "% Requires \\usepackage{booktabs}",
-        "\\begin{table}[htbp]",
-        "  \\centering",
-        "  \\caption{Absolute error of the MMS runs against the manufactured solution (keV). "
-        "$L_2$ and $L_\\infty$ are over $x$ at the final time; peak is $\\max_t L_\\infty$; "
-        "$p_t$ and $p_x$ are the observed orders of the $L_2$ error in $\\Delta t$ and $\\Delta x$.}",
-        "  \\label{tab:mms-error}",
-        "  \\begin{tabular}{lrrr ccccc ccccc}",
-        "    \\toprule",
-        "    & & & & \\multicolumn{5}{c}{Material $T$} & \\multicolumn{5}{c}{Radiation $T_r$} \\\\",
-        "    \\cmidrule(lr){5-9} \\cmidrule(lr){10-14}",
-        "    Method & Groups & $\\Delta x$ & $\\Delta t_{\\max}$ "
-        "& $L_2$ & $L_\\infty$ & peak & $p_t$ & $p_x$ & $L_2$ & $L_\\infty$ & peak & $p_t$ & $p_x$ \\\\",
-        "    \\midrule",
-    ]
-    for r in rows:
-        cells = [r["method"], str(r["groups"]), latexNumber(r["dx"]), latexNumber(r["maxDt"])]
-        for name, _ in QUANTITIES:
-            cells += [latexNumber(r[f"{name}_l2"]), latexNumber(r[f"{name}_linf"]), latexNumber(r[f"{name}_peak"])]
-            cells += [f"{r[f'{name}_{k}']:.2f}" if np.isfinite(r[f"{name}_{k}"]) else "--" for k in ("pt", "px")]
-        lines.append("    " + " & ".join(cells) + " \\\\")
-    lines += ["    \\bottomrule", "  \\end{tabular}", "\\end{table}"]
+def writeLatex(studies, path):
+    lines = ["% Requires \\usepackage{booktabs}"]
+    for study, byMethod in studies.values():
+        if not byMethod:
+            continue
+        nLead = 1 + len(study["texColumns"])
+        lines += [
+            "",
+            "\\begin{table}[htbp]",
+            "  \\centering",
+            f"  \\caption{{{study['title']}: absolute MMS error of the material temperature (keV) at "
+            f"the final time and wall-clock runtime, with {fixedDescription(study, byMethod, FIXED_TEX)}. "
+            "Change columns give the signed percentage change of the $L_2$ error and of the runtime "
+            "from the previous (coarser) row of the same method.}",
+            f"  \\label{{tab:mms-error-{study['key']}}}",
+            f"  \\begin{{tabular}}{{l{'r' * (nLead - 1)} ccr rr}}",
+            "    \\toprule",
+            "    " + "& " * (nLead - 1)
+            + "& \\multicolumn{3}{c}{Material $T$ error} & \\multicolumn{2}{c}{Runtime} \\\\",
+            f"    \\cmidrule(lr){{{nLead + 1}-{nLead + 3}}} \\cmidrule(lr){{{nLead + 4}-{nLead + 5}}}",
+            "    Method & " + " & ".join(label for label, _ in study["texColumns"])
+            + " & $L_2$ & $L_\\infty$ & Change & (s) & Change \\\\",
+            "    \\midrule",
+        ]
+        for i, (method, (_, members)) in enumerate(byMethod.items()):
+            if i:
+                lines.append("    \\addlinespace")
+            previous = None
+            for r in members:
+                cells = [method] + [latexNumber(r[k]) if isinstance(r[k], float) else str(r[k])
+                                    for _, k in study["texColumns"]]
+                cells += [latexNumber(r["material_l2"]), latexNumber(r["material_linf"]),
+                          _percentTex(percentChange(previous, r, "material_l2"))]
+                cells.append(f"{r['runTime']:.1f}" if np.isfinite(r["runTime"]) else "--")
+                cells.append(_percentTex(percentChange(previous, r, "runTime")))
+                lines.append("    " + " & ".join(cells) + " \\\\")
+                previous = r
+        lines += ["    \\bottomrule", "  \\end{tabular}", "\\end{table}"]
     with open(path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
 
@@ -232,11 +305,12 @@ def styleAxis(axis):
     axis.tick_params(which="both", direction="in", top=True, right=True)
 
 
-def writePdf(runs, rows, path):
+def writePdf(runs, studies, path):
     colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
     with PdfPages(path) as pdf:
         # Page 1: Linf (solid) and L2 (dashed) error vs. time
-        fig, axes = plt.subplots(1, 2, figsize=(11, 4.5), sharey=True)
+        fig, axes = plt.subplots(1, len(QUANTITIES), figsize=(6.5 * len(QUANTITIES), 4.5), sharey=True, squeeze=False)
+        axes = axes[0]
         for i, (_, params, errors) in enumerate(runs):
             color = colors[i % len(colors)]
             for axis, (name, _) in zip(axes, QUANTITIES):
@@ -248,16 +322,17 @@ def writePdf(runs, rows, path):
             axis.set_xlabel("Time (ns)")
             styleAxis(axis)
         axes[0].set_ylabel("Absolute error (keV)")
-        axes[1].plot([], [], color="gray", label=r"$L_\infty$")
-        axes[1].plot([], [], color="gray", linestyle="--", label=r"$L_2$")
-        axes[1].legend(frameon=False, fontsize="small")
+        axes[-1].plot([], [], color="gray", label=r"$L_\infty$")
+        axes[-1].plot([], [], color="gray", linestyle="--", label=r"$L_2$")
+        axes[-1].legend(frameon=False, fontsize="small")
         fig.suptitle("MMS absolute error vs. time")
         fig.tight_layout()
         pdf.savefig(fig)
         plt.close(fig)
 
         # Page 2: error profile in x at the final time
-        fig, axes = plt.subplots(1, 2, figsize=(11, 4.5), sharey=True)
+        fig, axes = plt.subplots(1, len(QUANTITIES), figsize=(6.5 * len(QUANTITIES), 4.5), sharey=True, squeeze=False)
+        axes = axes[0]
         for i, (_, params, errors) in enumerate(runs):
             for axis, (name, _) in zip(axes, QUANTITIES):
                 axis.semilogy(errors["x"], errors[name]["error"][-1],
@@ -267,50 +342,50 @@ def writePdf(runs, rows, path):
             axis.set_xlabel("x (cm)")
             styleAxis(axis)
         axes[0].set_ylabel("Absolute error (keV)")
-        axes[1].legend(frameon=False, fontsize="small")
+        axes[-1].legend(frameon=False, fontsize="small")
         fig.suptitle(f"MMS absolute error at the final time, t = {runs[0][2]['time'][-1]:g} ns")
         fig.tight_layout()
         pdf.savefig(fig)
         plt.close(fig)
 
-        # Page 3: temporal convergence (same method, groups, dx); page 4: spatial (same method, groups, steps)
-        convergencePage(pdf, rows, colors, ("method", "groups", "dx"), "maxDt",
-                        r"$\Delta t_{\max}$ (ns)", "MMS temporal convergence",
-                        lambda m, g, dx: f"{m}, G={g}, Δx={dx:.3g}")
-        convergencePage(pdf, rows, colors, ("method", "groups", "nSteps"), "dx",
-                        r"$\Delta x$ (cm)", "MMS spatial convergence",
-                        lambda m, g, n: f"{m}, G={g}, Nt={n}")
+        # Pages 3-5: one per refinement study (dx, dt, groups)
+        for study, byMethod in studies.values():
+            studyPage(pdf, study, byMethod, colors)
 
 
-def convergencePage(pdf, rows, colors, familyKeys, stepKey, xLabel, title, familyLabel):
-    """Final-time L2 error vs. step size for each family with 2+ step sizes, with a fitted order
-    and a first-order reference line."""
-    families = {}
-    for r in rows:
-        families.setdefault(tuple(r[k] for k in familyKeys), []).append(r)
-    families = {k: sorted(v, key=lambda r: r[stepKey]) for k, v in families.items()
-                if len({r[stepKey] for r in v}) > 1}
-    if not families:
+METHOD_STYLE = {"SM": dict(linestyle=":", linewidth=1.8, marker="o", markersize=4), "VMG": dict(linestyle="--")}
+NORMS = (("l2", r"$L_2$"), ("linf", r"$L_\infty$"))
+
+
+def studyPage(pdf, study, byMethod, colors):
+    """Final-time L2 and Linf error vs. the varied resolution: SM dotted with markers, VMG dashed."""
+    if not byMethod:
         return
-    fig, axes = plt.subplots(1, 2, figsize=(11, 4.5))
-    for i, (key, family) in enumerate(families.items()):
-        step = np.array([r[stepKey] for r in family])
-        for axis, (name, _) in zip(axes, QUANTITIES):
-            error = np.array([r[f"{name}_l2"] for r in family])
-            slope = round(np.polyfit(np.log(step), np.log(error), 1)[0], 2) + 0.0
-            axis.loglog(step, error, "o-", color=colors[i % len(colors)],
-                        label=f"{familyLabel(*key)} (fit p = {slope:.2f})")
+    fig, axes = plt.subplots(1, len(QUANTITIES), figsize=(6.5 * len(QUANTITIES), 4.5), squeeze=False)
+    axes = axes[0]
     for axis, (name, symbol) in zip(axes, QUANTITIES):
-        stepRange = np.array(axis.get_xlim())
-        anchorError = min(line.get_ydata()[np.argmax(line.get_xdata())] for line in axis.get_lines())
-        axis.loglog(stepRange, anchorError * (stepRange / stepRange[1]), color="gray",
-                    linestyle=":", label="first order")
+        for method, (_, members) in byMethod.items():
+            x = np.array([r[study["axis"]] for r in members], dtype=float)
+            for color, (norm, normLabel) in zip(colors, NORMS):
+                axis.loglog(x, [r[f"{name}_{norm}"] for r in members], color=color,
+                            label=f"{method} {normLabel}", **METHOD_STYLE.get(method, {}))
+        allX = np.array([r[study["axis"]] for _, ms in byMethod.values() for r in ms], dtype=float)
+        if study["reference"] and len(np.unique(allX)) > 1:
+            xs = np.array([allX.min(), allX.max()])
+            anchor = min(ms[-1][f"{name}_l2"] for _, ms in byMethod.values())
+            axis.loglog(xs, anchor * (xs / xs[1]) ** study["reference"], color="gray",
+                        linestyle="-.", linewidth=1, label="first order")
         axis.set_title(f"{name.capitalize()} temperature ${symbol}$")
-        axis.set_xlabel(xLabel)
-        axis.set_ylabel(r"Final-time $L_2$ error (keV)")
+        axis.set_xlabel(study["xLabel"])
+        axis.set_ylabel("Final-time absolute error (keV)")
         styleAxis(axis)
+        axis.xaxis.set_minor_formatter(NullFormatter())
+        if study["key"] == "groups":   # label the group counts that were run
+            axis.set_xticks(np.unique(allX))
+            axis.xaxis.set_major_formatter(FormatStrFormatter("%d"))
         axis.legend(frameon=False, fontsize="small")
-    fig.suptitle(title)
+    fig.suptitle(f"MMS {study['title'].lower()}\n{fixedDescription(study, byMethod, FIXED_TEXT)}",
+                 fontsize="medium")
     fig.tight_layout()
     pdf.savefig(fig)
     plt.close(fig)
@@ -331,16 +406,16 @@ def analyze(filepaths, outDir=OUTPUT_DIR):
         return None
 
     runs.sort(key=lambda run: (run[1]["method"], run[1]["groups"], -run[1]["dx"], -run[1]["maxDt"]))
-    rows = summarize(runs)
+    studies = buildStudies(summarize(runs))
     os.makedirs(outDir, exist_ok=True)
     stem = os.path.join(outDir, f"MMSError_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
-    writeText(rows, stem + ".txt")
-    writeLatex(rows, stem + ".tex")
-    writePdf(runs, rows, stem + ".pdf")
+    writeText(studies, stem + ".txt")
+    writeLatex(studies, stem + ".tex")
+    writePdf(runs, studies, stem + ".pdf")
     with open(stem + ".txt", encoding="utf-8") as f:
         print(f.read())
     print(f"Wrote {stem}.txt, .tex and .pdf")
-    return rows
+    return studies
 
 
 def main():

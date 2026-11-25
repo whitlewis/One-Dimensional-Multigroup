@@ -135,12 +135,17 @@ def findResults(folder=None, mmsOnly=None, includeFailed=False):
     paths = sorted(glob.glob(os.path.join(root, "**", "*.h5"), recursive=True))
     if not includeFailed:
         paths = [p for p in paths if not os.path.basename(os.path.dirname(p)).lower().endswith("failed")]
-    if mmsOnly is not None:
-        def isMMS(path):
+    readable = []
+    for path in paths:   # skip files that are still being written or are corrupt
+        try:
             with h5py.File(path, "r") as f:
-                return bool(f.attrs.get("MMSCompare", False))
-        paths = [p for p in paths if isMMS(p) == mmsOnly]
-    return paths
+                isMMS = bool(f.attrs.get("MMSCompare", False))
+        except OSError as exc:
+            print(f"Skipping unreadable file {os.path.relpath(path, Base.DATA_DIR)}: {exc}")
+            continue
+        if mmsOnly is None or isMMS == mmsOnly:
+            readable.append(path)
+    return readable
 
 
 def pickFiles(title="Select HDF5 results"):
